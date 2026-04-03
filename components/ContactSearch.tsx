@@ -8,6 +8,11 @@ interface ContactSearchProps {
   onChange: (contact: ContactOption | null) => void;
 }
 
+function contactDisplayText(c: ContactOption): string {
+  if (c.company_name && c.full_name) return `${c.full_name} — ${c.company_name}`;
+  return c.full_name || c.company_name || c.email || 'Unknown';
+}
+
 export default function ContactSearch({ label, value, onChange }: ContactSearchProps) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<ContactOption[]>([]);
@@ -55,7 +60,7 @@ export default function ContactSearch({ label, value, onChange }: ContactSearchP
 
   function handleSelect(contact: ContactOption) {
     onChange(contact);
-    setQuery(contact.display);
+    setQuery('');
     setIsOpen(false);
   }
 
@@ -67,34 +72,40 @@ export default function ContactSearch({ label, value, onChange }: ContactSearchP
 
   return (
     <div ref={wrapperRef} className="relative">
-      <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
-      <div className="flex gap-2">
+      <label className="block text-sm font-medium text-black mb-1">{label}</label>
+
+      {/* Selected contact chip */}
+      {value ? (
+        <div className="flex items-center justify-between border border-gray-300 rounded-md px-3 py-2 bg-gray-50">
+          <div>
+            <div className="text-sm font-medium text-black">{value.full_name || value.display}</div>
+            {value.company_name && (
+              <div className="text-xs text-gray-600">{value.company_name}</div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={handleClear}
+            className="ml-2 text-gray-400 hover:text-gray-700 text-lg leading-none"
+          >
+            &times;
+          </button>
+        </div>
+      ) : (
         <input
           type="text"
-          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-[#f8b932] focus:border-[#f8b932]"
           placeholder="Search by name, company, or email..."
-          value={value ? value.display : query}
-          onChange={(e) => {
-            if (value) onChange(null);
-            setQuery(e.target.value);
-          }}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
           onFocus={() => {
             if (results.length > 0) setIsOpen(true);
           }}
         />
-        {value && (
-          <button
-            type="button"
-            onClick={handleClear}
-            className="px-2 text-gray-400 hover:text-gray-600"
-          >
-            x
-          </button>
-        )}
-      </div>
+      )}
 
       {loading && (
-        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg p-2 text-sm text-gray-500">
+        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg p-2 text-sm text-gray-600">
           Searching...
         </div>
       )}
@@ -104,15 +115,11 @@ export default function ContactSearch({ label, value, onChange }: ContactSearchP
           {results.map((c) => (
             <li
               key={c.id}
-              className="px-3 py-2 hover:bg-blue-50 cursor-pointer text-sm"
+              className="px-3 py-2 hover:bg-[#f8b932]/10 cursor-pointer text-sm"
               onClick={() => handleSelect(c)}
             >
-              <div className="font-medium">
-                {c.company_name && c.full_name
-                  ? `${c.company_name} — ${c.full_name}`
-                  : c.display}
-              </div>
-              <div className="text-gray-500 text-xs">
+              <div className="font-medium text-black">{contactDisplayText(c)}</div>
+              <div className="text-gray-600 text-xs">
                 {c.email}{c.city ? ` — ${c.city}, ${c.state}` : ''}
               </div>
             </li>
@@ -121,7 +128,7 @@ export default function ContactSearch({ label, value, onChange }: ContactSearchP
       )}
 
       {isOpen && !loading && results.length === 0 && query.length >= 2 && (
-        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg p-2 text-sm text-gray-500">
+        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg p-2 text-sm text-gray-600">
           No contacts found
         </div>
       )}

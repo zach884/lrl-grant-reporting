@@ -154,11 +154,11 @@ export default function ActivityForm({
 
       {/* Activity Type */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
+        <label className="block text-sm font-medium text-black mb-1">
           Activity Type *
         </label>
         <select
-          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-[#f8b932] focus:border-[#f8b932]"
           value={activityType}
           onChange={(e) => setActivityType(e.target.value)}
         >
@@ -171,89 +171,9 @@ export default function ActivityForm({
         </select>
       </div>
 
-      {/* Activity Date */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Activity Date *
-        </label>
-        <input
-          type="date"
-          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          value={activityDate}
-          onChange={(e) => setActivityDate(e.target.value)}
-        />
-      </div>
-
-      {/* Grant / Program */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Grant / Program *
-        </label>
-        <div className="space-y-1">
-          {grantOptions.map((g) => (
-            <label key={g.key} className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={selectedGrants.includes(g.key)}
-                onChange={() => handleGrantToggle(g.key)}
-                className="rounded border-gray-300"
-              />
-              {g.label}
-            </label>
-          ))}
-        </div>
-      </div>
-
-      {/* Activity Name (auto-generated) */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Activity Name
-        </label>
-        {isEditingName ? (
-          <input
-            type="text"
-            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            value={nameOverride}
-            onChange={(e) => setNameOverride(e.target.value)}
-          />
-        ) : (
-          <div className="flex items-center gap-2">
-            <div className="flex-1 bg-gray-50 border border-gray-200 rounded-md px-3 py-2 text-sm text-gray-700">
-              {generatedName || 'Will auto-generate as you fill in fields...'}
-            </div>
-            <button
-              type="button"
-              className="text-xs text-blue-600 hover:text-blue-800"
-              onClick={() => {
-                setNameOverride(generatedName);
-                setIsEditingName(true);
-              }}
-            >
-              Edit
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Activity Notes */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Activity Notes
-        </label>
-        <textarea
-          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          rows={3}
-          value={activityNotes}
-          onChange={(e) => setActivityNotes(e.target.value)}
-          placeholder="Optional notes..."
-        />
-      </div>
-
-      {/* Referral fields — shown only when activity type is referral */}
+      {/* Referral fields — shown directly under Activity Type when referral is selected */}
       {isReferral && (
-        <div className="border-t pt-4 mt-4 space-y-4">
-          <p className="text-sm font-medium text-gray-600">Referral Details</p>
-
+        <div className="space-y-4 pl-4 border-l-2 border-[#f8b932]">
           <ContactSearch
             label="Referred To *"
             value={referredTo}
@@ -261,11 +181,11 @@ export default function ActivityForm({
           />
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-black mb-1">
               Referral Type *
             </label>
             <select
-              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-[#f8b932] focus:border-[#f8b932]"
               value={referralType}
               onChange={(e) => setReferralType(e.target.value)}
             >
@@ -279,6 +199,84 @@ export default function ActivityForm({
           </div>
         </div>
       )}
+
+      {/* Activity Date */}
+      <div>
+        <label className="block text-sm font-medium text-black mb-1">
+          Activity Date *
+        </label>
+        <input
+          type="date"
+          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-[#f8b932] focus:border-[#f8b932]"
+          value={activityDate}
+          onChange={(e) => setActivityDate(e.target.value)}
+        />
+      </div>
+
+      {/* Grant / Program */}
+      <div>
+        <label className="block text-sm font-medium text-black mb-1">
+          Grant / Program *
+        </label>
+        <div className="space-y-1">
+          {grantOptions.map((g) => (
+            <label key={g.key} className="flex items-center gap-2 text-sm text-black">
+              <input
+                type="checkbox"
+                checked={selectedGrants.includes(g.key)}
+                onChange={() => handleGrantToggle(g.key)}
+                className="rounded border-gray-300 text-[#f8b932] focus:ring-[#f8b932]"
+              />
+              {g.label}
+            </label>
+          ))}
+        </div>
+      </div>
+
+      {/* Activity Name (auto-generated) */}
+      <div>
+        <label className="block text-sm font-medium text-black mb-1">
+          Activity Name
+        </label>
+        {isEditingName ? (
+          <input
+            type="text"
+            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-[#f8b932] focus:border-[#f8b932]"
+            value={nameOverride}
+            onChange={(e) => setNameOverride(e.target.value)}
+          />
+        ) : (
+          <div className="flex items-center gap-2">
+            <div className="flex-1 bg-gray-50 border border-gray-200 rounded-md px-3 py-2 text-sm text-black">
+              {generatedName || 'Will auto-generate as you fill in fields...'}
+            </div>
+            <button
+              type="button"
+              className="text-xs text-[#f8b932] hover:text-[#e0a020] font-medium"
+              onClick={() => {
+                setNameOverride(generatedName);
+                setIsEditingName(true);
+              }}
+            >
+              Edit
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Activity Notes */}
+      <div>
+        <label className="block text-sm font-medium text-black mb-1">
+          Activity Notes
+        </label>
+        <textarea
+          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-[#f8b932] focus:border-[#f8b932]"
+          rows={3}
+          value={activityNotes}
+          onChange={(e) => setActivityNotes(e.target.value)}
+          placeholder="Optional notes..."
+        />
+      </div>
 
       {/* Messages */}
       {errorMsg && (
@@ -301,7 +299,7 @@ export default function ActivityForm({
       <button
         type="submit"
         disabled={submitting}
-        className="w-full bg-blue-600 text-white py-2 px-4 rounded-md text-sm font-medium hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed"
+        className="w-full bg-[#f8b932] text-black py-2 px-4 rounded-md text-sm font-medium hover:bg-[#e0a020] disabled:bg-[#f8b932]/50 disabled:cursor-not-allowed"
       >
         {submitting ? 'Saving...' : 'Log Activity'}
       </button>
