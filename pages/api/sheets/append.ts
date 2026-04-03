@@ -320,11 +320,29 @@ async function appendRowToSheet(
   const maxCol = getMaxColumn(Object.keys(rowData));
   const rowArray = columnLettersToArray(rowData, maxCol);
 
-  await sheets.spreadsheets.values.append({
+  // Find the first empty row after the header by reading column A
+  const dataStartRow = headerRow + 1;
+  const scanRange = `'${tabName}'!A${dataStartRow}:A`;
+  const existing = await sheets.spreadsheets.values.get({
     spreadsheetId: sheetId,
-    range: `'${tabName}'!A:${maxCol}`,
+    range: scanRange,
+  });
+
+  // Count non-empty rows from the top
+  const values = existing.data.values ?? [];
+  let nextRow = dataStartRow;
+  for (let i = 0; i < values.length; i++) {
+    if (values[i] && values[i][0] && String(values[i][0]).trim() !== '') {
+      nextRow = dataStartRow + i + 1;
+    }
+  }
+
+  // Write to the specific row
+  const writeRange = `'${tabName}'!A${nextRow}:${maxCol}${nextRow}`;
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: sheetId,
+    range: writeRange,
     valueInputOption: 'USER_ENTERED',
-    insertDataOption: 'INSERT_ROWS',
     requestBody: {
       values: [rowArray],
     },
