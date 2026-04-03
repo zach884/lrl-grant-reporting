@@ -3,6 +3,11 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { ghlRequest } from '@/lib/ghl';
 import type { ContactOption } from '@/types';
 
+function titleCase(str: string): string {
+  if (!str) return '';
+  return str.replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -19,8 +24,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
 
     const contact = c.contact ?? c;
-    const companyName = contact.companyName ?? '';
-    const fullName = [contact.firstName ?? '', contact.lastName ?? ''].filter(Boolean).join(' ');
+    const companyName = titleCase(contact.companyName ?? '');
+    const fullName = [titleCase(contact.firstName ?? ''), titleCase(contact.lastName ?? '')].filter(Boolean).join(' ');
 
     // Extract custom fields into a map keyed by field key
     const customFieldMap: Record<string, string> = {};
@@ -38,8 +43,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       email: contact.email ?? '',
       phone: contact.phone ?? '',
       address1: contact.address1 ?? '',
-      city: contact.city ?? '',
-      state: contact.state ?? '',
+      city: titleCase(contact.city ?? ''),
+      state: (contact.state ?? '').toUpperCase(),
       postal_code: contact.postalCode ?? '',
       minority_owned: customFieldMap['my_company_is_a_minority_owned_business_radio'] ?? '',
     };

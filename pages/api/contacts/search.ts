@@ -3,6 +3,12 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { ghlRequest, GHL_LOCATION_ID } from '@/lib/ghl';
 import type { ContactOption } from '@/types';
 
+/** Capitalize first letter of each word */
+function titleCase(str: string): string {
+  if (!str) return '';
+  return str.replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -24,8 +30,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
 
     const contacts: ContactOption[] = (data.contacts ?? []).map((c: any) => {
-      const companyName = c.companyName ?? '';
-      const fullName = [c.firstName ?? '', c.lastName ?? ''].filter(Boolean).join(' ');
+      const companyName = titleCase(c.companyName ?? '');
+      const fullName = [titleCase(c.firstName ?? ''), titleCase(c.lastName ?? '')].filter(Boolean).join(' ');
       return {
         id: c.id,
         display: companyName || fullName || c.email || 'Unknown',
@@ -34,8 +40,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         email: c.email ?? '',
         phone: c.phone ?? '',
         address1: c.address1 ?? '',
-        city: c.city ?? '',
-        state: c.state ?? '',
+        city: titleCase(c.city ?? ''),
+        state: (c.state ?? '').toUpperCase(),
         postal_code: c.postalCode ?? '',
         minority_owned: '',
       };
