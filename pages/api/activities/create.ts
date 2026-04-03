@@ -3,7 +3,6 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { ghlRequest, GHL_LOCATION_ID } from '@/lib/ghl';
 
 const GHL_CUSTOM_OBJECT_ID = process.env.GHL_CUSTOM_OBJECT_ID!;
-const NS = 'custom_objects.activities';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -23,35 +22,32 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       referred_to_id,
     } = req.body;
 
-    // Ensure activity_name is not empty (required by GHL)
     const finalName = activity_name || `${activity_type} – ${activity_date}`;
 
-    console.log('Creating activity:', { activity_name, finalName, activity_type, activity_date });
-
-    // Step 1: Create the record (no associations inline — GHL rejects them)
+    // GHL custom objects use SHORT keys inside properties (not namespaced)
     const data = await ghlRequest<any>({
       method: 'POST',
       path: `/objects/${GHL_CUSTOM_OBJECT_ID}/records`,
       body: {
         locationId: GHL_LOCATION_ID,
         properties: {
-          [`${NS}.activity_name`]: finalName,
-          [`${NS}.activity_date`]: activity_date,
-          [`${NS}.activity_type`]: activity_type,
-          [`${NS}.activity_notes`]: activity_notes || '',
-          [`${NS}.appointment_id`]: '',
-          [`${NS}.activity_owner`]: activity_owner,
-          [`${NS}.program__grant_association`]: Array.isArray(program__grant_association)
+          activity_name: finalName,
+          activity_date,
+          activity_type,
+          activity_notes: activity_notes || '',
+          appointment_id: '',
+          activity_owner,
+          program__grant_association: Array.isArray(program__grant_association)
             ? program__grant_association
             : [program__grant_association],
-          [`${NS}.referral_type`]: referral_type || '',
+          referral_type: referral_type || '',
         },
       },
     });
 
     const recordId = data.record?.id ?? data.id;
 
-    // Step 2: Create associations separately via the associations API
+    // Create contact associations separately
     if (recordId && contact_id) {
       try {
         await createAssociation(recordId, contact_id);
@@ -76,10 +72,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 }
 
 async function createAssociation(recordId: string, contactId: string) {
-  // First, find the association definition between activities and contacts
-  // Then create the relation
   try {
-    // Get associations for this object
     const assocDefs = await ghlRequest<any>({
       path: `/associations`,
       params: {
@@ -89,7 +82,6 @@ async function createAssociation(recordId: string, contactId: string) {
     });
 
     const associations = assocDefs.associations ?? assocDefs.data ?? [];
-    // Find the contact association
     const contactAssoc = associations.find(
       (a: any) =>
         a.firstObjectKey === 'contact' ||

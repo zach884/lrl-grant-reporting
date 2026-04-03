@@ -3,7 +3,6 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { ghlRequest, GHL_LOCATION_ID } from '@/lib/ghl';
 
 const GHL_CUSTOM_OBJECT_ID = process.env.GHL_CUSTOM_OBJECT_ID!;
-const NS = 'custom_objects.activities';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'PUT') {
@@ -20,13 +19,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       body: {
         locationId: GHL_LOCATION_ID,
         properties: {
-          [`${NS}.activity_name`]: fields.activity_name,
-          [`${NS}.activity_date`]: fields.activity_date,
-          [`${NS}.activity_type`]: fields.activity_type,
-          [`${NS}.activity_notes`]: fields.activity_notes ?? '',
-          [`${NS}.activity_owner`]: fields.activity_owner,
-          [`${NS}.program__grant_association`]: fields.program__grant_association,
-          [`${NS}.referral_type`]: fields.referral_type ?? '',
+          activity_name: fields.activity_name,
+          activity_date: fields.activity_date,
+          activity_type: fields.activity_type,
+          activity_notes: fields.activity_notes ?? '',
+          activity_owner: fields.activity_owner,
+          program__grant_association: fields.program__grant_association,
+          referral_type: fields.referral_type ?? '',
         },
       },
     });
