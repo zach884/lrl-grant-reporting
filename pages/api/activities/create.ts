@@ -30,6 +30,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       associations.push({ objectKey: 'contact', recordId: referred_to_id });
     }
 
+    // GHL custom object fields use namespaced keys
+    const ns = 'custom_objects.activities';
+
     // Create the record
     const data = await ghlRequest<any>({
       method: 'POST',
@@ -37,16 +40,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       body: {
         locationId: GHL_LOCATION_ID,
         properties: {
-          activity_name,
-          activity_date,
-          activity_type,
-          activity_notes: activity_notes || '',
-          appointment_id: '',
-          activity_owner,
-          program__grant_association: Array.isArray(program__grant_association)
+          [`${ns}.activity_name`]: activity_name,
+          [`${ns}.activity_date`]: activity_date,
+          [`${ns}.activity_type`]: activity_type,
+          [`${ns}.activity_notes`]: activity_notes || '',
+          [`${ns}.appointment_id`]: '',
+          [`${ns}.activity_owner`]: activity_owner,
+          [`${ns}.program__grant_association`]: Array.isArray(program__grant_association)
             ? program__grant_association
             : [program__grant_association],
-          referral_type: referral_type || '',
+          [`${ns}.referral_type`]: referral_type || '',
         },
         associations,
       },

@@ -3,6 +3,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { ghlRequest, GHL_LOCATION_ID } from '@/lib/ghl';
 
 const GHL_CUSTOM_OBJECT_ID = process.env.GHL_CUSTOM_OBJECT_ID!;
+const NS = 'custom_objects.activities';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -20,23 +21,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         pageLimit: 100,
         searchAfter: [],
         searchFilters: [],
-        sort: { field: 'activity_date', direction: 'desc' },
+        sort: { field: `${NS}.activity_date`, direction: 'desc' },
       },
     });
 
     const records = data.records ?? data.data ?? [];
     const activities = records.map((r: any) => {
       const props = r.properties ?? r;
+      // GHL returns namespaced keys — extract using both formats
+      const get = (key: string) => props[`${NS}.${key}`] ?? props[key] ?? '';
       return {
         id: r.id ?? r._id,
-        activity_name: props.activity_name ?? '',
-        activity_type: props.activity_type ?? '',
-        activity_date: props.activity_date ?? '',
-        activity_owner: props.activity_owner ?? '',
-        activity_notes: props.activity_notes ?? '',
-        program__grant_association: props.program__grant_association ?? [],
-        referral_type: props.referral_type ?? '',
-        contact_name: '', // TODO: resolve from associations
+        activity_name: get('activity_name'),
+        activity_type: get('activity_type'),
+        activity_date: get('activity_date'),
+        activity_owner: get('activity_owner'),
+        activity_notes: get('activity_notes'),
+        program__grant_association: get('program__grant_association') || [],
+        referral_type: get('referral_type'),
+        contact_name: '',
       };
     });
 

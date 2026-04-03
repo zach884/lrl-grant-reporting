@@ -9,12 +9,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const results: Record<string, any> = {};
 
   // Try multiple possible endpoints to find which one works
-  const attempts = [
+  const attempts: { label: string; path: string; params: Record<string, string> }[] = [
     { label: 'GET /objects/{id}?fetchProperties=true', path: `/objects/${GHL_CUSTOM_OBJECT_ID}`, params: { locationId: GHL_LOCATION_ID, fetchProperties: 'true' } },
     { label: 'GET /objects/{id}/fields', path: `/objects/${GHL_CUSTOM_OBJECT_ID}/fields`, params: { locationId: GHL_LOCATION_ID } },
-    { label: 'GET /objects/{id}/schemas', path: `/objects/${GHL_CUSTOM_OBJECT_ID}/schemas`, params: { locationId: GHL_LOCATION_ID } },
-    { label: 'GET /objects/schemas/{id}', path: `/objects/schemas/${GHL_CUSTOM_OBJECT_ID}`, params: { locationId: GHL_LOCATION_ID } },
-    { label: 'GET /custom-fields/object/{id}', path: `/custom-fields/object/${GHL_CUSTOM_OBJECT_ID}`, params: { locationId: GHL_LOCATION_ID } },
     { label: 'GET /objects/?locationId', path: `/objects/`, params: { locationId: GHL_LOCATION_ID } },
   ];
 

@@ -65,7 +65,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       console.warn('Enrichment failed, continuing without:', err);
     }
 
-    const grants = Array.isArray(program__grant_association)
+    const grantKeys = Array.isArray(program__grant_association)
       ? program__grant_association
       : [program__grant_association];
 
@@ -75,15 +75,38 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       activity_type,
       activity_notes,
       activity_owner,
-      program__grant_association: grants,
+      program__grant_association: grantKeys,
       referral_type,
+    };
+
+    // Build a mapping from GHL grant keys to config grant names
+    // GHL keys: "trusted_connector", "sbsh_10", etc.
+    // Config names: "Trusted Connector", "SBSH 1.0", etc.
+    const uniqueConfigGrants = Array.from(
+      new Set(config.grantSheetMapping.map((m: GrantSheetMapping) => m.grant))
+    ) as string[];
+
+    const resolveGrantName = (ghlKey: string): string | null => {
+      if (uniqueConfigGrants.includes(ghlKey)) return ghlKey;
+      const normalized = ghlKey.toLowerCase().replace(/[\s.]+/g, '_');
+      for (const configGrant of uniqueConfigGrants) {
+        const configNormalized = configGrant.toLowerCase().replace(/[\s.]+/g, '_');
+        if (normalized === configNormalized) return configGrant;
+      }
+      return null;
     };
 
     let appendCount = 0;
     const errors: string[] = [];
 
     // For each selected grant, find matching sheet mappings
-    for (const grant of grants) {
+    for (const grantKey of grantKeys) {
+      const grant = resolveGrantName(grantKey);
+      if (!grant) {
+        errors.push(`No config mapping found for grant key: ${grantKey}`);
+        continue;
+      }
+
       const matchingSheets = config.grantSheetMapping.filter(
         (m: GrantSheetMapping) =>
           m.grant === grant &&

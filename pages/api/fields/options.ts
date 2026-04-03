@@ -5,6 +5,13 @@ import { ghlRequest } from '@/lib/ghl';
 const GHL_CUSTOM_OBJECT_ID = process.env.GHL_CUSTOM_OBJECT_ID!;
 const GHL_LOCATION_ID = process.env.GHL_LOCATION_ID!;
 
+// The fields we need, mapped to their short keys used in the app
+const FIELD_SHORT_KEYS: Record<string, string> = {
+  'custom_objects.activities.activity_type': 'activity_type',
+  'custom_objects.activities.referral_type': 'referral_type',
+  'custom_objects.activities.program__grant_association': 'program__grant_association',
+};
+
 // Cache field options for 10 minutes
 let cache: any = null;
 let cacheTime = 0;
@@ -20,34 +27,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(200).json(cache);
     }
 
-    // Fetch custom object schema with field definitions
-    // Try /objects/{key}?fetchProperties=true first, fall back to /objects/{key}/fields
-    let data: any;
-    try {
-      data = await ghlRequest<any>({
-        path: `/objects/${GHL_CUSTOM_OBJECT_ID}`,
-        params: { locationId: GHL_LOCATION_ID, fetchProperties: 'true' },
-      });
-    } catch {
-      data = await ghlRequest<any>({
-        path: `/objects/${GHL_CUSTOM_OBJECT_ID}/fields`,
-        params: { locationId: GHL_LOCATION_ID },
-      });
-    }
+    const data = await ghlRequest<any>({
+      path: `/objects/${GHL_CUSTOM_OBJECT_ID}`,
+      params: { locationId: GHL_LOCATION_ID, fetchProperties: 'true' },
+    });
 
-    const fields = data.fields ?? data.customFields ?? [];
+    const fields = data.fields ?? [];
 
-    // Extract dropdown options for the fields we need
     const result: Record<string, { key: string; label: string }[]> = {};
 
     for (const field of fields) {
-      const key = field.fieldKey ?? field.key ?? '';
-      if (['activity_type', 'referral_type', 'program__grant_association'].includes(key)) {
-        const options = (field.options ?? field.picklistOptions ?? []).map((opt: any) => ({
-          key: typeof opt === 'string' ? opt : opt.value ?? opt.key ?? opt,
-          label: typeof opt === 'string' ? opt : opt.label ?? opt.name ?? opt.value ?? opt,
+      const fullKey = field.fieldKey ?? '';
+      // Match by full namespaced key or short key
+      const shortKey = FIELD_SHORT_KEYS[fullKey] || fullKey.split('.').pop() || '';
+
+      if (['activity_type', 'referral_type', 'program__grant_association'].includes(shortKey)) {
+        const options = (field.options ?? []).map((opt: any) => ({
+          key: opt.key ?? opt.value ?? opt,
+          label: opt.label ?? opt.name ?? opt.key ?? opt,
         }));
-        result[key] = options;
+        result[shortKey] = options;
       }
     }
 

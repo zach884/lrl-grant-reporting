@@ -107,9 +107,13 @@ export default function ContactSearch({ label, value, onChange }: ContactSearchP
               className="px-3 py-2 hover:bg-blue-50 cursor-pointer text-sm"
               onClick={() => handleSelect(c)}
             >
-              <div className="font-medium">{c.display}</div>
+              <div className="font-medium">
+                {c.company_name && c.full_name
+                  ? `${c.company_name} — ${c.full_name}`
+                  : c.display}
+              </div>
               <div className="text-gray-500 text-xs">
-                {c.full_name}{c.email ? ` — ${c.email}` : ''}
+                {c.email}{c.city ? ` — ${c.city}, ${c.state}` : ''}
               </div>
             </li>
           ))}
