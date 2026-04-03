@@ -20,11 +20,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(200).json(cache);
     }
 
-    // Fetch custom object schema to get field definitions and dropdown options
-    const data = await ghlRequest<any>({
-      path: `/objects/${GHL_CUSTOM_OBJECT_ID}/fields`,
-      params: { locationId: GHL_LOCATION_ID },
-    });
+    // Fetch custom object schema with field definitions
+    // Try /objects/{key}?fetchProperties=true first, fall back to /objects/{key}/fields
+    let data: any;
+    try {
+      data = await ghlRequest<any>({
+        path: `/objects/${GHL_CUSTOM_OBJECT_ID}`,
+        params: { locationId: GHL_LOCATION_ID, fetchProperties: 'true' },
+      });
+    } catch {
+      data = await ghlRequest<any>({
+        path: `/objects/${GHL_CUSTOM_OBJECT_ID}/fields`,
+        params: { locationId: GHL_LOCATION_ID },
+      });
+    }
 
     const fields = data.fields ?? data.customFields ?? [];
 

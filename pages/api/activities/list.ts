@@ -15,8 +15,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       path: `/objects/${GHL_CUSTOM_OBJECT_ID}/records/search`,
       body: {
         locationId: GHL_LOCATION_ID,
+        query: '',
         page: 1,
         pageLimit: 100,
+        searchAfter: [],
         searchFilters: [],
         sort: { field: 'activity_date', direction: 'desc' },
       },
