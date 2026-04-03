@@ -23,6 +23,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       referred_to_id,
     } = req.body;
 
+    // Ensure activity_name is not empty (required by GHL)
+    const finalName = activity_name || `${activity_type} – ${activity_date}`;
+
+    console.log('Creating activity:', { activity_name, finalName, activity_type, activity_date });
+
     // Step 1: Create the record (no associations inline — GHL rejects them)
     const data = await ghlRequest<any>({
       method: 'POST',
@@ -30,7 +35,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       body: {
         locationId: GHL_LOCATION_ID,
         properties: {
-          [`${NS}.activity_name`]: activity_name,
+          [`${NS}.activity_name`]: finalName,
           [`${NS}.activity_date`]: activity_date,
           [`${NS}.activity_type`]: activity_type,
           [`${NS}.activity_notes`]: activity_notes || '',

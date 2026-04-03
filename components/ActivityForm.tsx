@@ -70,6 +70,7 @@ export default function ActivityForm({
     if (!activityType) return setErrorMsg('Please select an activity type.');
     if (!activityDate) return setErrorMsg('Please select a date.');
     if (selectedGrants.length === 0) return setErrorMsg('Please select at least one grant.');
+    if (!activityName) return setErrorMsg('Activity name could not be generated. Please fill in Contact, Activity Type, and Date.');
     if (isReferral && !referredTo)
       return setErrorMsg('Please select a referred-to contact.');
     if (isReferral && !referralType)
