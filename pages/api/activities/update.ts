@@ -25,7 +25,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           activity_notes: fields.activity_notes ?? '',
           activity_owner: fields.activity_owner,
           program__grant_association: fields.program__grant_association,
-          referral_type: fields.referral_type ?? '',
+          referral_type: fields.referral_type ? (Array.isArray(fields.referral_type) ? fields.referral_type : [fields.referral_type]) : [],
         },
       },
     });

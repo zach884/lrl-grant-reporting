@@ -40,7 +40,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           program__grant_association: Array.isArray(program__grant_association)
             ? program__grant_association
             : [program__grant_association],
-          referral_type: referral_type || '',
+          referral_type: referral_type ? (Array.isArray(referral_type) ? referral_type : [referral_type]) : [],
         },
       },
     });
