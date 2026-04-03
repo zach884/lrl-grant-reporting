@@ -37,7 +37,17 @@ export default function ActivityForm({
 
   const isReferral = activityType === 'referral';
 
-  // Auto-generate activity name
+  // Auto-generate activity name (includes time to ensure uniqueness)
+  const [nameTimestamp, setNameTimestamp] = useState('');
+
+  // Refresh timestamp when key fields change so each submit gets a unique name
+  useEffect(() => {
+    const now = new Date();
+    setNameTimestamp(
+      now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
+    );
+  }, [contact, activityType, activityDate]);
+
   const generatedName = useMemo(() => {
     const entity = contact?.company_name || contact?.full_name || '';
     const typeLabel =
@@ -46,8 +56,8 @@ export default function ActivityForm({
       ? new Date(activityDate + 'T00:00:00').toLocaleDateString('en-US')
       : '';
     if (!entity || !typeLabel || !dateStr) return '';
-    return `${typeLabel} – ${entity} – ${dateStr}`;
-  }, [contact, activityType, activityDate, activityTypeOptions]);
+    return `${typeLabel} – ${entity} – ${dateStr} ${nameTimestamp}`;
+  }, [contact, activityType, activityDate, activityTypeOptions, nameTimestamp]);
 
   const activityName = isEditingName ? nameOverride : generatedName;
 

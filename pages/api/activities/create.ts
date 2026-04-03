@@ -39,7 +39,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           activity_date,
           activity_type,
           activity_notes: activity_notes || '',
-          appointment_id: `manual_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          appointment_id: '',
           activity_owner,
           program__grant_association: Array.isArray(program__grant_association)
             ? program__grant_association
