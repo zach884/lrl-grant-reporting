@@ -53,7 +53,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const recordId = data.record?.id ?? data.id;
 
-    // Step 2: Associate primary contact
+    // Step 2: Associate primary contact (contact is FIRST, activity is SECOND)
     if (recordId && contact_id) {
       try {
         await ghlRequest<any>({
@@ -62,8 +62,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           body: {
             locationId: GHL_LOCATION_ID,
             associationId: ACTIVITY_CONTACT_ASSOC_ID,
-            firstRecordId: recordId,
-            secondRecordId: contact_id,
+            firstRecordId: contact_id,
+            secondRecordId: recordId,
           },
         });
       } catch (err) {
@@ -71,7 +71,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
-    // Step 3: Associate referred-to contact (uses different association)
+    // Step 3: Associate referred-to contact (contact is FIRST, activity is SECOND)
     if (recordId && referred_to_id) {
       try {
         await ghlRequest<any>({
@@ -80,8 +80,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           body: {
             locationId: GHL_LOCATION_ID,
             associationId: REFERRAL_CONTACT_ASSOC_ID,
-            firstRecordId: recordId,
-            secondRecordId: referred_to_id,
+            firstRecordId: referred_to_id,
+            secondRecordId: recordId,
           },
         });
       } catch (err) {
