@@ -320,20 +320,30 @@ async function appendRowToSheet(
   const maxCol = getMaxColumn(Object.keys(rowData));
   const rowArray = columnLettersToArray(rowData, maxCol);
 
-  // Find the first empty row after the header by reading column A
+  // Find the first empty row by scanning columns B and H (Business Name and Contact Name)
+  // These are always populated for real data but empty for template/formula rows
   const dataStartRow = headerRow + 1;
-  const scanRange = `'${tabName}'!A${dataStartRow}:A`;
+  const scanRange = `'${tabName}'!B${dataStartRow}:H`;
   const existing = await sheets.spreadsheets.values.get({
     spreadsheetId: sheetId,
     range: scanRange,
+    majorDimension: 'ROWS',
   });
 
-  // Count non-empty rows from the top
-  const values = existing.data.values ?? [];
+  const rows = existing.data.values ?? [];
   let nextRow = dataStartRow;
-  for (let i = 0; i < values.length; i++) {
-    if (values[i] && values[i][0] && String(values[i][0]).trim() !== '') {
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i] ?? [];
+    const colB = (row[0] ?? '').toString().trim(); // B = index 0 in this range
+    const colH = (row[6] ?? '').toString().trim(); // H = index 6 (B=0, C=1, D=2, E=3, F=4, G=5, H=6)
+    if (colB !== '' || colH !== '') {
+      // This row has real data, keep looking
       nextRow = dataStartRow + i + 1;
+    } else {
+      // First row where both B and H are empty — write here
+      nextRow = dataStartRow + i;
+      break;
     }
   }
 
