@@ -131,8 +131,9 @@ export default function ActivityForm({
           }),
         });
 
+        const sheetData = await sheetRes.json();
         if (!sheetRes.ok) {
-          setSheetWarning('Activity saved to GHL but sheet write failed. You can retry from the dashboard.');
+          setSheetWarning(`Activity saved to GHL but sheet write failed: ${sheetData.error || 'Unknown error'}`);
         }
       } catch {
         setSheetWarning('Activity saved to GHL but sheet write failed. You can retry from the dashboard.');

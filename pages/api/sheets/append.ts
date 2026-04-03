@@ -30,26 +30,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       referred_to_id,
     } = req.body;
 
-    const config = await getConfig();
+    const config = await getConfig(true); // force refresh to pick up config changes
 
-    // Fetch full contact data
-    const contactRes = await fetch(
-      `${getBaseUrl(req)}/api/contacts/${contact_id}`
-    );
-    const contactData = await contactRes.json();
-    const contact: ContactOption = contactData.contact;
-    const customFields: Record<string, string> = contactData.customFields ?? {};
+    // Fetch full contact data directly from GHL
+    const contactResult = await fetchContact(contact_id);
+    const contact = contactResult.contact;
+    const customFields = contactResult.customFields;
 
     // Fetch referred-to contact if applicable
     let referredTo: ContactOption | null = null;
     let referredToCustomFields: Record<string, string> = {};
     if (referred_to_id) {
-      const refRes = await fetch(
-        `${getBaseUrl(req)}/api/contacts/${referred_to_id}`
-      );
-      const refData = await refRes.json();
-      referredTo = refData.contact;
-      referredToCustomFields = refData.customFields ?? {};
+      const refResult = await fetchContact(referred_to_id);
+      referredTo = refResult.contact;
+      referredToCustomFields = refResult.customFields;
     }
 
     // Run enrichment (non-blocking concept, but we need results for sheet)
@@ -366,9 +360,39 @@ function columnLettersToArray(rowData: Record<string, string>, maxCol: string): 
   return arr;
 }
 
-/** Get the base URL for internal API calls */
-function getBaseUrl(req: NextApiRequest): string {
-  const protocol = req.headers['x-forwarded-proto'] || 'http';
-  const host = req.headers.host || 'localhost:3000';
-  return `${protocol}://${host}`;
+/** Fetch a contact directly from GHL and return normalized data */
+function titleCase(str: string): string {
+  if (!str) return '';
+  return str.replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+async function fetchContact(contactId: string): Promise<{ contact: ContactOption; customFields: Record<string, string> }> {
+  const c = await ghlRequest<any>({ path: `/contacts/${contactId}` });
+  const raw = c.contact ?? c;
+  const companyName = titleCase(raw.companyName ?? '');
+  const fullName = [titleCase(raw.firstName ?? ''), titleCase(raw.lastName ?? '')].filter(Boolean).join(' ');
+
+  const customFieldMap: Record<string, string> = {};
+  if (Array.isArray(raw.customFields)) {
+    for (const cf of raw.customFields) {
+      customFieldMap[cf.id] = cf.value ?? '';
+    }
+  }
+
+  return {
+    contact: {
+      id: raw.id,
+      display: companyName || fullName || raw.email || 'Unknown',
+      company_name: companyName,
+      full_name: fullName,
+      email: raw.email ?? '',
+      phone: raw.phone ?? '',
+      address1: raw.address1 ?? '',
+      city: titleCase(raw.city ?? ''),
+      state: (raw.state ?? '').toUpperCase(),
+      postal_code: raw.postalCode ?? '',
+      minority_owned: customFieldMap['my_company_is_a_minority_owned_business_radio'] ?? '',
+    },
+    customFields: customFieldMap,
+  };
 }
