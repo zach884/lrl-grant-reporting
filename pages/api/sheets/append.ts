@@ -227,7 +227,7 @@ function buildRow(
           value = mapping.field_key;
           break;
         case 'computed':
-          value = getComputedValue(mapping.field_key, enrichment);
+          value = getComputedValue(mapping.field_key, enrichment, customFields);
           break;
       }
 
@@ -269,14 +269,26 @@ function getContactField(
   return customFields[fieldKey] ?? '';
 }
 
-function getComputedValue(fieldKey: string, enrichment: EnrichmentResult): string {
+function getComputedValue(
+  fieldKey: string,
+  enrichment: EnrichmentResult,
+  customFields: Record<string, string>
+): string {
   switch (fieldKey) {
     case 'census_county':
       return enrichment.county ?? '';
     case 'geo_disadvantaged_lookup':
-    case 'arcgis_geo_disadvantaged':
+    case 'arcgis_geo_disadvantaged': {
+      // First check if the value is stored as a contact custom field
+      const cfValue = customFields['geo_disadvantaged_lookup']
+        ?? customFields['arcgis_geo_disadvantaged']
+        ?? customFields['geographically_disadvantaged']
+        ?? '';
+      if (cfValue) return cfValue;
+      // Fall back to enrichment result
       if (enrichment.geoDisadvantaged === null) return '';
       return enrichment.geoDisadvantaged ? 'TRUE' : 'FALSE';
+    }
     default:
       return '';
   }
