@@ -16,14 +16,51 @@ export async function enrichAddress(
 ): Promise<EnrichmentResult> {
   const geocodeResult = await geocodeCensus(address1, city, state, postalCode);
 
-  if (!geocodeResult) {
-    return { county: null, geoDisadvantaged: null };
+  if (geocodeResult) {
+    const { lat, lng, county } = geocodeResult;
+    const geoDisadvantaged = await queryArcGIS(lat, lng);
+    return { county, geoDisadvantaged };
   }
 
-  const { lat, lng, county } = geocodeResult;
-  const geoDisadvantaged = await queryArcGIS(lat, lng);
+  // Fallback: look up county by zip code
+  const county = await countyFromZip(postalCode);
+  if (county) {
+    console.log(`Zip fallback: ${postalCode} → ${county}`);
+  }
+  return { county, geoDisadvantaged: null };
+}
 
-  return { county, geoDisadvantaged };
+/** Look up county using Nominatim (OpenStreetMap) geocoder + FCC Area API */
+async function countyFromZip(zip: string): Promise<string | null> {
+  if (!zip) return null;
+  const cleanZip = zip.replace(/\s+/g, '').trim().slice(0, 5);
+  try {
+    // Step 1: Get lat/lng from zip via Nominatim
+    const nomRes = await fetch(
+      `https://nominatim.openstreetmap.org/search?postalcode=${cleanZip}&country=US&format=json&limit=1`,
+      { headers: { 'User-Agent': 'LRL-Activity-Tracker/1.0' } }
+    );
+    if (!nomRes.ok) return null;
+
+    const nomData = await nomRes.json();
+    if (!nomData[0]?.lat || !nomData[0]?.lon) return null;
+
+    const lat = nomData[0].lat;
+    const lng = nomData[0].lon;
+
+    // Step 2: Get county from lat/lng via FCC Area API (free, no key)
+    const fccRes = await fetch(
+      `https://geo.fcc.gov/api/census/area?lat=${lat}&lon=${lng}&format=json`
+    );
+    if (!fccRes.ok) return null;
+
+    const fccData = await fccRes.json();
+    const county = fccData?.results?.[0]?.county_name ?? null;
+    return county;
+  } catch (err) {
+    console.warn('County from zip fallback error:', err);
+    return null;
+  }
 }
 
 async function geocodeCensus(
