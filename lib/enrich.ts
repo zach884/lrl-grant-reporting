@@ -33,11 +33,18 @@ async function geocodeCensus(
   zip: string
 ): Promise<GeocodeResult | null> {
   try {
+    // Clean up address for Census geocoder — remove periods, normalize abbreviations
+    const cleanStreet = street.replace(/\./g, '').trim();
+    const cleanCity = city.replace(/\./g, '').trim();
+    // Normalize state — Census expects full name or 2-letter abbreviation without periods
+    const cleanState = state.replace(/\./g, '').trim();
+    const cleanZip = zip.replace(/\s+/g, '').trim();
+
     const params = new URLSearchParams({
-      street,
-      city,
-      state,
-      zip,
+      street: cleanStreet,
+      city: cleanCity,
+      state: cleanState,
+      zip: cleanZip,
       benchmark: 'Public_AR_Current',
       vintage: 'Current_Current',
       layers: 'Counties',
