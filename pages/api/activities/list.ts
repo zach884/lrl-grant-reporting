@@ -19,8 +19,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         page: 1,
         pageLimit: 100,
         searchAfter: [],
-        searchFilters: [],
-        sort: { field: 'activity_date', direction: 'desc' },
+        sort: [{ field: 'updatedAt', direction: 'desc' }],
       },
     });
 
