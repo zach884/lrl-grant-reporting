@@ -54,10 +54,11 @@ async function geocodeCensus(
     }
 
     const data = await res.json();
+    console.log('Census geocoder response:', JSON.stringify(data?.result?.addressMatches?.length ?? 0), 'matches for', street, city, state, zip);
     const match = data?.result?.addressMatches?.[0];
 
     if (!match) {
-      console.warn('Census geocoder: no address match');
+      console.warn('Census geocoder: no address match for', street, city, state, zip);
       return null;
     }
 

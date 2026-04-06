@@ -55,6 +55,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         contact.state,
         contact.postal_code
       );
+      console.log('Enrichment result:', enrichment, 'for address:', contact.address1, contact.city, contact.state, contact.postal_code);
     } catch (err) {
       console.warn('Enrichment failed, continuing without:', err);
     }
