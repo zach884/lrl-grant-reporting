@@ -317,11 +317,7 @@ async function appendRowToSheet(
   rowData: Record<string, string>,
   headerRow: number
 ): Promise<void> {
-  const maxCol = getMaxColumn(Object.keys(rowData));
-  const rowArray = columnLettersToArray(rowData, maxCol);
-
   // Find the first empty row by scanning columns B and H (Business Name and Contact Name)
-  // These are always populated for real data but empty for template/formula rows
   const dataStartRow = headerRow + 1;
   const scanRange = `'${tabName}'!B${dataStartRow}:H`;
   const existing = await sheets.spreadsheets.values.get({
@@ -335,70 +331,35 @@ async function appendRowToSheet(
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i] ?? [];
-    const colB = (row[0] ?? '').toString().trim(); // B = index 0 in this range
-    const colH = (row[6] ?? '').toString().trim(); // H = index 6 (B=0, C=1, D=2, E=3, F=4, G=5, H=6)
+    const colB = (row[0] ?? '').toString().trim();
+    const colH = (row[6] ?? '').toString().trim();
     if (colB !== '' || colH !== '') {
-      // This row has real data, keep looking
       nextRow = dataStartRow + i + 1;
     } else {
-      // First row where both B and H are empty — write here
       nextRow = dataStartRow + i;
       break;
     }
   }
 
-  // Write to the specific row
-  const writeRange = `'${tabName}'!A${nextRow}:${maxCol}${nextRow}`;
-  await sheets.spreadsheets.values.update({
+  // Write only the specific cells we have data for (don't overwrite formula columns)
+  const batchData: { range: string; values: string[][] }[] = [];
+  for (const [col, value] of Object.entries(rowData)) {
+    batchData.push({
+      range: `'${tabName}'!${col}${nextRow}`,
+      values: [[value]],
+    });
+  }
+
+  await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId: sheetId,
-    range: writeRange,
-    valueInputOption: 'USER_ENTERED',
     requestBody: {
-      values: [rowArray],
+      valueInputOption: 'USER_ENTERED',
+      data: batchData,
     },
   });
 }
 
-/** Convert column letter to number (A=1, B=2, ... Z=26, AA=27) */
-function colToNum(col: string): number {
-  let num = 0;
-  for (let i = 0; i < col.length; i++) {
-    num = num * 26 + (col.charCodeAt(i) - 64);
-  }
-  return num;
-}
 
-/** Convert number to column letter */
-function numToCol(num: number): string {
-  let col = '';
-  while (num > 0) {
-    const mod = (num - 1) % 26;
-    col = String.fromCharCode(65 + mod) + col;
-    num = Math.floor((num - 1) / 26);
-  }
-  return col;
-}
-
-/** Get the highest column letter from an array */
-function getMaxColumn(columns: string[]): string {
-  let max = 0;
-  for (const col of columns) {
-    const num = colToNum(col);
-    if (num > max) max = num;
-  }
-  return numToCol(max);
-}
-
-/** Convert column-letter-keyed object to ordered array */
-function columnLettersToArray(rowData: Record<string, string>, maxCol: string): string[] {
-  const maxNum = colToNum(maxCol);
-  const arr: string[] = [];
-  for (let i = 1; i <= maxNum; i++) {
-    const col = numToCol(i);
-    arr.push(rowData[col] ?? '');
-  }
-  return arr;
-}
 
 /** Fetch a contact directly from GHL and return normalized data */
 function titleCase(str: string): string {
@@ -412,10 +373,17 @@ async function fetchContact(contactId: string): Promise<{ contact: ContactOption
   const companyName = titleCase(raw.companyName ?? '');
   const fullName = [titleCase(raw.firstName ?? ''), titleCase(raw.lastName ?? '')].filter(Boolean).join(' ');
 
+  // Map custom fields by BOTH their ID and their key for flexible lookup
   const customFieldMap: Record<string, string> = {};
   if (Array.isArray(raw.customFields)) {
     for (const cf of raw.customFields) {
-      customFieldMap[cf.id] = cf.value ?? '';
+      const val = cf.value ?? '';
+      if (cf.id) customFieldMap[cf.id] = val;
+      if (cf.key) customFieldMap[cf.key] = val;
+      // Also store by the last segment of the key (e.g. "my_company_is_a_minority_owned_business_radio")
+      if (cf.key && cf.key.includes('.')) {
+        customFieldMap[cf.key.split('.').pop()!] = val;
+      }
     }
   }
 

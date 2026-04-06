@@ -14,7 +14,6 @@ export async function enrichAddress(
   state: string,
   postalCode: string
 ): Promise<EnrichmentResult> {
-  // Step 1: Geocode via Census API
   const geocodeResult = await geocodeCensus(address1, city, state, postalCode);
 
   if (!geocodeResult) {
@@ -22,8 +21,6 @@ export async function enrichAddress(
   }
 
   const { lat, lng, county } = geocodeResult;
-
-  // Step 2: Point-in-polygon via ArcGIS
   const geoDisadvantaged = await queryArcGIS(lat, lng);
 
   return { county, geoDisadvantaged };
@@ -77,39 +74,58 @@ async function geocodeCensus(
   }
 }
 
-// ArcGIS feature layer URLs — extracted from the webmap
-// These query Michigan Opportunity Zones and HUBZones
-const ARCGIS_LAYER_URLS: string[] = [];
+// Cache for ArcGIS layer URLs discovered from the webmap
+let arcgisLayerUrls: string[] | null = null;
 
 async function getArcGISLayerUrls(): Promise<string[]> {
-  if (ARCGIS_LAYER_URLS.length > 0) return ARCGIS_LAYER_URLS;
+  if (arcgisLayerUrls && arcgisLayerUrls.length > 0) return arcgisLayerUrls;
 
   try {
     const res = await fetch(
       'https://www.arcgis.com/sharing/rest/content/items/d2f96fbb11cc49169de85cb577278e4b/data?f=json'
     );
-    if (!res.ok) return [];
+    if (!res.ok) throw new Error(`ArcGIS webmap fetch failed: ${res.status}`);
 
     const data = await res.json();
-    const layers = data?.operationalLayers ?? [];
+    const urls: string[] = [];
 
-    for (const layer of layers) {
-      if (layer.url) {
-        ARCGIS_LAYER_URLS.push(layer.url);
-      }
-      // Check sublayers
-      if (layer.layers) {
-        for (const sub of layer.layers) {
-          if (sub.url) ARCGIS_LAYER_URLS.push(sub.url);
+    // Walk through all operational layers and sublayers to find feature service URLs
+    const extractUrls = (layers: any[]) => {
+      for (const layer of layers) {
+        if (layer.url) {
+          urls.push(layer.url);
+        }
+        if (layer.layers) extractUrls(layer.layers);
+        if (layer.featureCollection?.layers) {
+          for (const fcLayer of layer.featureCollection.layers) {
+            if (fcLayer.layerDefinition?.url) urls.push(fcLayer.layerDefinition.url);
+          }
         }
       }
-    }
+    };
 
-    return ARCGIS_LAYER_URLS;
+    if (data.operationalLayers) extractUrls(data.operationalLayers);
+    if (data.tables) extractUrls(data.tables);
+
+    console.log('ArcGIS layer URLs discovered:', urls);
+
+    if (urls.length > 0) {
+      arcgisLayerUrls = urls;
+      return urls;
+    }
   } catch (err) {
-    console.error('Failed to fetch ArcGIS layer URLs:', err);
-    return [];
+    console.warn('Failed to fetch ArcGIS webmap data:', err);
   }
+
+  // Fallback: use well-known HUBZone and Opportunity Zone services
+  console.log('Using fallback ArcGIS layer URLs');
+  arcgisLayerUrls = [
+    // HUBZone qualified areas (SBA)
+    'https://services.arcgis.com/VTyQ9soqVukalItT/arcgis/rest/services/HUBZones_Redesignated_Areas/FeatureServer/0',
+    // Opportunity Zones
+    'https://services2.arcgis.com/FiaPA4ga0iQKduv3/arcgis/rest/services/Opportunity_Zones/FeatureServer/0',
+  ];
+  return arcgisLayerUrls;
 }
 
 async function queryArcGIS(lat: number, lng: number): Promise<boolean | null> {
@@ -123,20 +139,28 @@ async function queryArcGIS(lat: number, lng: number): Promise<boolean | null> {
 
     // Query each layer — if any returns count > 0, the point is in a disadvantaged area
     for (const layerUrl of layerUrls) {
-      const params = new URLSearchParams({
-        geometry: `${lng},${lat}`,
-        geometryType: 'esriGeometryPoint',
-        inSR: '4326',
-        spatialRel: 'esriSpatialRelIntersects',
-        returnCountOnly: 'true',
-        f: 'json',
-      });
+      try {
+        const params = new URLSearchParams({
+          geometry: `${lng},${lat}`,
+          geometryType: 'esriGeometryPoint',
+          inSR: '4326',
+          spatialRel: 'esriSpatialRelIntersects',
+          returnCountOnly: 'true',
+          f: 'json',
+        });
 
-      const res = await fetch(`${layerUrl}/query?${params}`);
-      if (!res.ok) continue;
+        const res = await fetch(`${layerUrl}/query?${params}`);
+        if (!res.ok) {
+          console.warn(`ArcGIS query to ${layerUrl} returned ${res.status}`);
+          continue;
+        }
 
-      const data = await res.json();
-      if (data.count > 0) return true;
+        const data = await res.json();
+        if (data.count > 0) return true;
+      } catch (err) {
+        console.warn(`ArcGIS query failed for ${layerUrl}:`, err);
+        continue;
+      }
     }
 
     return false;
