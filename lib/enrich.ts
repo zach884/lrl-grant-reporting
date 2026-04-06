@@ -32,19 +32,50 @@ async function geocodeCensus(
   state: string,
   zip: string
 ): Promise<GeocodeResult | null> {
-  try {
-    // Clean up address for Census geocoder — remove periods, normalize abbreviations
-    const cleanStreet = street.replace(/\./g, '').trim();
-    const cleanCity = city.replace(/\./g, '').trim();
-    // Normalize state — Census expects full name or 2-letter abbreviation without periods
-    const cleanState = state.replace(/\./g, '').trim();
-    const cleanZip = zip.replace(/\s+/g, '').trim();
+  // Clean up address data
+  const cleanStreet = street.replace(/\./g, '').trim();
+  const cleanCity = city.replace(/\./g, '').trim();
+  const cleanState = state.replace(/\./g, '').trim().toUpperCase();
+  const cleanZip = zip.replace(/\s+/g, '').trim();
 
-    const params = new URLSearchParams({
-      street: cleanStreet,
-      city: cleanCity,
-      state: cleanState,
-      zip: cleanZip,
+  // Attempt 1: Structured address fields
+  const result = await censusGeocode({
+    street: cleanStreet,
+    city: cleanCity,
+    state: cleanState,
+    zip: cleanZip,
+  });
+  if (result) return result;
+
+  // Attempt 2: One-line address format (sometimes matches better)
+  const onelineResult = await censusGeocodeOneline(
+    `${cleanStreet}, ${cleanCity}, ${cleanState} ${cleanZip}`
+  );
+  if (onelineResult) return onelineResult;
+
+  // Attempt 3: Without street number variations — try just city/state/zip
+  // This won't give us lat/lng but can give us county
+  const cityResult = await censusGeocodeOneline(
+    `${cleanCity}, ${cleanState} ${cleanZip}`
+  );
+  if (cityResult) {
+    console.log('Census geocoder: matched on city/state/zip only (no street-level precision)');
+    return cityResult;
+  }
+
+  console.warn('Census geocoder: all attempts failed for', cleanStreet, cleanCity, cleanState, cleanZip);
+  return null;
+}
+
+async function censusGeocode(params: {
+  street: string;
+  city: string;
+  state: string;
+  zip: string;
+}): Promise<GeocodeResult | null> {
+  try {
+    const urlParams = new URLSearchParams({
+      ...params,
       benchmark: 'Public_AR_Current',
       vintage: 'Current_Current',
       layers: 'Counties',
@@ -52,34 +83,57 @@ async function geocodeCensus(
     });
 
     const res = await fetch(
-      `https://geocoding.geo.census.gov/geocoder/geographies/address?${params}`
+      `https://geocoding.geo.census.gov/geocoder/geographies/address?${urlParams}`
     );
-
-    if (!res.ok) {
-      console.warn('Census geocoder returned', res.status);
-      return null;
-    }
+    if (!res.ok) return null;
 
     const data = await res.json();
-    console.log('Census geocoder response:', JSON.stringify(data?.result?.addressMatches?.length ?? 0), 'matches for', street, city, state, zip);
-    const match = data?.result?.addressMatches?.[0];
+    const matches = data?.result?.addressMatches ?? [];
+    console.log(`Census structured: ${matches.length} matches for "${params.street}, ${params.city}, ${params.state} ${params.zip}"`);
 
-    if (!match) {
-      console.warn('Census geocoder: no address match for', street, city, state, zip);
-      return null;
-    }
-
-    const lat = match.coordinates?.y;
-    const lng = match.coordinates?.x;
-    const county = match.geographies?.Counties?.[0]?.NAME ?? null;
-
-    if (lat == null || lng == null) return null;
-
-    return { lat, lng, county };
+    return extractGeocodeResult(matches[0]);
   } catch (err) {
-    console.error('Census geocoder error:', err);
+    console.warn('Census structured geocode error:', err);
     return null;
   }
+}
+
+async function censusGeocodeOneline(address: string): Promise<GeocodeResult | null> {
+  try {
+    const params = new URLSearchParams({
+      onelineaddress: address,
+      benchmark: 'Public_AR_Current',
+      vintage: 'Current_Current',
+      layers: 'Counties',
+      format: 'json',
+    });
+
+    const res = await fetch(
+      `https://geocoding.geo.census.gov/geocoder/geographies/onelineaddress?${params}`
+    );
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    const matches = data?.result?.addressMatches ?? [];
+    console.log(`Census oneline: ${matches.length} matches for "${address}"`);
+
+    return extractGeocodeResult(matches[0]);
+  } catch (err) {
+    console.warn('Census oneline geocode error:', err);
+    return null;
+  }
+}
+
+function extractGeocodeResult(match: any): GeocodeResult | null {
+  if (!match) return null;
+
+  const lat = match.coordinates?.y;
+  const lng = match.coordinates?.x;
+  const county = match.geographies?.Counties?.[0]?.NAME ?? null;
+
+  if (lat == null || lng == null) return null;
+
+  return { lat, lng, county };
 }
 
 // Cache for ArcGIS layer URLs discovered from the webmap
