@@ -26,16 +26,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const records = data.records ?? data.data ?? [];
     const activities = records.map((r: any) => {
       const props = r.properties ?? r;
+      const activityName = props.activity_name ?? '';
+      // Extract contact name from activity name format: "Type – Contact – Date Time"
+      const nameParts = activityName.split(' – ');
+      const contactName = nameParts.length >= 3 ? nameParts[1] : '';
       return {
         id: r.id ?? r._id,
-        activity_name: props.activity_name ?? '',
+        activity_name: activityName,
         activity_type: props.activity_type ?? '',
         activity_date: props.activity_date ?? '',
         activity_owner: props.activity_owner ?? '',
         activity_notes: props.activity_notes ?? '',
         program__grant_association: props.program__grant_association ?? [],
         referral_type: props.referral_type ?? '',
-        contact_name: '',
+        contact_name: contactName,
       };
     });
 
