@@ -135,15 +135,13 @@ export default function ActivityForm({
         if (!sheetRes.ok) {
           setSheetWarning(`Activity saved to GHL but sheet write failed: ${sheetData.error || 'Unknown error'}`);
         } else if (sheetData.appendCount === 0) {
-          setSheetWarning(`Activity saved to GHL but no sheet rows were written. Debug: ${JSON.stringify(sheetData.debug || sheetData.errors || [])}`);
-        } else {
-          setSuccessMsg(`Activity created: ${activityName} (${sheetData.appendCount} sheet row(s) written)`);
+          setSheetWarning('Activity saved to GHL but no matching grant/period config found for sheet write.');
         }
       } catch (sheetErr: any) {
         setSheetWarning(`Activity saved to GHL but sheet write failed: ${sheetErr.message}`);
       }
 
-      if (!successMsg) setSuccessMsg(`Activity created: ${activityName}`);
+      setSuccessMsg(`Activity created: ${activityName}`);
 
       // Reset form but keep contact pre-filled
       setActivityType('');

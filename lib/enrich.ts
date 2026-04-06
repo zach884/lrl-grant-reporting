@@ -24,9 +24,6 @@ export async function enrichAddress(
 
   // Fallback: look up county by zip code
   const county = await countyFromZip(postalCode);
-  if (county) {
-    console.log(`Zip fallback: ${postalCode} → ${county}`);
-  }
   return { county, geoDisadvantaged: null };
 }
 
@@ -35,7 +32,6 @@ async function countyFromZip(zip: string): Promise<string | null> {
   if (!zip) return null;
   const cleanZip = zip.replace(/\s+/g, '').trim().slice(0, 5);
   try {
-    // Step 1: Get lat/lng from zip via Nominatim
     const nomRes = await fetch(
       `https://nominatim.openstreetmap.org/search?postalcode=${cleanZip}&country=US&format=json&limit=1`,
       { headers: { 'User-Agent': 'LRL-Activity-Tracker/1.0' } }
@@ -45,20 +41,14 @@ async function countyFromZip(zip: string): Promise<string | null> {
     const nomData = await nomRes.json();
     if (!nomData[0]?.lat || !nomData[0]?.lon) return null;
 
-    const lat = nomData[0].lat;
-    const lng = nomData[0].lon;
-
-    // Step 2: Get county from lat/lng via FCC Area API (free, no key)
     const fccRes = await fetch(
-      `https://geo.fcc.gov/api/census/area?lat=${lat}&lon=${lng}&format=json`
+      `https://geo.fcc.gov/api/census/area?lat=${nomData[0].lat}&lon=${nomData[0].lon}&format=json`
     );
     if (!fccRes.ok) return null;
 
     const fccData = await fccRes.json();
-    const county = fccData?.results?.[0]?.county_name ?? null;
-    return county;
-  } catch (err) {
-    console.warn('County from zip fallback error:', err);
+    return fccData?.results?.[0]?.county_name ?? null;
+  } catch {
     return null;
   }
 }
@@ -69,7 +59,6 @@ async function geocodeCensus(
   state: string,
   zip: string
 ): Promise<GeocodeResult | null> {
-  // Clean up address data
   const cleanStreet = street.replace(/\./g, '').trim();
   const cleanCity = city.replace(/\./g, '').trim();
   const cleanState = state.replace(/\./g, '').trim().toUpperCase();
@@ -84,23 +73,18 @@ async function geocodeCensus(
   });
   if (result) return result;
 
-  // Attempt 2: One-line address format (sometimes matches better)
+  // Attempt 2: One-line address format
   const onelineResult = await censusGeocodeOneline(
     `${cleanStreet}, ${cleanCity}, ${cleanState} ${cleanZip}`
   );
   if (onelineResult) return onelineResult;
 
-  // Attempt 3: Without street number variations — try just city/state/zip
-  // This won't give us lat/lng but can give us county
+  // Attempt 3: City/state/zip only
   const cityResult = await censusGeocodeOneline(
     `${cleanCity}, ${cleanState} ${cleanZip}`
   );
-  if (cityResult) {
-    console.log('Census geocoder: matched on city/state/zip only (no street-level precision)');
-    return cityResult;
-  }
+  if (cityResult) return cityResult;
 
-  console.warn('Census geocoder: all attempts failed for', cleanStreet, cleanCity, cleanState, cleanZip);
   return null;
 }
 
@@ -125,12 +109,8 @@ async function censusGeocode(params: {
     if (!res.ok) return null;
 
     const data = await res.json();
-    const matches = data?.result?.addressMatches ?? [];
-    console.log(`Census structured: ${matches.length} matches for "${params.street}, ${params.city}, ${params.state} ${params.zip}"`);
-
-    return extractGeocodeResult(matches[0]);
-  } catch (err) {
-    console.warn('Census structured geocode error:', err);
+    return extractGeocodeResult(data?.result?.addressMatches?.[0]);
+  } catch {
     return null;
   }
 }
@@ -151,12 +131,8 @@ async function censusGeocodeOneline(address: string): Promise<GeocodeResult | nu
     if (!res.ok) return null;
 
     const data = await res.json();
-    const matches = data?.result?.addressMatches ?? [];
-    console.log(`Census oneline: ${matches.length} matches for "${address}"`);
-
-    return extractGeocodeResult(matches[0]);
-  } catch (err) {
-    console.warn('Census oneline geocode error:', err);
+    return extractGeocodeResult(data?.result?.addressMatches?.[0]);
+  } catch {
     return null;
   }
 }
@@ -188,12 +164,9 @@ async function getArcGISLayerUrls(): Promise<string[]> {
     const data = await res.json();
     const urls: string[] = [];
 
-    // Walk through all operational layers and sublayers to find feature service URLs
     const extractUrls = (layers: any[]) => {
       for (const layer of layers) {
-        if (layer.url) {
-          urls.push(layer.url);
-        }
+        if (layer.url) urls.push(layer.url);
         if (layer.layers) extractUrls(layer.layers);
         if (layer.featureCollection?.layers) {
           for (const fcLayer of layer.featureCollection.layers) {
@@ -206,22 +179,17 @@ async function getArcGISLayerUrls(): Promise<string[]> {
     if (data.operationalLayers) extractUrls(data.operationalLayers);
     if (data.tables) extractUrls(data.tables);
 
-    console.log('ArcGIS layer URLs discovered:', urls);
-
     if (urls.length > 0) {
       arcgisLayerUrls = urls;
       return urls;
     }
-  } catch (err) {
-    console.warn('Failed to fetch ArcGIS webmap data:', err);
+  } catch {
+    // Fall through to fallback
   }
 
-  // Fallback: use well-known HUBZone and Opportunity Zone services
-  console.log('Using fallback ArcGIS layer URLs');
+  // Fallback: well-known HUBZone and Opportunity Zone services
   arcgisLayerUrls = [
-    // HUBZone qualified areas (SBA)
     'https://services.arcgis.com/VTyQ9soqVukalItT/arcgis/rest/services/HUBZones_Redesignated_Areas/FeatureServer/0',
-    // Opportunity Zones
     'https://services2.arcgis.com/FiaPA4ga0iQKduv3/arcgis/rest/services/Opportunity_Zones/FeatureServer/0',
   ];
   return arcgisLayerUrls;
@@ -230,13 +198,8 @@ async function getArcGISLayerUrls(): Promise<string[]> {
 async function queryArcGIS(lat: number, lng: number): Promise<boolean | null> {
   try {
     const layerUrls = await getArcGISLayerUrls();
+    if (layerUrls.length === 0) return null;
 
-    if (layerUrls.length === 0) {
-      console.warn('No ArcGIS layer URLs available');
-      return null;
-    }
-
-    // Query each layer — if any returns count > 0, the point is in a disadvantaged area
     for (const layerUrl of layerUrls) {
       try {
         const params = new URLSearchParams({
@@ -249,22 +212,17 @@ async function queryArcGIS(lat: number, lng: number): Promise<boolean | null> {
         });
 
         const res = await fetch(`${layerUrl}/query?${params}`);
-        if (!res.ok) {
-          console.warn(`ArcGIS query to ${layerUrl} returned ${res.status}`);
-          continue;
-        }
+        if (!res.ok) continue;
 
         const data = await res.json();
         if (data.count > 0) return true;
-      } catch (err) {
-        console.warn(`ArcGIS query failed for ${layerUrl}:`, err);
+      } catch {
         continue;
       }
     }
 
     return false;
-  } catch (err) {
-    console.error('ArcGIS query error:', err);
+  } catch {
     return null;
   }
 }

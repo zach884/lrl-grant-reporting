@@ -55,7 +55,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         contact.state,
         contact.postal_code
       );
-      console.log('Enrichment result:', enrichment, 'for address:', contact.address1, contact.city, contact.state, contact.postal_code);
     } catch (err) {
       console.warn('Enrichment failed, continuing without:', err);
     }
@@ -93,17 +92,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     let appendCount = 0;
     const errors: string[] = [];
-    const debug: string[] = [];
-
-    debug.push(`Grant keys from form: ${JSON.stringify(grantKeys)}`);
-    debug.push(`Activity type: ${activity_type}`);
-    debug.push(`Activity date: ${activity_date}`);
-    debug.push(`Config grants in sheet mapping: ${JSON.stringify(uniqueConfigGrants)}`);
 
     // For each selected grant, find matching sheet mappings
     for (const grantKey of grantKeys) {
       const grant = resolveGrantName(grantKey);
-      debug.push(`Grant key "${grantKey}" resolved to: "${grant}"`);
       if (!grant) {
         errors.push(`No config mapping found for grant key: ${grantKey}`);
         continue;
@@ -115,7 +107,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           m.activity_type_key === activity_type &&
           m.active
       );
-      debug.push(`Matching sheet mappings for ${grant}/${activity_type}: ${matchingSheets.length}`);
 
       if (matchingSheets.length === 0) continue;
 
@@ -169,14 +160,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
-    console.log('Sheet append debug:', debug.join(' | '));
-    console.log('Sheet append result:', { appendCount, errors });
-
     res.status(200).json({
       success: true,
       appendCount,
       errors: errors.length > 0 ? errors : undefined,
-      debug,
     });
   } catch (error: any) {
     console.error('Sheet append error:', error);
