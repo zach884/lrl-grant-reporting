@@ -14,8 +14,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       index: s.properties?.index,
     })) ?? [];
 
-    // Read header rows (1 through headerRow) from first tab
-    const tabName = tabs[0]?.title ?? 'Sheet1';
+    // Read header rows from specified tab (defaults to first data tab, skipping Instructions)
+    const tabParam = req.query.tab as string | undefined;
+    const tabName = tabParam || tabs.find((t) => t.title?.includes('SB Data') || t.title?.includes('Report'))?.title || tabs[0]?.title || 'Sheet1';
     const headerData = await sheets.spreadsheets.values.get({
       spreadsheetId: sheetId,
       range: `'${tabName}'!A1:BZ${headerRow}`,
