@@ -83,10 +83,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const resolveGrantName = (ghlKey: string): string | null => {
       if (uniqueConfigGrants.includes(ghlKey)) return ghlKey;
+      // Normalize: lowercase, replace spaces/dots with underscores
       const normalized = ghlKey.toLowerCase().replace(/[\s.]+/g, '_');
       for (const configGrant of uniqueConfigGrants) {
         const configNormalized = configGrant.toLowerCase().replace(/[\s.]+/g, '_');
         if (normalized === configNormalized) return configGrant;
+      }
+      // Aggressive normalize: strip all non-alphanumeric characters
+      const stripped = ghlKey.toLowerCase().replace(/[^a-z0-9]/g, '');
+      for (const configGrant of uniqueConfigGrants) {
+        const configStripped = configGrant.toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (stripped === configStripped) return configGrant;
       }
       return null;
     };
