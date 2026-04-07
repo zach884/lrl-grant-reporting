@@ -393,25 +393,13 @@ async function fetchContact(contactId: string): Promise<{ contact: ContactOption
   const companyName = titleCase(raw.companyName ?? '');
   const fullName = [titleCase(raw.firstName ?? ''), titleCase(raw.lastName ?? '')].filter(Boolean).join(' ');
 
-  // Map custom fields by BOTH their ID and their key for flexible lookup
+  // Map custom fields by their GHL internal ID
+  // Config sheet field_key values should use these IDs for custom field lookups
   const customFieldMap: Record<string, string> = {};
   if (Array.isArray(raw.customFields)) {
-    // Log first custom field to see the structure
-    if (raw.customFields.length > 0) {
-      console.log('Custom field sample:', JSON.stringify(raw.customFields[0]));
-      console.log('Custom field keys available:', raw.customFields.map((cf: any) => `id=${cf.id} key=${cf.key} fieldKey=${cf.fieldKey}`).join(', '));
-    }
     for (const cf of raw.customFields) {
-      const val = cf.value ?? '';
+      const val = typeof cf.value === 'object' ? '' : String(cf.value ?? '');
       if (cf.id) customFieldMap[cf.id] = val;
-      if (cf.key) customFieldMap[cf.key] = val;
-      if (cf.fieldKey) customFieldMap[cf.fieldKey] = val;
-      // Also store by the last segment of any key-like field
-      for (const keyField of [cf.key, cf.fieldKey, cf.id]) {
-        if (keyField && typeof keyField === 'string' && keyField.includes('.')) {
-          customFieldMap[keyField.split('.').pop()!] = val;
-        }
-      }
     }
   }
 
