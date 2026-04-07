@@ -7,9 +7,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Try multiple endpoints to find custom field definitions
     let data: any;
     const attempts = [
+      `/locations/${GHL_LOCATION_ID}/customFields`,
       '/locations/custom-fields',
       '/custom-fields',
-      '/contacts/custom-fields',
+      `/locations/${GHL_LOCATION_ID}/custom-fields`,
     ];
 
     let lastError = '';
