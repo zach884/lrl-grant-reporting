@@ -4,10 +4,30 @@ import { ghlRequest, GHL_LOCATION_ID } from '@/lib/ghl';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
-    const data = await ghlRequest<any>({
-      path: '/locations/custom-fields',
-      params: { locationId: GHL_LOCATION_ID },
-    });
+    // Try multiple endpoints to find custom field definitions
+    let data: any;
+    const attempts = [
+      '/locations/custom-fields',
+      '/custom-fields',
+      '/contacts/custom-fields',
+    ];
+
+    let lastError = '';
+    for (const path of attempts) {
+      try {
+        data = await ghlRequest<any>({
+          path,
+          params: { locationId: GHL_LOCATION_ID },
+        });
+        break;
+      } catch (e: any) {
+        lastError = e.message;
+      }
+    }
+
+    if (!data) {
+      return res.status(500).json({ error: `All endpoints failed. Last: ${lastError}` });
+    }
 
     const fields = (data.customFields ?? data.fields ?? []).map((f: any) => ({
       id: f.id,
