@@ -8,9 +8,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     let data: any;
     const attempts = [
       `/locations/${GHL_LOCATION_ID}/customFields`,
-      '/locations/custom-fields',
+      '/locations/customFields',
       '/custom-fields',
-      `/locations/${GHL_LOCATION_ID}/custom-fields`,
+      '/customFields',
+      '/locations/custom-fields',
     ];
 
     let lastError = '';
