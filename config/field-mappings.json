@@ -1,0 +1,391 @@
+{
+  "version": 1,
+  "updatedAt": "2026-07-08T01:08:25.907Z",
+  "mappings": [
+    {
+      "contactKey": "companyName",
+      "businessKey": "name",
+      "direction": "down",
+      "mirrorDown": true,
+      "note": "Legacy free-text Company Name box; Primary Company association does NOT fill it."
+    },
+    {
+      "contactKey": "contact.patents",
+      "businessKey": "business.patents",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (key)"
+    },
+    {
+      "contactKey": "contact.revenue_stage",
+      "businessKey": "business.revenue_stage",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (key)"
+    },
+    {
+      "contactKey": "contact.crl_advancement",
+      "businessKey": "business.crl_advancement",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (key)"
+    },
+    {
+      "contactKey": "contact.crl_current",
+      "businessKey": "business.crl_current",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (key)"
+    },
+    {
+      "contactKey": "contact.churchill_advancement",
+      "businessKey": "business.churchill_advancement",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (key)"
+    },
+    {
+      "contactKey": "contact.total_business_stage_advancement",
+      "businessKey": "business.total_business_stage_advancement",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (key)"
+    },
+    {
+      "contactKey": "contact.churchill_initial",
+      "businessKey": "business.churchill_initial",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (key)"
+    },
+    {
+      "contactKey": "contact.crl_initial",
+      "businessKey": "business.crl_initial",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (key)"
+    },
+    {
+      "contactKey": "contact.date_registered_in_michigan",
+      "businessKey": "business.date_registered_in_michigan",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (key)"
+    },
+    {
+      "contactKey": "contact.churchill_substage_current",
+      "businessKey": "business.churchill_substage_current",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (key)"
+    },
+    {
+      "contactKey": "contact.county",
+      "businessKey": "business.county",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (key)"
+    },
+    {
+      "contactKey": "contact.trl_current",
+      "businessKey": "business.trl_current",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (key)"
+    },
+    {
+      "contactKey": "contact.churchill_current",
+      "businessKey": "business.churchill_current",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (key)"
+    },
+    {
+      "contactKey": "contact.trl_advancement",
+      "businessKey": "business.trl_advancement",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (key)"
+    },
+    {
+      "contactKey": "contact.trl_initial",
+      "businessKey": "business.trl_initial",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (key)"
+    },
+    {
+      "contactKey": "contact.owner_involvement",
+      "businessKey": "business.owner_involvement",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (key)"
+    },
+    {
+      "contactKey": "contact.latest_churchill_stage_rationale",
+      "businessKey": "business.latest_churchill_stage_rationale",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (key)"
+    },
+    {
+      "contactKey": "contact.mrl_initial",
+      "businessKey": "business.mrl_initial",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (key)"
+    },
+    {
+      "contactKey": "contact.linkedin",
+      "businessKey": "business.linkedin",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (key)"
+    },
+    {
+      "contactKey": "contact.latest_tech_stage_rationale",
+      "businessKey": "business.latest_tech_stage_rationale",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (key)"
+    },
+    {
+      "contactKey": "contact.churchill_substage_initial",
+      "businessKey": "business.churchill_substage_initial",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (key)"
+    },
+    {
+      "contactKey": "contact.mrl_current",
+      "businessKey": "business.mrl_current",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (key)"
+    },
+    {
+      "contactKey": "contact.where_are_you_today",
+      "businessKey": "business.where_are_you_today",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (key)"
+    },
+    {
+      "contactKey": "contact.business_stage_rescored_date",
+      "businessKey": "business.business_stage_rescored_date",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (key)"
+    },
+    {
+      "contactKey": "contact.annual_revenue",
+      "businessKey": "business.annual_revenue",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (key)"
+    },
+    {
+      "contactKey": "contact.i_am_selling",
+      "businessKey": "business.i_am_selling",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (key)"
+    },
+    {
+      "contactKey": "contact.cash_flow_today",
+      "businessKey": "business.cash_flow_today",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (key)"
+    },
+    {
+      "contactKey": "contact.naics_code",
+      "businessKey": "business.naics_code",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (key)"
+    },
+    {
+      "contactKey": "contact.mrl_advancement",
+      "businessKey": "business.mrl_advancement",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (key)"
+    },
+    {
+      "contactKey": "contact.date_of_incorporation",
+      "businessKey": "business.date_of_incorporation",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (key)"
+    },
+    {
+      "contactKey": "contact.initial_assessment_method",
+      "businessKey": "business.initial_assessment_method",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (key)"
+    },
+    {
+      "contactKey": "contact.management_team",
+      "businessKey": "business.management_team",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (key)"
+    },
+    {
+      "contactKey": "contact.business_stage_rescored_method",
+      "businessKey": "business.business_stage_rescored_method",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (key)"
+    },
+    {
+      "contactKey": "contact.my_company_is_registered_in_the_state_of_michigan_as_a_legal_entity",
+      "businessKey": "business.mi_registered_entity",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (name)"
+    },
+    {
+      "contactKey": "contact.my_company_is_a_woman_owned_business_radio",
+      "businessKey": "business.women_owned",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (name)"
+    },
+    {
+      "contactKey": "contact.manufacturing_partner_status",
+      "businessKey": "business.mfg_partner_status",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (name)"
+    },
+    {
+      "contactKey": "contact.have_you_found_product_market_fit",
+      "businessKey": "business.product_market_fit",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (name)"
+    },
+    {
+      "contactKey": "contact.my_company_has_been_supported_by_lean_rocket_lab_services_or_programs_in_the_last_18_months",
+      "businessKey": "business.supported_by_lrl_18mo",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (name)"
+    },
+    {
+      "contactKey": "contact.my_company_is_a_veteran_owned_business_radio",
+      "businessKey": "business.veteran_owned",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (name)"
+    },
+    {
+      "contactKey": "contact.number_of_full_time_equivalents_fte",
+      "businessKey": "business.fte_current",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (name)"
+    },
+    {
+      "contactKey": "contact.radio_183j1",
+      "businessKey": "business.business_model",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (name)"
+    },
+    {
+      "contactKey": "contact.what_does_success_look_like_in_the_next_12_months",
+      "businessKey": "business.success_next_12mo",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (name)"
+    },
+    {
+      "contactKey": "contact.number_of_fte_you_anticipate_hiring_in_the_next_12_months",
+      "businessKey": "business.fte_hiring_next_12mo",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (name)"
+    },
+    {
+      "contactKey": "contact.lara_id_number",
+      "businessKey": "business.lara_id",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (name)"
+    },
+    {
+      "contactKey": "contact.number_of_paying_customers_today",
+      "businessKey": "business.paying_customers",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (name)"
+    },
+    {
+      "contactKey": "contact.my_company_has_a_formal_written_business_plan",
+      "businessKey": "business.has_business_plan",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (name)"
+    },
+    {
+      "contactKey": "contact.my_company_is_a_disabled_owned_business_radio",
+      "businessKey": "business.disabled_owned",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (name)"
+    },
+    {
+      "contactKey": "contact.independent_validation",
+      "businessKey": "business.independent_validation_company",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (name)"
+    },
+    {
+      "contactKey": "contact.current_state_of_your_technology_product",
+      "businessKey": "business.tech_product_state",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (name)"
+    },
+    {
+      "contactKey": "contact.where_you_are_with_selling",
+      "businessKey": "business.selling_stage",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (name)"
+    },
+    {
+      "contactKey": "contact.my_company_is_a_minority_owned_business_radio",
+      "businessKey": "business.minority_owned",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (name)"
+    },
+    {
+      "contactKey": "contact.what_is_your_biggest_challenge_right_now",
+      "businessKey": "business.biggest_challenge",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (name)"
+    },
+    {
+      "contactKey": "contact.how_is_your_product_manufactured_today",
+      "businessKey": "business.mfg_method",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (name)"
+    },
+    {
+      "contactKey": "contact.locations_sites_of_operation",
+      "businessKey": "business.locations_sites",
+      "direction": "both",
+      "mirrorDown": false,
+      "note": "auto-suggested (name)"
+    }
+  ]
+}
