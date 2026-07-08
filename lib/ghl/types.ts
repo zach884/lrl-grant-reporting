@@ -68,8 +68,8 @@ export interface BusinessListItem {
   id: string;
   name: string;
   postalCode?: string;
-  /** Legacy list returns customFields as [{ key, valueString }] (not the objects shape). */
-  customFields?: Array<{ key?: string; valueString?: string; value?: unknown }>;
+  /** Legacy list returns customFields as [{ key, valueString | valueNumber }] (not the objects shape). */
+  customFields?: Array<{ key?: string; valueString?: string; valueNumber?: number; value?: unknown }>;
 }
 
 /** Contact custom-field value as returned on a contact record (keyed by id). */
