@@ -1,6 +1,6 @@
 {
-  "version": 3,
-  "updatedAt": "2026-07-08T01:29:37.545298Z",
+  "version": 4,
+  "updatedAt": "2026-07-08T10:37:03.640512Z",
   "mappings": [
     {
       "contactKey": "companyName",
@@ -12,241 +12,241 @@
     {
       "contactKey": "contact.patents",
       "businessKey": "business.patents",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08."
     },
     {
       "contactKey": "contact.revenue_stage",
       "businessKey": "business.revenue_stage",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08."
     },
     {
       "contactKey": "contact.crl_advancement",
       "businessKey": "business.crl_advancement",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.crl_current",
       "businessKey": "business.crl_current",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.churchill_advancement",
       "businessKey": "business.churchill_advancement",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.total_business_stage_advancement",
       "businessKey": "business.total_business_stage_advancement",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.churchill_initial",
       "businessKey": "business.churchill_initial",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.crl_initial",
       "businessKey": "business.crl_initial",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.date_registered_in_michigan",
       "businessKey": "business.date_registered_in_michigan",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08."
     },
     {
       "contactKey": "contact.churchill_substage_current",
       "businessKey": "business.churchill_substage_current",
       "direction": "both",
       "mirrorDown": true,
-      "note": "mirror subset (feeds contact eligibility/legacy reporting)"
+      "note": "mirror subset (feeds contact eligibility/legacy reporting) [candidate -> future BusinessStageTracking object]"
     },
     {
-      "contactKey": "contact.county",
+      "contactKey": "contact.county_mi__full",
       "businessKey": "business.county",
       "direction": "both",
       "mirrorDown": true,
-      "note": "mirror subset (feeds contact eligibility/legacy reporting) \u2014 REVIEW: suggest pairs the OLD 4-value contact.county; consider retargeting to contact.county_mi__full (83-value)."
+      "note": "mirror subset. RETARGETED 2026-07-08 to the 83-value contact.county_mi__full (was old 4-value contact.county). Feeds SBSH county eligibility + legacy county workflow."
     },
     {
       "contactKey": "contact.trl_current",
       "businessKey": "business.trl_current",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.churchill_current",
       "businessKey": "business.churchill_current",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.trl_advancement",
       "businessKey": "business.trl_advancement",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.trl_initial",
       "businessKey": "business.trl_initial",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.owner_involvement",
       "businessKey": "business.owner_involvement",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08."
     },
     {
       "contactKey": "contact.latest_churchill_stage_rationale",
       "businessKey": "business.latest_churchill_stage_rationale",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.mrl_initial",
       "businessKey": "business.mrl_initial",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.linkedin",
       "businessKey": "business.linkedin",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08."
     },
     {
       "contactKey": "contact.latest_tech_stage_rationale",
       "businessKey": "business.latest_tech_stage_rationale",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.churchill_substage_initial",
       "businessKey": "business.churchill_substage_initial",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.mrl_current",
       "businessKey": "business.mrl_current",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.where_are_you_today",
       "businessKey": "business.where_are_you_today",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08."
     },
     {
       "contactKey": "contact.business_stage_rescored_date",
       "businessKey": "business.business_stage_rescored_date",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.annual_revenue",
       "businessKey": "business.annual_revenue",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08."
     },
     {
       "contactKey": "contact.i_am_selling",
       "businessKey": "business.i_am_selling",
       "direction": "down",
-      "mirrorDown": false,
-      "note": "Company MULTIPLE_OPTIONS: set at intake-CREATE (API) or via GHL workflow/UI (API can't UPDATE it). App DOWN-syncs value to associated contacts \u2014 contact multi-select IS API-writable (customFields id+value=array of exact labels, total overwrite).",
+      "mirrorDown": true,
+      "note": "Company MULTIPLE_OPTIONS: set at intake-CREATE (API) or via GHL workflow/UI (API can't UPDATE it). App DOWN-syncs value to associated contacts — contact multi-select IS API-writable (customFields id+value=array of exact labels, total overwrite).",
       "enabled": true
     },
     {
       "contactKey": "contact.cash_flow_today",
       "businessKey": "business.cash_flow_today",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08."
     },
     {
       "contactKey": "contact.naics_code",
       "businessKey": "business.naics_code",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08."
     },
     {
       "contactKey": "contact.mrl_advancement",
       "businessKey": "business.mrl_advancement",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.date_of_incorporation",
       "businessKey": "business.date_of_incorporation",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08."
     },
     {
       "contactKey": "contact.initial_assessment_method",
       "businessKey": "business.initial_assessment_method",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.management_team",
       "businessKey": "business.management_team",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08."
     },
     {
       "contactKey": "contact.business_stage_rescored_method",
       "businessKey": "business.business_stage_rescored_method",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.my_company_is_registered_in_the_state_of_michigan_as_a_legal_entity",
       "businessKey": "business.mi_registered_entity",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08."
     },
     {
       "contactKey": "contact.my_company_is_a_woman_owned_business_radio",
@@ -258,23 +258,23 @@
     {
       "contactKey": "contact.manufacturing_partner_status",
       "businessKey": "business.mfg_partner_status",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08."
     },
     {
       "contactKey": "contact.have_you_found_product_market_fit",
       "businessKey": "business.product_market_fit",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08."
     },
     {
       "contactKey": "contact.my_company_has_been_supported_by_lean_rocket_lab_services_or_programs_in_the_last_18_months",
       "businessKey": "business.supported_by_lrl_18mo",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08."
     },
     {
       "contactKey": "contact.my_company_is_a_veteran_owned_business_radio",
@@ -286,51 +286,51 @@
     {
       "contactKey": "contact.number_of_full_time_equivalents_fte",
       "businessKey": "business.fte_current",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08."
     },
     {
       "contactKey": "contact.radio_183j1",
       "businessKey": "business.business_model",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08."
     },
     {
       "contactKey": "contact.what_does_success_look_like_in_the_next_12_months",
       "businessKey": "business.success_next_12mo",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08."
     },
     {
       "contactKey": "contact.number_of_fte_you_anticipate_hiring_in_the_next_12_months",
       "businessKey": "business.fte_hiring_next_12mo",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08."
     },
     {
       "contactKey": "contact.lara_id_number",
       "businessKey": "business.lara_id",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08."
     },
     {
       "contactKey": "contact.number_of_paying_customers_today",
       "businessKey": "business.paying_customers",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08."
     },
     {
       "contactKey": "contact.my_company_has_a_formal_written_business_plan",
       "businessKey": "business.has_business_plan",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08."
     },
     {
       "contactKey": "contact.my_company_is_a_disabled_owned_business_radio",
@@ -343,23 +343,23 @@
       "contactKey": "contact.independent_validation",
       "businessKey": "business.independent_validation_company",
       "direction": "down",
-      "mirrorDown": false,
-      "note": "Company MULTIPLE_OPTIONS: set at intake-CREATE (API) or via GHL workflow/UI (API can't UPDATE it). App DOWN-syncs value to associated contacts \u2014 contact multi-select IS API-writable (customFields id+value=array of exact labels, total overwrite).",
+      "mirrorDown": true,
+      "note": "Company MULTIPLE_OPTIONS: set at intake-CREATE (API) or via GHL workflow/UI (API can't UPDATE it). App DOWN-syncs value to associated contacts — contact multi-select IS API-writable (customFields id+value=array of exact labels, total overwrite).",
       "enabled": true
     },
     {
       "contactKey": "contact.current_state_of_your_technology_product",
       "businessKey": "business.tech_product_state",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08."
     },
     {
       "contactKey": "contact.where_you_are_with_selling",
       "businessKey": "business.selling_stage",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08."
     },
     {
       "contactKey": "contact.my_company_is_a_minority_owned_business_radio",
@@ -371,24 +371,24 @@
     {
       "contactKey": "contact.what_is_your_biggest_challenge_right_now",
       "businessKey": "business.biggest_challenge",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08."
     },
     {
       "contactKey": "contact.how_is_your_product_manufactured_today",
       "businessKey": "business.mfg_method",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08."
     },
     {
       "contactKey": "contact.locations_sites_of_operation",
       "businessKey": "business.locations_sites",
-      "direction": "up",
-      "mirrorDown": false,
-      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08."
     }
   ],
-  "_curation": "First-pass (Claude 2026-07-07). Company=source of truth; default up-sync (contact/intake->company), minimal mirror-down subset (companyName,county,ownership flags,churchill_substage_current). Company multi-selects (i_am_selling, independent_validation_company) = direction down: updated natively in GHL, app fans out to contacts. REVIEW rows flagged in note. Adjust direction/mirrorDown as needed."
+  "_curation": "Curated 2026-07-08 (Sync-to-Production sprint, w/ Zach). Company = source of truth. MIRROR-ALL posture: every paired field mirrors DOWN to associated contacts because legacy contact-triggered workflows + legacy reports still read these off the contact; prune the mirror later as reports migrate to read Company directly. county retargeted to the 83-value contact.county_mi__full. The 2 company MULTIPLE_OPTIONS (i_am_selling, independent_validation_company) stay direction=down (API can't UPDATE company multi-select; set at intake-create/UI, app fans down). Business-stage-tracking rows tagged as candidates for a future dedicated object (w/ Activities, Grants, Client Outcomes)."
 }
