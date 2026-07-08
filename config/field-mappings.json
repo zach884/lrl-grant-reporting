@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "updatedAt": "2026-07-08T01:08:25.907Z",
+  "version": 3,
+  "updatedAt": "2026-07-08T01:29:37.545298Z",
   "mappings": [
     {
       "contactKey": "companyName",
@@ -12,380 +12,383 @@
     {
       "contactKey": "contact.patents",
       "businessKey": "business.patents",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (key)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.revenue_stage",
       "businessKey": "business.revenue_stage",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (key)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.crl_advancement",
       "businessKey": "business.crl_advancement",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (key)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.crl_current",
       "businessKey": "business.crl_current",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (key)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.churchill_advancement",
       "businessKey": "business.churchill_advancement",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (key)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.total_business_stage_advancement",
       "businessKey": "business.total_business_stage_advancement",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (key)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.churchill_initial",
       "businessKey": "business.churchill_initial",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (key)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.crl_initial",
       "businessKey": "business.crl_initial",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (key)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.date_registered_in_michigan",
       "businessKey": "business.date_registered_in_michigan",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (key)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.churchill_substage_current",
       "businessKey": "business.churchill_substage_current",
       "direction": "both",
-      "mirrorDown": false,
-      "note": "auto-suggested (key)"
+      "mirrorDown": true,
+      "note": "mirror subset (feeds contact eligibility/legacy reporting)"
     },
     {
       "contactKey": "contact.county",
       "businessKey": "business.county",
       "direction": "both",
-      "mirrorDown": false,
-      "note": "auto-suggested (key)"
+      "mirrorDown": true,
+      "note": "mirror subset (feeds contact eligibility/legacy reporting) \u2014 REVIEW: suggest pairs the OLD 4-value contact.county; consider retargeting to contact.county_mi__full (83-value)."
     },
     {
       "contactKey": "contact.trl_current",
       "businessKey": "business.trl_current",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (key)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.churchill_current",
       "businessKey": "business.churchill_current",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (key)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.trl_advancement",
       "businessKey": "business.trl_advancement",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (key)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.trl_initial",
       "businessKey": "business.trl_initial",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (key)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.owner_involvement",
       "businessKey": "business.owner_involvement",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (key)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.latest_churchill_stage_rationale",
       "businessKey": "business.latest_churchill_stage_rationale",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (key)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.mrl_initial",
       "businessKey": "business.mrl_initial",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (key)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.linkedin",
       "businessKey": "business.linkedin",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (key)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.latest_tech_stage_rationale",
       "businessKey": "business.latest_tech_stage_rationale",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (key)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.churchill_substage_initial",
       "businessKey": "business.churchill_substage_initial",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (key)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.mrl_current",
       "businessKey": "business.mrl_current",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (key)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.where_are_you_today",
       "businessKey": "business.where_are_you_today",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (key)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.business_stage_rescored_date",
       "businessKey": "business.business_stage_rescored_date",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (key)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.annual_revenue",
       "businessKey": "business.annual_revenue",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (key)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.i_am_selling",
       "businessKey": "business.i_am_selling",
-      "direction": "both",
+      "direction": "down",
       "mirrorDown": false,
-      "note": "auto-suggested (key)"
+      "note": "Company MULTIPLE_OPTIONS: set at intake-CREATE (API) or via GHL workflow/UI (API can't UPDATE it). App DOWN-syncs value to associated contacts \u2014 contact multi-select IS API-writable (customFields id+value=array of exact labels, total overwrite).",
+      "enabled": true
     },
     {
       "contactKey": "contact.cash_flow_today",
       "businessKey": "business.cash_flow_today",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (key)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.naics_code",
       "businessKey": "business.naics_code",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (key)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.mrl_advancement",
       "businessKey": "business.mrl_advancement",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (key)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.date_of_incorporation",
       "businessKey": "business.date_of_incorporation",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (key)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.initial_assessment_method",
       "businessKey": "business.initial_assessment_method",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (key)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.management_team",
       "businessKey": "business.management_team",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (key)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.business_stage_rescored_method",
       "businessKey": "business.business_stage_rescored_method",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (key)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.my_company_is_registered_in_the_state_of_michigan_as_a_legal_entity",
       "businessKey": "business.mi_registered_entity",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (name)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.my_company_is_a_woman_owned_business_radio",
       "businessKey": "business.women_owned",
       "direction": "both",
-      "mirrorDown": false,
-      "note": "auto-suggested (name)"
+      "mirrorDown": true,
+      "note": "mirror subset (feeds contact eligibility/legacy reporting)"
     },
     {
       "contactKey": "contact.manufacturing_partner_status",
       "businessKey": "business.mfg_partner_status",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (name)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.have_you_found_product_market_fit",
       "businessKey": "business.product_market_fit",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (name)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.my_company_has_been_supported_by_lean_rocket_lab_services_or_programs_in_the_last_18_months",
       "businessKey": "business.supported_by_lrl_18mo",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (name)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.my_company_is_a_veteran_owned_business_radio",
       "businessKey": "business.veteran_owned",
       "direction": "both",
-      "mirrorDown": false,
-      "note": "auto-suggested (name)"
+      "mirrorDown": true,
+      "note": "mirror subset (feeds contact eligibility/legacy reporting)"
     },
     {
       "contactKey": "contact.number_of_full_time_equivalents_fte",
       "businessKey": "business.fte_current",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (name)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.radio_183j1",
       "businessKey": "business.business_model",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (name)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.what_does_success_look_like_in_the_next_12_months",
       "businessKey": "business.success_next_12mo",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (name)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.number_of_fte_you_anticipate_hiring_in_the_next_12_months",
       "businessKey": "business.fte_hiring_next_12mo",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (name)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.lara_id_number",
       "businessKey": "business.lara_id",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (name)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.number_of_paying_customers_today",
       "businessKey": "business.paying_customers",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (name)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.my_company_has_a_formal_written_business_plan",
       "businessKey": "business.has_business_plan",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (name)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.my_company_is_a_disabled_owned_business_radio",
       "businessKey": "business.disabled_owned",
       "direction": "both",
-      "mirrorDown": false,
-      "note": "auto-suggested (name)"
+      "mirrorDown": true,
+      "note": "mirror subset (feeds contact eligibility/legacy reporting)"
     },
     {
       "contactKey": "contact.independent_validation",
       "businessKey": "business.independent_validation_company",
-      "direction": "both",
+      "direction": "down",
       "mirrorDown": false,
-      "note": "auto-suggested (name)"
+      "note": "Company MULTIPLE_OPTIONS: set at intake-CREATE (API) or via GHL workflow/UI (API can't UPDATE it). App DOWN-syncs value to associated contacts \u2014 contact multi-select IS API-writable (customFields id+value=array of exact labels, total overwrite).",
+      "enabled": true
     },
     {
       "contactKey": "contact.current_state_of_your_technology_product",
       "businessKey": "business.tech_product_state",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (name)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.where_you_are_with_selling",
       "businessKey": "business.selling_stage",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (name)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.my_company_is_a_minority_owned_business_radio",
       "businessKey": "business.minority_owned",
       "direction": "both",
-      "mirrorDown": false,
-      "note": "auto-suggested (name)"
+      "mirrorDown": true,
+      "note": "mirror subset (feeds contact eligibility/legacy reporting)"
     },
     {
       "contactKey": "contact.what_is_your_biggest_challenge_right_now",
       "businessKey": "business.biggest_challenge",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (name)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.how_is_your_product_manufactured_today",
       "businessKey": "business.mfg_method",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (name)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     },
     {
       "contactKey": "contact.locations_sites_of_operation",
       "businessKey": "business.locations_sites",
-      "direction": "both",
+      "direction": "up",
       "mirrorDown": false,
-      "note": "auto-suggested (name)"
+      "note": "firmographic: contact/intake -> Company (source of truth); read on demand, not mirrored down"
     }
-  ]
+  ],
+  "_curation": "First-pass (Claude 2026-07-07). Company=source of truth; default up-sync (contact/intake->company), minimal mirror-down subset (companyName,county,ownership flags,churchill_substage_current). Company multi-selects (i_am_selling, independent_validation_company) = direction down: updated natively in GHL, app fans out to contacts. REVIEW rows flagged in note. Adjust direction/mirrorDown as needed."
 }

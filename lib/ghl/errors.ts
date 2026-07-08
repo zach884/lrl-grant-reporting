@@ -50,11 +50,12 @@ export class GhlApiError extends Error {
 export class GhlUnwritableFieldError extends Error {
   readonly fieldKey: string;
   readonly dataType: string;
-  constructor(fieldKey: string, dataType: string) {
+  constructor(fieldKey: string, dataType: string, detail?: string) {
     super(
       `Field "${fieldKey}" (${dataType}) cannot be written via the GHL API ` +
-        `(it returns 200 but silently drops the value). Maintain it in the GHL UI, ` +
-        `or model it as SINGLE_OPTIONS/TEXT.`,
+        (detail ??
+          `(it returns 200 but silently drops the value). Maintain it in the GHL UI, ` +
+            `or model it as SINGLE_OPTIONS/TEXT.`),
     );
     this.name = 'GhlUnwritableFieldError';
     this.fieldKey = fieldKey;

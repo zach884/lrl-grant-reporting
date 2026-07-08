@@ -50,8 +50,11 @@ export interface ResolvedFieldMapping extends FieldMapping {
   /** contact-side field exists in the live catalog (scalars are always considered present). */
   contactExists: boolean;
   businessExists: boolean;
-  /** false if the company target type can't be written via the API (CHECKBOX/TEXTBOX_LIST/MULTIPLE_OPTIONS). */
+  /** false if the company target type can't be written via the API on UPDATE
+   *  (CHECKBOX/TEXTBOX_LIST always; MULTIPLE_OPTIONS on update). */
   businessWritable: boolean;
+  /** true if the company target (MULTIPLE_OPTIONS) is writable ONLY at record creation. */
+  businessCreateOnly: boolean;
   /** true when both sides are option types (single-select) and need key<->label handling. */
   optionType: boolean;
   issues: MappingIssue[];

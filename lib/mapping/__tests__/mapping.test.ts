@@ -52,13 +52,25 @@ describe('suggestMappings', () => {
 });
 
 describe('resolveMappings + collectIssues', () => {
-  it('flags an unwritable company target as an error', () => {
+  it('flags a truly unwritable company target (CHECKBOX) as an error', () => {
+    const cat = catalog([{ id: 'x', name: 'CB', fieldKey: 'business.cb', dataType: 'CHECKBOX' }]);
+    const maps: FieldMapping[] = [
+      { contactKey: 'contact.naics_code', businessKey: 'business.cb', direction: 'both', mirrorDown: false },
+    ];
+    const resolved = resolveMappings(maps, contactCat, cat);
+    expect(resolved[0].businessWritable).toBe(false);
+    expect(resolved[0].issues.some((i) => i.level === 'error')).toBe(true);
+  });
+
+  it('treats MULTIPLE_OPTIONS as create-only: not update-writable, warning not error', () => {
     const maps: FieldMapping[] = [
       { contactKey: 'contact.interested_programs', businessKey: 'business.i_am_selling', direction: 'both', mirrorDown: false },
     ];
     const resolved = resolveMappings(maps, contactCat, businessCat);
     expect(resolved[0].businessWritable).toBe(false);
-    expect(resolved[0].issues.some((i) => i.level === 'error')).toBe(true);
+    expect(resolved[0].businessCreateOnly).toBe(true);
+    expect(resolved[0].issues.some((i) => i.level === 'error')).toBe(false);
+    expect(resolved[0].issues.some((i) => i.level === 'warning')).toBe(true);
   });
 
   it('flags a mapping to a non-existent field', () => {

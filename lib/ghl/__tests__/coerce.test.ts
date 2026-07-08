@@ -5,6 +5,8 @@ import {
   optionKeyToLabel,
   coerceBusinessProperties,
   isUnwritable,
+  isCreateOnly,
+  isWritableInMode,
 } from '../coerce';
 import { GhlUnwritableFieldError } from '../errors';
 import type { CustomFieldDef } from '../types';
@@ -24,6 +26,11 @@ const catalog: Record<string, CustomFieldDef> = {
   'business.problem': { id: '4', name: 'Problem', fieldKey: 'business.problem', dataType: 'LARGE_TEXT' },
   'business.i_am_selling': {
     id: '5', name: 'Selling', fieldKey: 'business.i_am_selling', dataType: 'MULTIPLE_OPTIONS',
+    options: [
+      { key: 'product', label: 'Product' },
+      { key: 'service', label: 'Service' },
+      { key: 'both', label: 'Both' },
+    ],
   },
 };
 
@@ -92,10 +99,28 @@ describe('coerceBusinessProperties', () => {
     expect(skipped).toContainEqual({ key: 'county', value: 'Nowhere County', reason: 'no matching option' });
   });
 
-  it('throws on unwritable field types (MULTIPLE_OPTIONS/CHECKBOX/TEXTBOX_LIST)', () => {
+  it('refuses MULTIPLE_OPTIONS on update (immutable via API after creation)', () => {
     expect(() =>
-      coerceBusinessProperties({ i_am_selling: 'Products' }, catalog),
+      coerceBusinessProperties({ i_am_selling: 'Product' }, catalog), // default mode = update
     ).toThrow(GhlUnwritableFieldError);
+  });
+
+  it('accepts MULTIPLE_OPTIONS on create as an array of option KEYS', () => {
+    const { properties } = coerceBusinessProperties(
+      { i_am_selling: ['Product', 'service'] }, // mix of label + key
+      catalog,
+      'create',
+    );
+    expect(properties).toEqual({ i_am_selling: ['product', 'service'] });
+  });
+
+  it('splits a comma string into multi-select keys on create', () => {
+    const { properties } = coerceBusinessProperties(
+      { i_am_selling: 'Product, Both' },
+      catalog,
+      'create',
+    );
+    expect(properties).toEqual({ i_am_selling: ['product', 'both'] });
   });
 
   it('accepts both prefixed and bare keys', () => {
@@ -104,12 +129,20 @@ describe('coerceBusinessProperties', () => {
   });
 });
 
-describe('isUnwritable', () => {
-  it('flags the API-hostile types', () => {
+describe('writability classification', () => {
+  it('CHECKBOX / TEXTBOX_LIST are never writable via the API', () => {
     expect(isUnwritable('CHECKBOX')).toBe(true);
     expect(isUnwritable('TEXTBOX_LIST')).toBe(true);
-    expect(isUnwritable('MULTIPLE_OPTIONS')).toBe(true);
+  });
+  it('MULTIPLE_OPTIONS is create-only, not blanket-unwritable', () => {
+    expect(isUnwritable('MULTIPLE_OPTIONS')).toBe(false);
+    expect(isCreateOnly('MULTIPLE_OPTIONS')).toBe(true);
+    expect(isWritableInMode('MULTIPLE_OPTIONS', 'create')).toBe(true);
+    expect(isWritableInMode('MULTIPLE_OPTIONS', 'update')).toBe(false);
+  });
+  it('ordinary types are writable in both modes', () => {
     expect(isUnwritable('TEXT')).toBe(false);
-    expect(isUnwritable('SINGLE_OPTIONS')).toBe(false);
+    expect(isCreateOnly('SINGLE_OPTIONS')).toBe(false);
+    expect(isWritableInMode('TEXT', 'update')).toBe(true);
   });
 });

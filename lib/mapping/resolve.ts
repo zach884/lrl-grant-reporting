@@ -5,7 +5,7 @@
 // unwritable target type, option-type mismatch) so nothing silently misbehaves at sync time.
 
 import type { CustomFieldCatalog } from '../ghl/types';
-import { isUnwritable } from '../ghl/coerce';
+import { isUnwritable, isCreateOnly } from '../ghl/coerce';
 import type {
   FieldMapping,
   MappingIssue,
@@ -29,7 +29,10 @@ export function resolveMapping(
   const contactExists = !!cDef || CONTACT_SCALARS.has(m.contactKey);
   const businessExists = !!bDef || BUSINESS_SCALARS.has(m.businessKey);
   const businessDataType = bDef?.dataType;
-  const businessWritable = bDef ? !isUnwritable(bDef.dataType) : businessExists; // scalars writable
+  const businessCreateOnly = bDef ? isCreateOnly(bDef.dataType) : false;
+  const businessWritable = bDef
+    ? !isUnwritable(bDef.dataType) && !businessCreateOnly // writable on UPDATE
+    : businessExists; // scalars writable
   const optionType =
     !!cDef && !!bDef && OPTION_TYPES.has(cDef.dataType) && OPTION_TYPES.has(bDef.dataType);
 
@@ -41,6 +44,9 @@ export function resolveMapping(
   if (!businessExists) add('error', `Company field "${m.businessKey}" not found in the live catalog.`);
   if (bDef && isUnwritable(bDef.dataType)) {
     add('error', `Company field is ${bDef.dataType} — cannot be written via the API. Maintain in the UI or remodel as SINGLE_OPTIONS/TEXT.`);
+  }
+  if (businessCreateOnly) {
+    add('warning', `Company field is ${bDef!.dataType} — settable ONLY at company creation (intake), immutable via update sync. For existing companies maintain in the UI.`);
   }
   if (cDef && bDef && OPTION_TYPES.has(cDef.dataType) !== OPTION_TYPES.has(bDef.dataType)) {
     add('warning', `Type mismatch: contact ${cDef.dataType} vs company ${bDef.dataType} — option key/label handling may not apply cleanly.`);
@@ -58,6 +64,7 @@ export function resolveMapping(
     contactExists,
     businessExists,
     businessWritable,
+    businessCreateOnly,
     optionType,
     issues,
   };

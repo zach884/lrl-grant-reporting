@@ -73,6 +73,29 @@ export async function createBusiness(
   return data.business?.id ?? data.id;
 }
 
+/**
+ * Create a company via the OBJECTS endpoint with custom-field values coerced in
+ * 'create' mode. This is the ONLY path that can set MULTIPLE_OPTIONS fields
+ * (confirmed live: settable at create, immutable on update). Use it for the intake
+ * create-point and any programmatic company creation that needs multi-selects.
+ * Returns { id, coerced } so callers can log skipped fields.
+ */
+export async function createBusinessRecord(
+  values: Record<string, unknown>,
+  catalogByKey: Record<string, CustomFieldDef>,
+  client: GhlClient = ghl(),
+): Promise<{ id: string; coerced: CoerceResult }> {
+  const coerced = coerceBusinessProperties(values, catalogByKey, 'create');
+  const data = await client.request<any>({
+    method: 'POST',
+    path: '/objects/business/records',
+    autoLocation: false,
+    body: { locationId: client.locationId, properties: coerced.properties },
+  });
+  const id = data.record?.id ?? data.id;
+  return { id, coerced };
+}
+
 /** Rename a company. PUT /businesses/{id} body {name} ONLY (locationId in body => 422). */
 export async function renameBusiness(
   businessId: string,
