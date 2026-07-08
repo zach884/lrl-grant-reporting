@@ -172,10 +172,12 @@ export async function reconcileAll(
       }
       if (companyChanged) changed.push(result);
       opts.onCompany?.(result);
+      // Mark done ONLY on success — an errored company must be retried on resume,
+      // not silently skipped.
+      if (opts.checkpoint) { try { await opts.checkpoint.markDone(companyId); } catch { /* best-effort */ } }
     } catch (e: any) {
       stats.errors.push({ companyId, message: e?.message ?? String(e) });
     } finally {
-      if (opts.checkpoint) { try { await opts.checkpoint.markDone(companyId); } catch { /* best-effort */ } }
       progressDone++;
       opts.onProgress?.(progressDone, total);
     }

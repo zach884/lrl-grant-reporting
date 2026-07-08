@@ -8,6 +8,7 @@ const calls: string[] = [];
 vi.mock('../downsync', () => ({
   syncCompanyDown: vi.fn(async (companyId: string, _m: any, _c: any, opts: any): Promise<CompanySyncResult> => {
     calls.push(companyId);
+    if (companyId === 'cERR') throw new Error('429: simulated rate limit');
     const contacts: Contact[] = opts.contacts ?? [];
     const results = contacts.map((c, i) => ({
       contactId: c.id,
@@ -77,6 +78,15 @@ describe('reconcileAll orchestration', () => {
     expect(rep.stats.companiesProcessed).toBe(3);
     expect(rep.stats.fieldsWritten).toBe(2);
     expect(rep.run.concurrency).toBe(3);
+  });
+
+  it('does NOT checkpoint a company that errored (must retry on resume)', async () => {
+    const cp = new MemCheckpoint();
+    const withErr: Contact[] = [...contacts, { id: 'e1', businessId: 'cERR' } as Contact];
+    const rep = await reconcileAll([], catalogs, { apply: true, client, contacts: withErr, checkpoint: cp });
+    expect(rep.stats.errors.some((e) => e.companyId === 'cERR')).toBe(true);
+    expect(cp.marked).not.toContain('cERR');
+    expect(cp.marked.sort()).toEqual(['c1', 'c2', 'c3']);
   });
 
   it('renders a human summary with drift count', async () => {

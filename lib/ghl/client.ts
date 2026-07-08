@@ -18,10 +18,40 @@ export interface GhlRequestOptions {
   maxAttempts?: number;
 }
 
-const DEFAULT_MAX_ATTEMPTS = 4;
+const DEFAULT_MAX_ATTEMPTS = Number(process.env.GHL_MAX_ATTEMPTS) || 6;
 const BASE_BACKOFF_MS = 400;
+const MAX_BACKOFF_MS = 16000;
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+// ---- Global rate limiter -------------------------------------------------
+// GHL's LeadConnector API caps at ~100 requests / 10s (≈10 req/s sustained) per
+// location, plus a daily cap. A module-level token bucket bounds TOTAL throughput
+// across every caller/concurrent worker, so high app-level concurrency can't cause
+// a 429 storm. Starts full, so low-volume callers + unit tests see no delay.
+const MAX_RPS = Number(process.env.GHL_MAX_RPS) || 8;
+class TokenBucket {
+  private tokens: number;
+  private last = Date.now();
+  constructor(private readonly rate: number, private readonly capacity: number) {
+    this.tokens = capacity;
+  }
+  private refill() {
+    const now = Date.now();
+    this.tokens = Math.min(this.capacity, this.tokens + ((now - this.last) / 1000) * this.rate);
+    this.last = now;
+  }
+  async acquire(): Promise<void> {
+    this.refill();
+    while (this.tokens < 1) {
+      const waitMs = Math.ceil(((1 - this.tokens) / this.rate) * 1000);
+      await sleep(waitMs);
+      this.refill();
+    }
+    this.tokens -= 1;
+  }
+}
+const limiter = new TokenBucket(MAX_RPS, MAX_RPS);
 
 export class GhlClient {
   readonly config: GhlConfig;
@@ -82,6 +112,7 @@ export class GhlClient {
     while (attempt < maxAttempts) {
       attempt++;
       try {
+        await limiter.acquire();
         const res = await fetch(url, {
           method,
           headers: this.headers(hasBody),
@@ -133,7 +164,7 @@ export class GhlClient {
 
 function backoff(attempt: number): number {
   // Exponential + jitter: 400, 800, 1600ms ... capped.
-  const base = Math.min(BASE_BACKOFF_MS * 2 ** (attempt - 1), 8000);
+  const base = Math.min(BASE_BACKOFF_MS * 2 ** (attempt - 1), MAX_BACKOFF_MS);
   return base + Math.floor(Math.random() * 250);
 }
 
