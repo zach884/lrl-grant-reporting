@@ -5,6 +5,8 @@ export interface DesiredContactState {
   customInputs: Record<string, unknown>;
   /** legacy free-text Company Name box, if the map syncs it. */
   companyName?: string;
+  /** contactKey -> values that must not overwrite an existing contact value (no-downgrade). */
+  holdByContactKey?: Record<string, string[]>;
 }
 
 export interface ContactSyncResult {

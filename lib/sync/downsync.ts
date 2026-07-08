@@ -50,10 +50,12 @@ export function buildDesiredContactState(
   businessCatalog: CustomFieldCatalog,
 ): DesiredContactState {
   const customInputs: Record<string, unknown> = {};
+  const holdByContactKey: Record<string, string[]> = {};
   let companyName: string | undefined;
 
   for (const m of mappings) {
     if (!isDown(m)) continue;
+    if (m.holdValues?.length) holdByContactKey[m.contactKey] = m.holdValues;
     // Company name -> legacy contact companyName scalar.
     if (m.businessKey === 'name' && m.contactKey === 'companyName') {
       const v = company.properties['name'];
@@ -66,7 +68,7 @@ export function buildDesiredContactState(
     if (input == null || input === '' || (Array.isArray(input) && input.length === 0)) continue;
     customInputs[m.contactKey] = input;
   }
-  return { customInputs, companyName };
+  return { customInputs, companyName, holdByContactKey };
 }
 
 /** Deep-equal with array-order and type tolerance (for the equality guard). */
@@ -107,12 +109,26 @@ export function planContactWrites(
   const currentById = new Map<string, unknown>();
   for (const cf of contact.customFields ?? []) currentById.set(cf.id, cf.value);
 
+  // No-downgrade guard: map hold values (by contactKey) to the coerced field id.
+  const holdById = new Map<string, Set<string>>();
+  for (const [contactKey, vals] of Object.entries(desired.holdByContactKey ?? {})) {
+    const id = contactCatalog.byKey[contactKey]?.id;
+    if (id) holdById.set(id, new Set(vals.map((v) => v.toLowerCase())));
+  }
+  const isBlank = (v: unknown) => v == null || v === '' || (Array.isArray(v) && v.length === 0);
+
   const changedFields: ContactWritePlan['changedFields'] = [];
   const drift: ContactWritePlan['drift'] = [];
   let unchanged = 0;
   for (const f of fields) {
     const cur = currentById.get(f.id);
     if (valuesEqual(cur, f.value)) { unchanged++; continue; }
+    // Hold: don't overwrite an existing (non-blank) contact value with a hold value.
+    const hold = holdById.get(f.id);
+    if (hold && !isBlank(cur) && [f.value].flat().every((v) => hold.has(String(v).toLowerCase()))) {
+      skipped.push({ key: f.id, value: f.value, reason: `no-downgrade: refused to overwrite ${JSON.stringify(cur)} with hold value` });
+      continue;
+    }
     changedFields.push(f);
     drift.push({ field: f.id, from: cur, to: f.value });
   }

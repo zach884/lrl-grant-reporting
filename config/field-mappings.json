@@ -84,7 +84,8 @@
       "businessKey": "business.county",
       "direction": "both",
       "mirrorDown": true,
-      "note": "mirror subset. RETARGETED 2026-07-08 to the 83-value contact.county_mi__full (was old 4-value contact.county). Feeds SBSH county eligibility + legacy county workflow."
+      "holdValues": ["Other"],
+      "note": "mirror subset. RETARGETED 2026-07-08 to the 83-value contact.county_mi__full (was old 4-value contact.county). Feeds SBSH county eligibility + legacy county workflow. holdValues:['Other'] = no-downgrade guard: a company county of 'Other' (unresolved/non-MI) must not overwrite a known county on the contact."
     },
     {
       "contactKey": "contact.trl_current",

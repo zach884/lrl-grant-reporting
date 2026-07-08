@@ -116,6 +116,37 @@ describe('planContactWrites (equality guard)', () => {
   });
 });
 
+describe('no-downgrade guard (holdValues)', () => {
+  const bCat = cat([
+    { id: 'b_c', name: 'County', fieldKey: 'business.county', dataType: 'SINGLE_OPTIONS',
+      options: [{ key: 'jackson_county_mi', label: 'Jackson County (MI)' }, { key: 'other', label: 'Other' }] },
+  ]);
+  const cCat = cat([
+    { id: 'c_county', name: 'County', fieldKey: 'contact.county_mi__full', dataType: 'SINGLE_OPTIONS',
+      options: [{ key: 'jackson_county_mi', label: 'Jackson County (MI)' }, { key: 'other', label: 'Other' }] },
+  ]);
+  const map: FieldMapping[] = [
+    { contactKey: 'contact.county_mi__full', businessKey: 'business.county', direction: 'both', mirrorDown: true, holdValues: ['Other'] },
+  ];
+  const coOther: BusinessRecord = { id: 'co', properties: { county: 'other' } };
+
+  it('does NOT overwrite a known contact county with company "Other"', () => {
+    const desired = buildDesiredContactState(coOther, map, bCat);
+    const contact: Contact = { id: 'ct', customFields: [{ id: 'c_county', value: 'Jackson County (MI)' }] };
+    const plan = planContactWrites(desired, contact, cCat);
+    expect(plan.changedFields).toEqual([]);
+    expect(plan.skipped.some((s) => s.reason.startsWith('no-downgrade'))).toBe(true);
+  });
+
+  it('DOES fill an empty contact county with "Other"', () => {
+    const desired = buildDesiredContactState(coOther, map, bCat);
+    const contact: Contact = { id: 'ct', customFields: [] };
+    const plan = planContactWrites(desired, contact, cCat);
+    expect(plan.changedFields).toHaveLength(1);
+    expect(String(plan.changedFields[0].value)).toContain('Other');
+  });
+});
+
 describe('valuesEqual', () => {
   it('array order-insensitive', () => {
     expect(valuesEqual(['a', 'b'], ['b', 'a'])).toBe(true);

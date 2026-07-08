@@ -24,6 +24,10 @@ export interface FieldMapping {
   note?: string;
   /** Set false to keep a row in the table but stop syncing it. */
   enabled?: boolean;
+  /** No-downgrade guard: values that must NEVER overwrite an existing (non-empty)
+   *  contact value on down-sync. They MAY still fill an empty contact field.
+   *  Motivating case: county="Other" (unresolved/non-MI) must not clobber a real county. */
+  holdValues?: string[];
 }
 
 export interface MappingSet {
