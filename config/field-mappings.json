@@ -1,6 +1,6 @@
 {
   "version": 4,
-  "updatedAt": "2026-07-08T10:37:03.640512Z",
+  "updatedAt": "2026-07-08T11:32:02.280401Z",
   "mappings": [
     {
       "contactKey": "companyName",
@@ -84,7 +84,9 @@
       "businessKey": "business.county",
       "direction": "both",
       "mirrorDown": true,
-      "holdValues": ["Other"],
+      "holdValues": [
+        "Other"
+      ],
       "note": "mirror subset. RETARGETED 2026-07-08 to the 83-value contact.county_mi__full (was old 4-value contact.county). Feeds SBSH county eligibility + legacy county workflow. holdValues:['Other'] = no-downgrade guard: a company county of 'Other' (unresolved/non-MI) must not overwrite a known county on the contact."
     },
     {
@@ -190,8 +192,8 @@
       "businessKey": "business.i_am_selling",
       "direction": "down",
       "mirrorDown": true,
-      "note": "Company MULTIPLE_OPTIONS: set at intake-CREATE (API) or via GHL workflow/UI (API can't UPDATE it). App DOWN-syncs value to associated contacts — contact multi-select IS API-writable (customFields id+value=array of exact labels, total overwrite). UP-maintenance plan (Zach 2026-07-08): app up-sync ENROLLS the contact into a dedicated GHL workflow whose native 'Update Associated Company' action writes contact multi-select -> company multi-select (sidesteps the API update ban; app enrolls only when the field changed). PENDING sandbox verification that the native action PERSISTS a MULTIPLE_OPTIONS company field + overwrite (not append) semantics.",
-      "enabled": true
+      "note": "DISABLED 2026-07-08: FALSE auto-pair. contact.i_am_selling options (B2B/B2C) do NOT match company business.i_am_selling; contact field isn't on the intake form (likely LOCAL app). Company 'I Am Selling' needs its real source identified before syncing. Not synced.",
+      "enabled": false
     },
     {
       "contactKey": "contact.cash_flow_today",
@@ -345,7 +347,7 @@
       "businessKey": "business.independent_validation_company",
       "direction": "down",
       "mirrorDown": true,
-      "note": "Company MULTIPLE_OPTIONS: set at intake-CREATE (API) or via GHL workflow/UI (API can't UPDATE it). App DOWN-syncs value to associated contacts — contact multi-select IS API-writable (customFields id+value=array of exact labels, total overwrite). UP-maintenance plan (Zach 2026-07-08): app up-sync ENROLLS the contact into a dedicated GHL workflow whose native 'Update Associated Company' action writes contact multi-select -> company multi-select (sidesteps the API update ban; app enrolls only when the field changed). PENDING sandbox verification that the native action PERSISTS a MULTIPLE_OPTIONS company field + overwrite (not append) semantics.",
+      "note": "Company MULTIPLE_OPTIONS. VERIFIED 2026-07-08 on live: the native GHL workflow 'Update Associated Company' (wf 50eac67a-94b1-415f-8873-7713f65b611e) WRITES this company multi-select (API can't) and OVERWRITES (replaces) the selection. UP path = app enrolls the contact into that workflow on change; app also DOWN-syncs company->contacts (contact multi-select is API-writable). direction=down for the app engine.",
       "enabled": true
     },
     {
