@@ -189,7 +189,7 @@
       "businessKey": "business.i_am_selling",
       "direction": "down",
       "mirrorDown": true,
-      "note": "Company MULTIPLE_OPTIONS: set at intake-CREATE (API) or via GHL workflow/UI (API can't UPDATE it). App DOWN-syncs value to associated contacts — contact multi-select IS API-writable (customFields id+value=array of exact labels, total overwrite).",
+      "note": "Company MULTIPLE_OPTIONS: set at intake-CREATE (API) or via GHL workflow/UI (API can't UPDATE it). App DOWN-syncs value to associated contacts — contact multi-select IS API-writable (customFields id+value=array of exact labels, total overwrite). UP-maintenance plan (Zach 2026-07-08): app up-sync ENROLLS the contact into a dedicated GHL workflow whose native 'Update Associated Company' action writes contact multi-select -> company multi-select (sidesteps the API update ban; app enrolls only when the field changed). PENDING sandbox verification that the native action PERSISTS a MULTIPLE_OPTIONS company field + overwrite (not append) semantics.",
       "enabled": true
     },
     {
@@ -344,7 +344,7 @@
       "businessKey": "business.independent_validation_company",
       "direction": "down",
       "mirrorDown": true,
-      "note": "Company MULTIPLE_OPTIONS: set at intake-CREATE (API) or via GHL workflow/UI (API can't UPDATE it). App DOWN-syncs value to associated contacts — contact multi-select IS API-writable (customFields id+value=array of exact labels, total overwrite).",
+      "note": "Company MULTIPLE_OPTIONS: set at intake-CREATE (API) or via GHL workflow/UI (API can't UPDATE it). App DOWN-syncs value to associated contacts — contact multi-select IS API-writable (customFields id+value=array of exact labels, total overwrite). UP-maintenance plan (Zach 2026-07-08): app up-sync ENROLLS the contact into a dedicated GHL workflow whose native 'Update Associated Company' action writes contact multi-select -> company multi-select (sidesteps the API update ban; app enrolls only when the field changed). PENDING sandbox verification that the native action PERSISTS a MULTIPLE_OPTIONS company field + overwrite (not append) semantics.",
       "enabled": true
     },
     {
