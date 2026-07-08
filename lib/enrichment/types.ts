@@ -1,0 +1,80 @@
+// lib/enrichment/types.ts — pluggable enrichment interface.
+//
+// The differentiator: each Enricher takes a company and returns proposed field values
+// WITH PROVENANCE (source + timestamp + confidence). The engine applies them under a
+// policy (fill-empty vs overwrite, min-confidence) and records provenance for funder
+// audit traceability. Adding a new enricher = implement this interface; no engine change.
+
+import { BusinessRecord, CustomFieldCatalog } from '../ghl/types';
+
+export interface Provenance {
+  /** Where the value came from, e.g. 'census-geocoder', 'arcgis-hubzone-oz', 'lara-cofs'. */
+  source: string;
+  /** How it was derived. */
+  method: 'api' | 'computed' | 'ai' | 'staff';
+  /** 0..1 confidence. */
+  confidence: number;
+  /** ISO timestamp of when it was produced. */
+  timestamp: string;
+  /** Optional human-readable explanation (for audit). */
+  rationale?: string;
+}
+
+export interface EnrichmentProposal {
+  /** Company field to fill, e.g. 'business.county'. */
+  businessKey: string;
+  value: unknown;
+  provenance: Provenance;
+}
+
+export interface DerivedAddress {
+  address1?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+}
+
+export interface GeocodeResult {
+  county: string | null;
+  geoDisadvantaged: boolean | null;
+}
+
+export interface EnricherInput {
+  company: BusinessRecord;
+  businessCatalog: CustomFieldCatalog;
+  address: DerivedAddress;
+  /** Memoized geocode for this company (shared across enrichers in one run). */
+  geocode: () => Promise<GeocodeResult>;
+}
+
+export interface Enricher {
+  name: string;
+  description?: string;
+  /** Company field keys this enricher can fill. */
+  produces: string[];
+  enrich(input: EnricherInput): Promise<EnrichmentProposal[]>;
+}
+
+export type ApplyMode = 'fill-empty' | 'overwrite';
+
+export interface ApplyPolicy {
+  mode: ApplyMode;
+  /** Drop proposals below this confidence (0..1). Default 0. */
+  minConfidence?: number;
+}
+
+export interface AppliedField {
+  businessKey: string;
+  value: unknown;
+  provenance: Provenance;
+}
+
+export interface EnrichmentResult {
+  companyId: string;
+  /** Every proposal produced (deduped by field, highest confidence wins). */
+  proposals: EnrichmentProposal[];
+  /** Fields actually written (or that would be written in dry-run). */
+  applied: AppliedField[];
+  skipped: Array<{ businessKey: string; reason: string }>;
+  didWrite: boolean;
+}
