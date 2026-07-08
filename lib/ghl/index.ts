@@ -10,6 +10,7 @@ export * from './config';
 export { GhlClient, ghl, resetDefaultClient } from './client';
 export type { GhlRequestOptions } from './client';
 export * from './coerce';
+export * from './coerceContact';
 export * as customFields from './customFields';
 export * as businesses from './businesses';
 export * as contacts from './contacts';

@@ -20,6 +20,23 @@ function index(fields: CustomFieldDef[], folders: CustomFieldFolder[]): CustomFi
   return { fields, folders, byKey, byId };
 }
 
+function normOptions(raw: any): CustomFieldDef['options'] {
+  if (!Array.isArray(raw)) return undefined;
+  const out = raw.map((o: any) =>
+    typeof o === 'string'
+      ? { key: o, label: o }
+      : { key: o.key ?? o.id ?? o.value ?? o.label, label: o.label ?? o.name ?? String(o.value ?? o.key ?? '') },
+  );
+  return out.length ? out : undefined;
+}
+
+// TEXTBOX_LIST rows come from picklistOptions as [{id,label,prefillValue}].
+function normRows(raw: any): CustomFieldDef['rows'] {
+  if (!Array.isArray(raw)) return undefined;
+  const out = raw.filter((o: any) => o && o.id).map((o: any) => ({ id: o.id, label: o.label ?? '' }));
+  return out.length ? out : undefined;
+}
+
 function normalizeField(f: any): CustomFieldDef {
   return {
     id: f.id,
@@ -27,7 +44,8 @@ function normalizeField(f: any): CustomFieldDef {
     fieldKey: f.fieldKey ?? f.key ?? '',
     dataType: f.dataType,
     parentId: f.parentId,
-    options: f.options ?? f.picklistOptions ?? undefined,
+    options: normOptions(f.options ?? f.picklistOptions),
+    rows: f.dataType === 'TEXTBOX_LIST' ? normRows(f.picklistOptions) : undefined,
   };
 }
 

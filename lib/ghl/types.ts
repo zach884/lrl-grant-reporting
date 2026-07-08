@@ -13,7 +13,10 @@ export type GhlDataType =
   | 'MULTIPLE_OPTIONS'
   | 'CHECKBOX'
   | 'TEXTBOX_LIST'
-  | 'RADIO';
+  | 'RADIO'
+  | 'FILE_UPLOAD'
+  | 'SIGNATURE'
+  | 'MONETORY';
 
 export interface GhlFieldOption {
   key: string;
@@ -31,6 +34,8 @@ export interface CustomFieldDef {
   parentId?: string;
   /** Present inconsistently on reads — verify option lists in the UI when it matters. */
   options?: GhlFieldOption[];
+  /** TEXTBOX_LIST rows (each a labeled text box). Value is stored as { rowId: text }. */
+  rows?: Array<{ id: string; label: string }>;
 }
 
 export interface CustomFieldFolder {
