@@ -98,6 +98,35 @@ describe('planCompanyWrites (field-aware equality guard)', () => {
   });
 });
 
+describe('standard scalar company fields (address block) compare case-insensitively', () => {
+  // These are modeled as custom TEXT on the business object, but must mirror down-sync's
+  // case-insensitive scalar handling so "Parma" vs "PARMA" doesn't ping-pong / phantom-drift.
+  const bCat = cat([
+    { id: 'b_city', name: 'City', fieldKey: 'business.city', dataType: 'TEXT' },
+  ]);
+  const cCat = cat([]); // contact.city is a standard scalar, not a custom field
+  const map: FieldMapping[] = [
+    { contactKey: 'city', businessKey: 'business.city', direction: 'both', mirrorDown: false },
+  ];
+
+  it('does NOT churn on case-only difference (company "Parma" vs contact "PARMA")', () => {
+    const ct: Contact = { id: 'ct', businessId: 'co', city: 'PARMA' };
+    const d = buildDesiredCompanyState(ct, map, cCat, bCat);
+    const co: BusinessRecord = { id: 'co', properties: { city: 'Parma' } };
+    const plan = planCompanyWrites(d, co, bCat);
+    expect(plan.changed).toEqual({});
+    expect(plan.unchanged).toBe(1);
+  });
+
+  it('still writes a genuinely different city', () => {
+    const ct: Contact = { id: 'ct', businessId: 'co', city: 'Jackson' };
+    const d = buildDesiredCompanyState(ct, map, cCat, bCat);
+    const co: BusinessRecord = { id: 'co', properties: { city: 'Parma' } };
+    const plan = planCompanyWrites(d, co, bCat);
+    expect(plan.changed.city).toBe('Jackson');
+  });
+});
+
 describe('country transform (opaque ISO code)', () => {
   const bCat = cat([
     { id: 'b_country', name: 'Country', fieldKey: 'business.country', dataType: 'SINGLE_OPTIONS',

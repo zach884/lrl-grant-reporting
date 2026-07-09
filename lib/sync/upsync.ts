@@ -100,6 +100,15 @@ function companyValueEqual(def: CustomFieldDef | undefined, current: unknown, co
   return valuesEqual(current, coercedWrite);
 }
 
+/** Company-side standard scalar string fields (name + address block). LRL models these as
+ *  custom TEXT on the business object, but semantically they're the same standard scalars the
+ *  down-sync compares case-insensitively (scalarEqualForKey). Keyed by bareKey (lowercased) so
+ *  up-sync mirrors that and doesn't churn/phantom-drift on case (e.g. "Parma" vs "PARMA").
+ *  `website` (URL_SCALAR_KEYS) and `country` (countryCode transform / rawKeys) are handled above. */
+const STD_SCALAR_COMPANY_KEYS: ReadonlySet<string> = new Set([
+  'name', 'email', 'phone', 'address', 'city', 'state', 'postalcode',
+]);
+
 /** Coerce + equality-guard the desired company state against the current record. */
 export function planCompanyWrites(
   desired: DesiredCompanyState,
@@ -115,12 +124,17 @@ export function planCompanyWrites(
     const def = businessCatalog.byKey[`business.${bareKey}`] ?? businessCatalog.byKey[bareKey];
     const cur = company.properties[bareKey];
     // Opaque code fields (country) compare case-insensitively; URL fields (website) compare
-    // scheme/www-insensitively; else field-aware. Prevents cosmetic churn either direction.
+    // scheme/www-insensitively; standard address/name scalars compare case-insensitively to
+    // mirror down-sync's scalarEqual (these are modeled as custom TEXT on the company object,
+    // so we key off the field NAME, not the presence of a def) — otherwise "Parma" vs "PARMA"
+    // ping-pongs / shows phantom drift. All other custom fields compare field-aware by type.
     const equal = rawKeys.has(bareKey)
       ? scalarEqual(cur, value)
       : URL_SCALAR_KEYS.has(bareKey)
         ? scalarEqualForKey(bareKey, cur, value)
-        : companyValueEqual(def, cur, value);
+        : STD_SCALAR_COMPANY_KEYS.has(bareKey.toLowerCase())
+          ? scalarEqual(cur, value)
+          : companyValueEqual(def, cur, value);
     if (equal) { unchanged++; continue; }
     changed[bareKey] = value;
     drift.push({ field: bareKey, from: cur, to: value });
