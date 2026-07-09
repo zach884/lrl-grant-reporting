@@ -6,8 +6,8 @@
 // on every contact change (invalidated on save).
 
 import { asc, eq } from 'drizzle-orm';
-import { getDb } from '@/lib/db';
-import { fieldMappings, syncs, type FieldMappingRow, type NewFieldMappingRow } from '@/lib/db/schema';
+import { getDb } from '../db';
+import { fieldMappings, syncs, type FieldMappingRow, type NewFieldMappingRow } from '../db/schema';
 import type { FieldMapping, MappingSet, SyncDirection } from './types';
 import type { MappingStore } from './store';
 

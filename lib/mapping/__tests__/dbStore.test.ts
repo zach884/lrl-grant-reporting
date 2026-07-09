@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { rowToMapping } from '../dbStore';
-import type { FieldMappingRow } from '@/lib/db/schema';
+import type { FieldMappingRow } from '../../db/schema';
 
 function row(overrides: Partial<FieldMappingRow>): FieldMappingRow {
   return {

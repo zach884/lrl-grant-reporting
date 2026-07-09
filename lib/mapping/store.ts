@@ -8,7 +8,7 @@
 
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
-import { hasDatabase } from '@/lib/db';
+import { hasDatabase } from '../db';
 import { DbMappingStore } from './dbStore';
 import type { FieldMapping, MappingSet } from './types';
 
