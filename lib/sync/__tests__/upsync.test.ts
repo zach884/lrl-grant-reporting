@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readContactValue, buildDesiredCompanyState, planCompanyWrites } from '../upsync';
+import { readContactValue, buildDesiredCompanyState, planCompanyWrites, rawKeysFromMappings } from '../upsync';
 import type { CustomFieldCatalog, CustomFieldDef, BusinessRecord, Contact } from '../../ghl/types';
 import type { FieldMapping } from '../../mapping/types';
 
@@ -95,5 +95,38 @@ describe('planCompanyWrites (field-aware equality guard)', () => {
     expect(plan.changed.naics_code).toBe(541511);
     expect(plan.changed.county).toBe('Jackson County (MI)'); // sent as LABEL
     expect(plan.changed.date_of_incorporation).toBeUndefined();
+  });
+});
+
+describe('country transform (opaque ISO code)', () => {
+  const bCat = cat([
+    { id: 'b_country', name: 'Country', fieldKey: 'business.country', dataType: 'SINGLE_OPTIONS',
+      options: [{ key: 'us', label: 'United States' }, { key: 'ca', label: 'Canada' }] },
+  ]);
+  const cCat = cat([]); // contact.country is a standard scalar, not a custom field
+  const map: FieldMapping[] = [
+    { contactKey: 'country', businessKey: 'business.country', direction: 'both', mirrorDown: true, transform: 'countryCode' },
+  ];
+
+  it('rawKeysFromMappings picks up the transform target', () => {
+    expect(rawKeysFromMappings(map).has('country')).toBe(true);
+  });
+
+  it('up-syncs the ISO code verbatim (NOT the picklist label "United States")', () => {
+    const ct: Contact = { id: 'ct', businessId: 'co', country: 'US' };
+    const d = buildDesiredCompanyState(ct, map, cCat, bCat);
+    expect(d.inputs).toEqual({ country: 'US' }); // uppercased code, not converted to option label
+    const co: BusinessRecord = { id: 'co', properties: { country: 'ca' } };
+    const plan = planCompanyWrites(d, co, bCat, rawKeysFromMappings(map));
+    expect(plan.changed.country).toBe('US'); // stays a code
+  });
+
+  it('does NOT churn on case-only difference (company "us" vs contact "US")', () => {
+    const ct: Contact = { id: 'ct', businessId: 'co', country: 'US' };
+    const d = buildDesiredCompanyState(ct, map, cCat, bCat);
+    const co: BusinessRecord = { id: 'co', properties: { country: 'us' } };
+    const plan = planCompanyWrites(d, co, bCat, rawKeysFromMappings(map));
+    expect(plan.changed).toEqual({});
+    expect(plan.unchanged).toBe(1);
   });
 });

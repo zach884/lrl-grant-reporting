@@ -4,6 +4,7 @@ import {
   buildDesiredContactState,
   planContactWrites,
   valuesEqual,
+  scalarEqual,
 } from '../downsync';
 import type { CustomFieldCatalog, CustomFieldDef, BusinessRecord, Contact } from '../../ghl/types';
 import type { FieldMapping } from '../../mapping/types';
@@ -144,6 +145,92 @@ describe('no-downgrade guard (holdValues)', () => {
     const plan = planContactWrites(desired, contact, cCat);
     expect(plan.changedFields).toHaveLength(1);
     expect(String(plan.changedFields[0].value)).toContain('Other');
+  });
+});
+
+describe('standard contact scalars (address block + website)', () => {
+  const bCat = cat([
+    { id: 'b_addr', name: 'Address', fieldKey: 'business.address', dataType: 'TEXT' },
+    { id: 'b_city', name: 'City', fieldKey: 'business.city', dataType: 'TEXT' },
+    { id: 'b_zip', name: 'Postal Code', fieldKey: 'business.postalcode', dataType: 'TEXT' },
+    { id: 'b_web', name: 'Website', fieldKey: 'business.website', dataType: 'TEXT' },
+  ]);
+  const cCat = cat([]); // scalars are NOT custom fields
+  const map: FieldMapping[] = [
+    { contactKey: 'address1', businessKey: 'business.address', direction: 'both', mirrorDown: true },
+    { contactKey: 'city', businessKey: 'business.city', direction: 'both', mirrorDown: true },
+    { contactKey: 'postalCode', businessKey: 'business.postalcode', direction: 'both', mirrorDown: true },
+    { contactKey: 'website', businessKey: 'business.website', direction: 'both', mirrorDown: true },
+  ];
+  const co: BusinessRecord = {
+    id: 'co',
+    properties: { address: '123 Rocket Rd', city: 'Jackson', postalcode: '49201', website: 'https://lrl.org' },
+  };
+
+  it('routes standard scalars to scalarInputs (NOT customInputs)', () => {
+    const d = buildDesiredContactState(co, map, bCat);
+    expect(d.customInputs).toEqual({});
+    expect(d.scalarInputs).toEqual({
+      address1: '123 Rocket Rd',
+      city: 'Jackson',
+      postalCode: '49201',
+      website: 'https://lrl.org',
+    });
+  });
+
+  it('plans scalar writes for differing/empty values, case-insensitively idempotent', () => {
+    const d = buildDesiredContactState(co, map, bCat);
+    const contact: Contact = {
+      id: 'ct',
+      address1: '123 Rocket Rd',        // exact match -> unchanged
+      city: 'jackson',                  // case differs -> unchanged (case-insensitive)
+      postalCode: '00000',              // differs -> write
+      // website missing -> write
+    };
+    const plan = planContactWrites(d, contact, cCat);
+    expect(Object.keys(plan.changedScalars).sort()).toEqual(['postalCode', 'website']);
+    expect(plan.changedScalars['postalCode']).toBe('49201');
+    expect(plan.changedScalars['website']).toBe('https://lrl.org');
+    expect(plan.unchanged).toBe(2);
+  });
+
+  it('writes nothing when all scalars already match (idempotent)', () => {
+    const d = buildDesiredContactState(co, map, bCat);
+    const contact: Contact = {
+      id: 'ct', address1: '123 Rocket Rd', city: 'Jackson', postalCode: '49201', website: 'https://lrl.org',
+    };
+    const plan = planContactWrites(d, contact, cCat);
+    expect(plan.changedScalars).toEqual({});
+    expect(plan.unchanged).toBe(4);
+  });
+});
+
+describe('country transform down-sync', () => {
+  const bCat = cat([
+    { id: 'b_country', name: 'Country', fieldKey: 'business.country', dataType: 'SINGLE_OPTIONS',
+      options: [{ key: 'us', label: 'United States' }] },
+  ]);
+  const cCat = cat([]);
+  const map: FieldMapping[] = [
+    { contactKey: 'country', businessKey: 'business.country', direction: 'both', mirrorDown: true, transform: 'countryCode' },
+  ];
+
+  it('down-syncs company "us" as uppercased scalar "US" (not the label)', () => {
+    const co: BusinessRecord = { id: 'co', properties: { country: 'us' } };
+    const d = buildDesiredContactState(co, map, bCat);
+    expect(d.scalarInputs).toEqual({ country: 'US' });
+    // contact already "US" -> no write (case-insensitive)
+    const plan = planContactWrites(d, { id: 'ct', country: 'US' } as Contact, cCat);
+    expect(plan.changedScalars).toEqual({});
+  });
+});
+
+describe('scalarEqual', () => {
+  it('case- and whitespace-insensitive', () => {
+    expect(scalarEqual('US', 'us')).toBe(true);
+    expect(scalarEqual(' Jackson ', 'jackson')).toBe(true);
+    expect(scalarEqual(null, '')).toBe(true);
+    expect(scalarEqual('49201', '49202')).toBe(false);
   });
 });
 

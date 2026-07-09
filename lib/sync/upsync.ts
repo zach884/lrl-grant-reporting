@@ -17,14 +17,21 @@ import { getBusinessRecord, setBusinessFields } from '../ghl/businesses';
 import { getContact } from '../ghl/contacts';
 import { getAssociatedContactIds } from '../ghl/associations';
 import type { FieldMapping } from '../mapping/types';
-import { valuesEqual, syncCompanyDown } from './downsync';
+import { valuesEqual, scalarEqual, applyTransform, syncCompanyDown } from './downsync';
 import { CompanySyncResult } from './types';
 
 const bare = (k: string) => k.replace(/^business\./, '');
 const isUp = (m: FieldMapping) => m.enabled !== false && (m.direction === 'up' || m.direction === 'both');
 
+/** Bare company keys that must be written opaquely (no option coercion), from transforms. */
+export function rawKeysFromMappings(mappings: FieldMapping[]): Set<string> {
+  const s = new Set<string>();
+  for (const m of mappings) if (m.transform === 'countryCode') s.add(bare(m.businessKey));
+  return s;
+}
+
 // Contact scalars we can read directly off the contact object (not custom fields).
-const CONTACT_SCALARS = new Set(['firstName', 'lastName', 'email', 'phone', 'city', 'state', 'postalCode', 'companyName']);
+const CONTACT_SCALARS = new Set(['firstName', 'lastName', 'email', 'phone', 'address1', 'city', 'state', 'postalCode', 'country', 'website', 'companyName']);
 
 /** Read a contact's value for a mapping's contactKey (custom field by id, or a scalar). */
 export function readContactValue(
@@ -63,7 +70,7 @@ export function buildDesiredCompanyState(
     if (!def) { skipped.push({ key: m.businessKey, reason: 'company field not in catalog' }); continue; }
     if (isUnwritable(def.dataType)) { skipped.push({ key: bKey, reason: `unwritable ${def.dataType}` }); continue; }
     if (isCreateOnly(def.dataType)) { skipped.push({ key: bKey, reason: `create-only ${def.dataType} (workflow-enroll path)` }); continue; }
-    const v = readContactValue(m.contactKey, contact, contactCatalog);
+    const v = applyTransform(m, readContactValue(m.contactKey, contact, contactCatalog));
     if (v == null || v === '' || (Array.isArray(v) && v.length === 0)) continue;
     inputs[bKey] = v;
   }
@@ -98,15 +105,18 @@ export function planCompanyWrites(
   desired: DesiredCompanyState,
   company: BusinessRecord,
   businessCatalog: CustomFieldCatalog,
+  rawKeys: ReadonlySet<string> = new Set(),
 ): CompanyWritePlan {
-  const coerced = coerceBusinessProperties(desired.inputs, businessCatalog.byKey, 'update');
+  const coerced = coerceBusinessProperties(desired.inputs, businessCatalog.byKey, 'update', rawKeys);
   const changed: Record<string, unknown> = {};
   const drift: CompanyWritePlan['drift'] = [];
   let unchanged = 0;
   for (const [bareKey, value] of Object.entries(coerced.properties)) {
     const def = businessCatalog.byKey[`business.${bareKey}`] ?? businessCatalog.byKey[bareKey];
     const cur = company.properties[bareKey];
-    if (companyValueEqual(def, cur, value)) { unchanged++; continue; }
+    // Opaque code fields (e.g. country) compare case-insensitively so "us"/"US" don't churn.
+    const equal = rawKeys.has(bareKey) ? scalarEqual(cur, value) : companyValueEqual(def, cur, value);
+    if (equal) { unchanged++; continue; }
     changed[bareKey] = value;
     drift.push({ field: bareKey, from: cur, to: value });
   }
@@ -141,12 +151,13 @@ export async function syncContactUp(
   const company = await getBusinessRecord(contact.businessId, client);
   if (!company) return { ...base, companyId: contact.businessId, note: 'company not found' };
 
+  const rawKeys = rawKeysFromMappings(mappings);
   const desired = buildDesiredCompanyState(contact, mappings, catalogs.contact, catalogs.business);
-  const plan = planCompanyWrites(desired, company, catalogs.business);
+  const plan = planCompanyWrites(desired, company, catalogs.business, rawKeys);
   const written = Object.keys(plan.changed);
 
   if (opts.apply && written.length > 0) {
-    await setBusinessFields(contact.businessId, plan.changed, catalogs.business.byKey, client);
+    await setBusinessFields(contact.businessId, plan.changed, catalogs.business.byKey, client, rawKeys);
   }
   return {
     contactId,

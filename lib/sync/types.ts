@@ -3,6 +3,9 @@
 export interface DesiredContactState {
   /** contactKey -> value to write (pre-coercion, in "contact input" form). */
   customInputs: Record<string, unknown>;
+  /** Standard contact scalars (address1, city, state, postalCode, country, website)
+   *  keyed by scalar name -> value. Written via PUT /contacts/{id}, not customFields. */
+  scalarInputs?: Record<string, unknown>;
   /** legacy free-text Company Name box, if the map syncs it. */
   companyName?: string;
   /** contactKey -> values that must not overwrite an existing contact value (no-downgrade). */

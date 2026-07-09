@@ -1,6 +1,6 @@
 {
-  "version": 4,
-  "updatedAt": "2026-07-08T12:05:57.328084Z",
+  "version": 6,
+  "updatedAt": "2026-07-09T17:30:05.601Z",
   "mappings": [
     {
       "contactKey": "companyName",
@@ -156,7 +156,8 @@
       "businessKey": "business.linkedin",
       "direction": "both",
       "mirrorDown": true,
-      "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08."
+      "note": "DISABLED 2026-07-09 (Zach): contact.linkedin (\"Linkedin\", TEXT) is a PERSONAL LinkedIn on the contact; Zach excluded personal LinkedIn from company sync. If business.linkedin is meant to hold a COMPANY LinkedIn page from a different source, re-enable with the correct contact source. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08.",
+      "enabled": false
     },
     {
       "contactKey": "contact.latest_tech_stage_rationale",
@@ -411,7 +412,181 @@
       "direction": "both",
       "mirrorDown": true,
       "note": "firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08."
+    },
+    {
+      "contactKey": "address1",
+      "businessKey": "business.address",
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "Standard field completeness pass 2026-07-09 (Zach): map every company field with a corresponding contact field. Standard scalar mirror (Company=source of truth; contact edits flow UP, company edits fan DOWN). Contact side is a top-level scalar (not a custom field) — engine writes it via PUT /contacts/{id}."
+    },
+    {
+      "contactKey": "city",
+      "businessKey": "business.city",
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "Standard field completeness pass 2026-07-09 (Zach): map every company field with a corresponding contact field. Standard scalar mirror (Company=source of truth; contact edits flow UP, company edits fan DOWN). Contact side is a top-level scalar (not a custom field) — engine writes it via PUT /contacts/{id}."
+    },
+    {
+      "contactKey": "state",
+      "businessKey": "business.state",
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "Standard field completeness pass 2026-07-09 (Zach): map every company field with a corresponding contact field. Standard scalar mirror (Company=source of truth; contact edits flow UP, company edits fan DOWN). Contact side is a top-level scalar (not a custom field) — engine writes it via PUT /contacts/{id}."
+    },
+    {
+      "contactKey": "postalCode",
+      "businessKey": "business.postalcode",
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "Standard field completeness pass 2026-07-09 (Zach): map every company field with a corresponding contact field. Standard scalar mirror (Company=source of truth; contact edits flow UP, company edits fan DOWN). Contact side is a top-level scalar (not a custom field) — engine writes it via PUT /contacts/{id}. NOTE: company key is lowercase \"postalcode\"."
+    },
+    {
+      "contactKey": "website",
+      "businessKey": "business.website",
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "Standard field completeness pass 2026-07-09 (Zach): map every company field with a corresponding contact field. Standard scalar mirror (Company=source of truth; contact edits flow UP, company edits fan DOWN). Contact side is a top-level scalar (not a custom field) — engine writes it via PUT /contacts/{id}."
+    },
+    {
+      "contactKey": "contact.company_description",
+      "businessKey": "business.description",
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "Completeness pass 2026-07-09 (Zach): newly added company field paired with its existing contact field (added to company after the last mapping generation). firmographic mirror both directions. (business.description is a standard LARGE_TEXT, objects-writable.)"
+    },
+    {
+      "contactKey": "contact.my_company_is_a_new_high_tech_business",
+      "businessKey": "business.high_tech_business",
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "Completeness pass 2026-07-09 (Zach): newly added company field paired with its existing contact field (added to company after the last mapping generation). firmographic mirror both directions. contact RADIO -> company SINGLE_OPTIONS (option-label handling)."
+    },
+    {
+      "contactKey": "contact.my_business_has_a_bookkeeping_system_in_place",
+      "businessKey": "business.has_bookkeeping_system",
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "Completeness pass 2026-07-09 (Zach): newly added company field paired with its existing contact field (added to company after the last mapping generation). firmographic mirror both directions. contact RADIO -> company SINGLE_OPTIONS."
+    },
+    {
+      "contactKey": "contact.what_bookkeeping_system_do_you_use",
+      "businessKey": "business.bookkeeping_system_used",
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "Completeness pass 2026-07-09 (Zach): newly added company field paired with its existing contact field (added to company after the last mapping generation). firmographic mirror both directions. TEXT<->TEXT."
+    },
+    {
+      "contactKey": "contact.describe_your_target_customer",
+      "businessKey": "business.target_customer",
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "Completeness pass 2026-07-09 (Zach): newly added company field paired with its existing contact field (added to company after the last mapping generation). firmographic mirror both directions. LARGE_TEXT<->LARGE_TEXT."
+    },
+    {
+      "contactKey": "contact.what_is_your_physical_footprint",
+      "businessKey": "business.physical_footprint",
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "Completeness pass 2026-07-09 (Zach): newly added company field paired with its existing contact field (added to company after the last mapping generation). firmographic mirror both directions. SINGLE_OPTIONS<->SINGLE_OPTIONS."
+    },
+    {
+      "contactKey": "contact.why_is_this_business_important_to_you",
+      "businessKey": "business.why_business_important",
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "Completeness pass 2026-07-09 (Zach): newly added company field paired with its existing contact field (added to company after the last mapping generation). firmographic mirror both directions. LARGE_TEXT<->LARGE_TEXT."
+    },
+    {
+      "contactKey": "contact.i_have_a_business_checking_account_established",
+      "businessKey": "business.has_business_checking",
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "Completeness pass 2026-07-09 (Zach): newly added company field paired with its existing contact field (added to company after the last mapping generation). firmographic mirror both directions. contact RADIO -> company SINGLE_OPTIONS."
+    },
+    {
+      "contactKey": "contact.this_business_is_my_full_time_job",
+      "businessKey": "business.full_time_job",
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "Completeness pass 2026-07-09 (Zach): newly added company field paired with its existing contact field (added to company after the last mapping generation). firmographic mirror both directions. contact RADIO -> company SINGLE_OPTIONS."
+    },
+    {
+      "contactKey": "contact.this_is_a_hobby_that_i_want_to_grow_into_a_business",
+      "businessKey": "business.hobby_to_grow",
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "Completeness pass 2026-07-09 (Zach): newly added company field paired with its existing contact field (added to company after the last mapping generation). firmographic mirror both directions. contact RADIO -> company SINGLE_OPTIONS."
+    },
+    {
+      "contactKey": "contact.describe_the_problem_you_are_solving",
+      "businessKey": "business.problem_you_solve",
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "Completeness pass 2026-07-09 (Zach): newly added company field paired with its existing contact field (added to company after the last mapping generation). firmographic mirror both directions. LARGE_TEXT<->LARGE_TEXT."
+    },
+    {
+      "contactKey": "contact.why_did_you_decide_to_start_this_business",
+      "businessKey": "business.why_started_business",
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "Completeness pass 2026-07-09 (Zach): newly added company field paired with its existing contact field (added to company after the last mapping generation). firmographic mirror both directions. LARGE_TEXT<->LARGE_TEXT."
+    },
+    {
+      "contactKey": "contact.where_do_you_do_your_business_banking",
+      "businessKey": "business.business_banking_location",
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "Completeness pass 2026-07-09 (Zach): newly added company field paired with its existing contact field (added to company after the last mapping generation). firmographic mirror both directions. TEXT<->TEXT."
+    },
+    {
+      "contactKey": "country",
+      "businessKey": "business.country",
+      "direction": "both",
+      "mirrorDown": true,
+      "note": "Enabled 2026-07-09 (Zach). Standard contact country scalar (stores ISO code \"US\") <-> business.country (SINGLE_OPTIONS, 247-country picklist keyed by lowercase ISO). transform=countryCode: sync the ISO code verbatim (uppercased), bypassing the picklist label conversion (which would turn \"US\" into \"United States\"), compared case-insensitively so \"us\"/\"US\" never churn.",
+      "transform": "countryCode"
+    },
+    {
+      "contactKey": "contact.my_business_filed_taxes_in_the_previous_calendar_year",
+      "businessKey": "business.business_filed_taxes_last_year",
+      "direction": "both",
+      "mirrorDown": true,
+      "enabled": false,
+      "note": "DISABLED 2026-07-09: type mismatch. Contact side is CHECKBOX (NOT API-writable per confirmed GHL behavior); company side is SINGLE_OPTIONS. Down-sync cannot write the contact CHECKBOX; up-sync read shape differs. Needs a boolean<->option transform + UI maintenance of the contact checkbox."
+    },
+    {
+      "contactKey": "contact.i_have_access_to_the_following_financial_statements",
+      "businessKey": "business.financial_statements_access",
+      "direction": "both",
+      "mirrorDown": true,
+      "enabled": false,
+      "note": "DISABLED 2026-07-09: contact CHECKBOX (not API-writable) -> company MULTIPLE_OPTIONS (create-only/workflow-enroll). No clean API sync path; maintain in UI or via native workflow."
+    },
+    {
+      "contactKey": "contact.who_are_your_top_competitors",
+      "businessKey": "business.top_competitors",
+      "direction": "both",
+      "mirrorDown": true,
+      "enabled": false,
+      "note": "DISABLED 2026-07-09: contact TEXTBOX_LIST (stored as {rowId:text}) -> company LARGE_TEXT. Needs a flatten transform (join rows) before it can sync sensibly."
+    },
+    {
+      "contactKey": "contact.my_company_is_interested_in_the_following_programs",
+      "businessKey": "business.my_company_is_interested_in_the_following_programs_company",
+      "direction": "both",
+      "mirrorDown": true,
+      "enabled": false,
+      "note": "DISABLED 2026-07-09: both sides CHECKBOX — CHECKBOX does not persist via the API (either object). Maintain in UI or remodel as SINGLE/MULTIPLE_OPTIONS to sync."
+    },
+    {
+      "contactKey": "contact.my_company_is_most_interested_in_the_following_resources",
+      "businessKey": "business.my_company_is_most_interested_in_the_following_resources_company",
+      "direction": "both",
+      "mirrorDown": true,
+      "enabled": false,
+      "note": "DISABLED 2026-07-09: both sides CHECKBOX — not API-writable. Maintain in UI or remodel to sync."
     }
   ],
-  "_curation": "Curated 2026-07-08 (Sync-to-Production sprint, w/ Zach). Company = source of truth. MIRROR-ALL posture: every paired field mirrors DOWN to associated contacts because legacy contact-triggered workflows + legacy reports still read these off the contact; prune the mirror later as reports migrate to read Company directly. county retargeted to the 83-value contact.county_mi__full. The 2 company MULTIPLE_OPTIONS (i_am_selling, independent_validation_company) stay direction=down (API can't UPDATE company multi-select; set at intake-create/UI, app fans down). Business-stage-tracking rows tagged as candidates for a future dedicated object (w/ Activities, Grants, Client Outcomes)."
+  "_curation": "Curated 2026-07-08 (Sync-to-Production sprint, w/ Zach). Company = source of truth. MIRROR-ALL posture: every paired field mirrors DOWN to associated contacts because legacy contact-triggered workflows + legacy reports still read these off the contact; prune the mirror later as reports migrate to read Company directly. county retargeted to the 83-value contact.county_mi__full. The 2 company MULTIPLE_OPTIONS (i_am_selling, independent_validation_company) stay direction=down (API can't UPDATE company multi-select; set at intake-create/UI, app fans down). Business-stage-tracking rows tagged as candidates for a future dedicated object (w/ Activities, Grants, Client Outcomes). | 2026-07-09 completeness pass (Zach): added 24 rows (address block + website + 13 new custom-field pairs; 6 disabled/flagged for type mismatches). Excluded email/phone; personal LinkedIn disabled. Rule: every company field with a corresponding contact field is mapped."
 }

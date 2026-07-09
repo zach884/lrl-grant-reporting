@@ -124,8 +124,9 @@ export async function setBusinessFields(
   values: Record<string, unknown>,
   catalogByKey: Record<string, CustomFieldDef>,
   client: GhlClient = ghl(),
+  rawKeys: ReadonlySet<string> = new Set(),
 ): Promise<CoerceResult> {
-  const coerced = coerceBusinessProperties(values, catalogByKey);
+  const coerced = coerceBusinessProperties(values, catalogByKey, 'update', rawKeys);
   if (Object.keys(coerced.properties).length > 0) {
     await client.request({
       method: 'PUT',

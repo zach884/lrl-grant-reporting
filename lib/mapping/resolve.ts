@@ -13,7 +13,7 @@ import type {
 } from './types';
 
 // Scalars that aren't in the custom-field catalogs but are valid mapping targets.
-const CONTACT_SCALARS = new Set(['companyName', 'firstName', 'lastName', 'email', 'phone', 'city', 'state', 'postalCode']);
+const CONTACT_SCALARS = new Set(['companyName', 'firstName', 'lastName', 'email', 'phone', 'address1', 'city', 'state', 'postalCode', 'country', 'website']);
 const BUSINESS_SCALARS = new Set(['name', 'email', 'phone', 'website', 'address', 'city', 'state', 'postalCode', 'country']);
 
 const OPTION_TYPES = new Set(['SINGLE_OPTIONS', 'RADIO']);

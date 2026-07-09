@@ -28,6 +28,11 @@ export interface FieldMapping {
    *  contact value on down-sync. They MAY still fill an empty contact field.
    *  Motivating case: county="Other" (unresolved/non-MI) must not clobber a real county. */
   holdValues?: string[];
+  /** Value transform for fields whose two sides encode the same thing differently.
+   *  'countryCode': treat as an opaque 2-letter ISO code (uppercased) on BOTH sides —
+   *  bypass the company field's SINGLE_OPTIONS label conversion (which would turn "US"
+   *  into "United States") and compare case-insensitively. */
+  transform?: 'countryCode';
 }
 
 export interface MappingSet {

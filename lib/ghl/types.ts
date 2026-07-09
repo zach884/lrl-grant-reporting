@@ -88,8 +88,12 @@ export interface Contact {
   companyName?: string;
   /** Associated Company id (this is the scalar GHL fills, NOT `companyId`). */
   businessId?: string;
+  /** Standard address-block scalars (GHL contact street line is `address1`). */
+  address1?: string;
   city?: string;
   state?: string;
   postalCode?: string;
+  country?: string;
+  website?: string;
   customFields?: ContactCustomFieldValue[];
 }

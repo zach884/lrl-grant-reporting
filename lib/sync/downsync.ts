@@ -15,6 +15,8 @@ import {
   listContactsByBusiness,
   setContactCustomFields,
   setContactCompanyName,
+  setContactScalars,
+  CONTACT_STD_SCALARS,
 } from '../ghl/contacts';
 import type { FieldMapping } from '../mapping/types';
 import { DesiredContactState, ContactSyncResult, CompanySyncResult } from './types';
@@ -50,6 +52,7 @@ export function buildDesiredContactState(
   businessCatalog: CustomFieldCatalog,
 ): DesiredContactState {
   const customInputs: Record<string, unknown> = {};
+  const scalarInputs: Record<string, unknown> = {};
   const holdByContactKey: Record<string, string[]> = {};
   let companyName: string | undefined;
 
@@ -64,11 +67,24 @@ export function buildDesiredContactState(
     }
     const raw = company.properties[bare(m.businessKey)];
     if (raw == null || raw === '' || (Array.isArray(raw) && raw.length === 0)) continue;
-    const input = businessValueToContactInput(m.businessKey, raw, businessCatalog);
+    // Transform fields (e.g. country) bypass option->label conversion; sync the code verbatim.
+    const input = m.transform
+      ? applyTransform(m, raw)
+      : businessValueToContactInput(m.businessKey, raw, businessCatalog);
     if (input == null || input === '' || (Array.isArray(input) && input.length === 0)) continue;
-    customInputs[m.contactKey] = input;
+    // Standard contact scalar (address block, website) vs custom field.
+    if (CONTACT_STD_SCALARS.has(m.contactKey)) scalarInputs[m.contactKey] = input;
+    else customInputs[m.contactKey] = input;
   }
-  return { customInputs, companyName, holdByContactKey };
+  return { customInputs, scalarInputs, companyName, holdByContactKey };
+}
+
+/** Apply a mapping's value transform (used by BOTH sync directions).
+ *  'countryCode': normalize to an uppercased, trimmed ISO code so the company picklist
+ *  value ("us"/"US") and the standard contact country scalar ("US") stay comparable. */
+export function applyTransform(m: FieldMapping, value: unknown): unknown {
+  if (m.transform === 'countryCode' && value != null && value !== '') return String(value).trim().toUpperCase();
+  return value;
 }
 
 /** Deep-equal with array-order and type tolerance (for the equality guard). */
@@ -93,10 +109,20 @@ export function valuesEqual(a: unknown, b: unknown): boolean {
 
 export interface ContactWritePlan {
   changedFields: Array<{ id: string; value: unknown }>;
+  /** Standard contact scalars to write (scalarKey -> value), diffed & case-insensitive. */
+  changedScalars: Record<string, unknown>;
   companyName?: string; // set only if it differs
   unchanged: number;
   skipped: ContactSyncResult['skipped'];
   drift: ContactSyncResult['drift'];
+}
+
+/** Case/whitespace-insensitive equality for standard scalar strings (prevents ping-pong
+ *  on cosmetic differences like "us"/"US" or " Jackson"/"Jackson"). */
+export function scalarEqual(a: unknown, b: unknown): boolean {
+  const na = a == null ? '' : String(a).trim().toLowerCase();
+  const nb = b == null ? '' : String(b).trim().toLowerCase();
+  return na === nb;
 }
 
 /** Diff the desired state against a contact's current values (equality guard). */
@@ -133,13 +159,29 @@ export function planContactWrites(
     drift.push({ field: f.id, from: cur, to: f.value });
   }
 
+  // Standard scalars (address block, website): diff case-insensitively against the
+  // contact's current scalar value. No-downgrade guard applies here too.
+  const changedScalars: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(desired.scalarInputs ?? {})) {
+    if (value == null || value === '') continue;
+    const cur = (contact as any)[key];
+    if (scalarEqual(cur, value)) { unchanged++; continue; }
+    const hold = desired.holdByContactKey?.[key]?.map((v) => v.toLowerCase());
+    if (hold && !isBlank(cur) && hold.includes(String(value).toLowerCase())) {
+      skipped.push({ key, value, reason: `no-downgrade: refused to overwrite ${JSON.stringify(cur)} with hold value` });
+      continue;
+    }
+    changedScalars[key] = value;
+    drift.push({ field: key, from: cur, to: value });
+  }
+
   let companyName: string | undefined;
   if (desired.companyName !== undefined && !valuesEqual(contact.companyName ?? '', desired.companyName)) {
     companyName = desired.companyName;
     drift.push({ field: 'companyName', from: contact.companyName, to: desired.companyName });
   }
 
-  return { changedFields, companyName, unchanged, skipped, drift };
+  return { changedFields, changedScalars, companyName, unchanged, skipped, drift };
 }
 
 /** Apply (or dry-run) a plan to one contact. */
@@ -153,16 +195,22 @@ export async function syncContact(
   const plan = planContactWrites(desired, contact, contactCatalog);
   const written: string[] = [];
 
+  const scalarKeys = Object.keys(plan.changedScalars);
   if (opts.apply) {
     if (plan.changedFields.length > 0) {
       await setContactCustomFields(contact.id, plan.changedFields, client);
       written.push(...plan.changedFields.map((f) => f.id));
+    }
+    if (scalarKeys.length > 0) {
+      await setContactScalars(contact.id, plan.changedScalars, client);
+      written.push(...scalarKeys);
     }
     if (plan.companyName !== undefined) {
       await setContactCompanyName(contact.id, plan.companyName, client);
     }
   } else {
     written.push(...plan.changedFields.map((f) => f.id));
+    written.push(...scalarKeys);
   }
 
   return {

@@ -11,6 +11,22 @@ import { Contact } from './types';
 
 const PAGE = 100;
 
+/**
+ * Standard contact scalars we SYNC (map to the company's standard fields). These live on
+ * the contact record directly, NOT in the custom-field catalog, so the sync engine handles
+ * them via a scalar read/write path (PUT /contacts/{id} {key:value}) rather than the
+ * customFields array. `address1` is GHL's contact street line. (email/phone are contact
+ * scalars too but are intentionally NOT synced — they're per-person, per Zach.)
+ */
+export const CONTACT_STD_SCALARS: ReadonlySet<string> = new Set([
+  'address1',
+  'city',
+  'state',
+  'postalCode',
+  'country',
+  'website',
+]);
+
 function mapContact(c: any): Contact {
   return {
     id: c.id,
@@ -21,9 +37,12 @@ function mapContact(c: any): Contact {
     companyName: c.companyName,
     // GHL fills `businessId`; some responses echo companyId — prefer businessId.
     businessId: c.businessId ?? c.companyId,
+    address1: c.address1,
     city: c.city,
     state: c.state,
     postalCode: c.postalCode,
+    country: c.country,
+    website: c.website,
     customFields: c.customFields,
   };
 }
@@ -108,6 +127,25 @@ export async function setContactBusiness(
     path: `/contacts/${contactId}`,
     autoLocation: false,
     body: { businessId },
+  });
+}
+
+/**
+ * Write STANDARD contact scalar fields (address1, city, state, postalCode, country,
+ * website, ...) via PUT /contacts/{id}. These are top-level contact properties, NOT
+ * customFields. Only the keys in `scalars` are sent (partial update).
+ */
+export async function setContactScalars(
+  contactId: string,
+  scalars: Record<string, unknown>,
+  client: GhlClient = ghl(),
+): Promise<void> {
+  if (Object.keys(scalars).length === 0) return;
+  await client.request({
+    method: 'PUT',
+    path: `/contacts/${contactId}`,
+    autoLocation: false,
+    body: scalars,
   });
 }
 

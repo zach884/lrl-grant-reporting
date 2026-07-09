@@ -25,6 +25,8 @@ import { GhlUnwritableFieldError } from './errors';
 
 export type WriteMode = 'create' | 'update';
 
+const EMPTY_SET: ReadonlySet<string> = new Set();
+
 /** Field types GHL silently drops / rejects on write via the API in ALL modes. */
 export const UNWRITABLE_TYPES: ReadonlySet<GhlDataType> = new Set<GhlDataType>([
   'CHECKBOX',
@@ -158,6 +160,7 @@ export function coerceBusinessProperties(
   values: Record<string, unknown>,
   catalogByKey: Record<string, CustomFieldDef>,
   mode: WriteMode = 'update',
+  rawKeys: ReadonlySet<string> = EMPTY_SET,
 ): CoerceResult {
   const properties: Record<string, unknown> = {};
   const skipped: CoerceResult['skipped'] = [];
@@ -167,6 +170,13 @@ export function coerceBusinessProperties(
       continue; // never overwrite with empty
     }
     const bareKey = inputKey.startsWith('business.') ? inputKey.slice('business.'.length) : inputKey;
+    // Opaque pass-through (e.g. country ISO code): store the value as a trimmed string,
+    // bypassing this field's option/date/number coercion. Used for SINGLE_OPTIONS fields
+    // whose value is really an external code we sync verbatim from the contact side.
+    if (rawKeys.has(bareKey)) {
+      properties[bareKey] = String(rawValue).trim();
+      continue;
+    }
     const def = catalogByKey[`business.${bareKey}`] ?? catalogByKey[bareKey];
     const dataType = def?.dataType;
 
