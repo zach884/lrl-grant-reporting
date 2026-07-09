@@ -26,6 +26,29 @@ export async function createRelation(
   });
 }
 
+export const BUSINESSES_CONTACTS_ASSOCIATION = 'BUSINESSES_CONTACTS_ASSOCIATION';
+
+/**
+ * All contact ids associated with a company (the real-time down-sync fan-out roster).
+ * Uses the associations graph filtered to contact links — targeted + instant for
+ * established links (a just-created link may lag a few seconds; the reconcile sweep
+ * backstops that). Far cheaper than enumerating every contact.
+ */
+export async function getAssociatedContactIds(
+  companyId: string,
+  client: GhlClient = ghl(),
+): Promise<string[]> {
+  const data = await client.request<any>({
+    path: `/associations/relations/${companyId}`,
+    params: { limit: 100 },
+  });
+  const rels: any[] = data.relations ?? [];
+  return rels
+    .filter((r) => r.secondObjectKey === 'contact')
+    .map((r) => r.secondRecordId as string)
+    .filter(Boolean);
+}
+
 /**
  * Relations for a record, filtered to a single associationId (deterministic).
  * Do NOT rely on the unfiltered result for rollups.
