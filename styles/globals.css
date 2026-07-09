@@ -2,26 +2,90 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================================
+   Lean Rocket Lab — Sync Engine design tokens
+   (from the LRL design system handoff: teal accent + brand yellow + ink chrome)
+   ========================================================================== */
 :root {
+  /* Brand yellow (primary CTA / brand marks) */
+  --brand: #f8b932;
+  --brand-hover: #e0a41e;
+  --brand-tint: #fef3dc;
+  --yellow-500: #f8b932;
+  --yellow-600: #d99a16;
+  --yellow-700: #b98514;
+
+  /* Teal (accent / "flowing" / success) */
+  --accent: #05998c;
+  --accent-hover: #047c72;
+  --accent-tint: #dbf1ef;
+  --teal-200: #a7ddd8;
+  --teal-500: #05998c;
+  --teal-600: #047c72;
+  --teal-700: #035c55;
+
+  /* Ink (dark chrome / sidebar) */
+  --ink-900: #171717;
+  --ink-850: #1e1e22;
+  --ink-800: #242428;
+  --ink-700: #33333a;
+
+  /* Gray ramp */
+  --gray-500: #6b6b73;
+  --gray-450: #7c7c84;
+  --gray-400: #9a9aa2;
+  --gray-300: #b7b7bd;
+  --gray-200: #d8d8dd;
+  --gray-150: #e6e6ea;
+  --gray-100: #efeff2;
+  --gray-50: #f7f7f9;
+
+  /* Semantic (light) */
+  --bg: #f7f7f9;
+  --surface: #ffffff;
+  --surface-subtle: #f7f7f9;
+  --border: #e6e6ea;
+  --border-strong: #d8d8dd;
+  --text: #171717;
+  --text-secondary: #6b6b73;
+  --text-muted: #7c7c84;
+
+  /* Radii */
+  --radius-card: 12px;
+  --radius-control: 8px;
+
+  /* Shadows */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.12);
+  --shadow-brand: 0 4px 14px rgba(248, 185, 50, 0.4);
+
+  /* Type families (loaded via _document Google Fonts) */
+  --font-display: "Montserrat", system-ui, sans-serif;
+  --font-body: "Hanken Grotesk", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+
+  /* Legacy vars still referenced by the older activity-logging page */
   --background: #ffffff;
   --foreground: #171717;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
 }
 
 @layer utilities {
   .text-balance {
     text-wrap: balance;
   }
+}
+
+/* Accessible focus ring for sync-engine form controls */
+.lrl-focus:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent);
+  border-color: var(--accent);
 }
