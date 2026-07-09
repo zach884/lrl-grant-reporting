@@ -66,6 +66,19 @@ export async function getContact(contactId: string, client: GhlClient = ghl()): 
   return c && c.id ? mapContact(c) : null;
 }
 
+/** A contact's notes (each { id, body, dateAdded }). Used to mine scoring history. */
+export async function getContactNotes(
+  contactId: string,
+  client: GhlClient = ghl(),
+): Promise<Array<{ id: string; body: string; dateAdded: string }>> {
+  const data = await client.request<any>({ path: `/contacts/${contactId}/notes`, autoLocation: false });
+  return (data.notes ?? []).map((n: any) => ({
+    id: n.id,
+    body: n.body ?? '',
+    dateAdded: n.dateAdded ?? n.createdAt ?? '',
+  }));
+}
+
 /**
  * Enumerate ALL contacts reliably (legacy list + nextPageUrl + retry).
  * `onPage` lets callers stream instead of buffering ~1500 records in memory.

@@ -56,8 +56,11 @@ function flag(name: string): boolean { return process.argv.includes(`--${name}`)
   const [contact, business] = await Promise.all([getContactFieldCatalog(), getBusinessFieldCatalog()]);
   console.log(`Loaded ${mappings.length} mappings; catalogs contact=${Object.keys(contact.byKey).length} business=${Object.keys(business.byKey).length}`);
 
+  // --ckpt <name> lets a distinct run use its own checkpoint (avoids resuming a stale one
+  // from a previous, different apply). Defaults to the target/mode name.
+  const ckptName = arg('ckpt') ?? `${target}-${apply ? 'apply' : 'dryrun'}`;
   const checkpoint = flag('resume')
-    ? new FileReconcileCheckpoint(join(reportsDir, `checkpoint-${target}-${apply ? 'apply' : 'dryrun'}.jsonl`))
+    ? new FileReconcileCheckpoint(join(reportsDir, `checkpoint-${ckptName}.jsonl`))
     : undefined;
 
   let lastLog = Date.now();

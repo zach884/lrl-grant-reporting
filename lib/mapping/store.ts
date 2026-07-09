@@ -1,12 +1,15 @@
 // lib/mapping/store.ts — persistence for the mapping table.
 //
-// Behind an interface so the backend can change without touching callers. The file-backed
-// store (JSON in the repo) is the MVP: it reads everywhere (bundled with the app) and
-// writes in local/dev. NOTE: Vercel's runtime filesystem is read-only, so runtime edits
-// in production need a DB-backed store (Vercel KV/Postgres) — a drop-in future impl.
+// Behind an interface so the backend can change without touching callers. Two impls:
+//   - DbMappingStore  (Vercel Postgres) — used in prod; editable at runtime via the UI.
+//   - FileMappingStore (JSON in the repo) — local/dev + scripts + tests fallback.
+// The `mappingStore` singleton picks the DB store when POSTGRES_URL is set, else the file
+// store, so callers (pages/api/sync/up.ts, scripts, the engine) never change.
 
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
+import { hasDatabase } from '@/lib/db';
+import { DbMappingStore } from './dbStore';
 import type { FieldMapping, MappingSet } from './types';
 
 export interface MappingStore {
@@ -45,5 +48,14 @@ export class FileMappingStore implements MappingStore {
   }
 }
 
-/** Default store instance (file-backed at config/field-mappings.json). */
-export const mappingStore: MappingStore = new FileMappingStore();
+/** DB store singleton (used by the editor API for slug-aware methods + cache invalidation).
+ *  Only valid when POSTGRES_URL is set. */
+let _dbStore: DbMappingStore | null = null;
+export function getDbStore(): DbMappingStore {
+  if (!hasDatabase) throw new Error('POSTGRES_URL is not set — DB mapping store unavailable');
+  if (!_dbStore) _dbStore = new DbMappingStore();
+  return _dbStore;
+}
+
+/** Default store: Postgres in prod (POSTGRES_URL set), file-backed locally/in scripts. */
+export const mappingStore: MappingStore = hasDatabase ? getDbStore() : new FileMappingStore();
