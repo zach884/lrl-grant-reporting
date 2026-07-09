@@ -12,7 +12,8 @@
     "test:live": "GHL_LIVE_SMOKE=1 vitest run live-smoke",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
-    "db:seed": "vite-node scripts-ts/seed-mappings.ts"
+    "db:seed": "vite-node scripts-ts/seed-mappings.ts",
+    "db:dump": "vite-node scripts-ts/dump-mappings.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",

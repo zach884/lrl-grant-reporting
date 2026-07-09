@@ -1,13 +1,14 @@
 {
-  "version": 6,
-  "updatedAt": "2026-07-09T17:30:05.601Z",
+  "_note": "SNAPSHOT of the live Postgres mappings (source of truth = DB, edited at /mappings). Regenerate with `npm run db:dump`. Not read at runtime when DATABASE_URL is set.",
+  "version": 2,
+  "updatedAt": "2026-07-09T18:27:38.121Z",
   "mappings": [
     {
       "contactKey": "companyName",
       "businessKey": "name",
       "direction": "down",
       "mirrorDown": true,
-      "note": "Legacy free-text Company Name box; Primary Company association does NOT fill it."
+      "note": "Updating a note."
     },
     {
       "contactKey": "contact.patents",
@@ -28,48 +29,48 @@
       "businessKey": "business.crl_advancement",
       "direction": "both",
       "mirrorDown": true,
-      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]",
-      "enabled": false
+      "enabled": false,
+      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.crl_current",
       "businessKey": "business.crl_current",
       "direction": "both",
       "mirrorDown": true,
-      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]",
-      "enabled": false
+      "enabled": false,
+      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.churchill_advancement",
       "businessKey": "business.churchill_advancement",
       "direction": "both",
       "mirrorDown": true,
-      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]",
-      "enabled": false
+      "enabled": false,
+      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.total_business_stage_advancement",
       "businessKey": "business.total_business_stage_advancement",
       "direction": "both",
       "mirrorDown": true,
-      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]",
-      "enabled": false
+      "enabled": false,
+      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.churchill_initial",
       "businessKey": "business.churchill_initial",
       "direction": "both",
       "mirrorDown": true,
-      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]",
-      "enabled": false
+      "enabled": false,
+      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.crl_initial",
       "businessKey": "business.crl_initial",
       "direction": "both",
       "mirrorDown": true,
-      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]",
-      "enabled": false
+      "enabled": false,
+      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.date_registered_in_michigan",
@@ -83,50 +84,50 @@
       "businessKey": "business.churchill_substage_current",
       "direction": "both",
       "mirrorDown": true,
-      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. mirror subset (feeds contact eligibility/legacy reporting) [candidate -> future BusinessStageTracking object]",
-      "enabled": false
+      "enabled": false,
+      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. mirror subset (feeds contact eligibility/legacy reporting) [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.county_mi__full",
       "businessKey": "business.county",
       "direction": "both",
       "mirrorDown": true,
+      "note": "mirror subset. RETARGETED 2026-07-08 to the 83-value contact.county_mi__full (was old 4-value contact.county). Feeds SBSH county eligibility + legacy county workflow. holdValues:['Other'] = no-downgrade guard: a company county of 'Other' (unresolved/non-MI) must not overwrite a known county on the contact.",
       "holdValues": [
         "Other"
-      ],
-      "note": "mirror subset. RETARGETED 2026-07-08 to the 83-value contact.county_mi__full (was old 4-value contact.county). Feeds SBSH county eligibility + legacy county workflow. holdValues:['Other'] = no-downgrade guard: a company county of 'Other' (unresolved/non-MI) must not overwrite a known county on the contact."
+      ]
     },
     {
       "contactKey": "contact.trl_current",
       "businessKey": "business.trl_current",
       "direction": "both",
       "mirrorDown": true,
-      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]",
-      "enabled": false
+      "enabled": false,
+      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.churchill_current",
       "businessKey": "business.churchill_current",
       "direction": "both",
       "mirrorDown": true,
-      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]",
-      "enabled": false
+      "enabled": false,
+      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.trl_advancement",
       "businessKey": "business.trl_advancement",
       "direction": "both",
       "mirrorDown": true,
-      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]",
-      "enabled": false
+      "enabled": false,
+      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.trl_initial",
       "businessKey": "business.trl_initial",
       "direction": "both",
       "mirrorDown": true,
-      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]",
-      "enabled": false
+      "enabled": false,
+      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.owner_involvement",
@@ -140,48 +141,48 @@
       "businessKey": "business.latest_churchill_stage_rationale",
       "direction": "both",
       "mirrorDown": true,
-      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]",
-      "enabled": false
+      "enabled": false,
+      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.mrl_initial",
       "businessKey": "business.mrl_initial",
       "direction": "both",
       "mirrorDown": true,
-      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]",
-      "enabled": false
+      "enabled": false,
+      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.linkedin",
       "businessKey": "business.linkedin",
       "direction": "both",
       "mirrorDown": true,
-      "note": "DISABLED 2026-07-09 (Zach): contact.linkedin (\"Linkedin\", TEXT) is a PERSONAL LinkedIn on the contact; Zach excluded personal LinkedIn from company sync. If business.linkedin is meant to hold a COMPANY LinkedIn page from a different source, re-enable with the correct contact source. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08.",
-      "enabled": false
+      "enabled": false,
+      "note": "DISABLED 2026-07-09 (Zach): contact.linkedin (\"Linkedin\", TEXT) is a PERSONAL LinkedIn on the contact; Zach excluded personal LinkedIn from company sync. If business.linkedin is meant to hold a COMPANY LinkedIn page from a different source, re-enable with the correct contact source. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08."
     },
     {
       "contactKey": "contact.latest_tech_stage_rationale",
       "businessKey": "business.latest_tech_stage_rationale",
       "direction": "both",
       "mirrorDown": true,
-      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]",
-      "enabled": false
+      "enabled": false,
+      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.churchill_substage_initial",
       "businessKey": "business.churchill_substage_initial",
       "direction": "both",
       "mirrorDown": true,
-      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]",
-      "enabled": false
+      "enabled": false,
+      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.mrl_current",
       "businessKey": "business.mrl_current",
       "direction": "both",
       "mirrorDown": true,
-      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]",
-      "enabled": false
+      "enabled": false,
+      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.where_are_you_today",
@@ -195,8 +196,8 @@
       "businessKey": "business.business_stage_rescored_date",
       "direction": "both",
       "mirrorDown": true,
-      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]",
-      "enabled": false
+      "enabled": false,
+      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.annual_revenue",
@@ -210,8 +211,8 @@
       "businessKey": "business.i_am_selling",
       "direction": "down",
       "mirrorDown": true,
-      "note": "DISABLED 2026-07-08: FALSE auto-pair. contact.i_am_selling options (B2B/B2C) do NOT match company business.i_am_selling; contact field isn't on the intake form (likely LOCAL app). Company 'I Am Selling' needs its real source identified before syncing. Not synced.",
-      "enabled": false
+      "enabled": false,
+      "note": "DISABLED 2026-07-08: FALSE auto-pair. contact.i_am_selling options (B2B/B2C) do NOT match company business.i_am_selling; contact field isn't on the intake form (likely LOCAL app). Company 'I Am Selling' needs its real source identified before syncing. Not synced."
     },
     {
       "contactKey": "contact.cash_flow_today",
@@ -232,8 +233,8 @@
       "businessKey": "business.mrl_advancement",
       "direction": "both",
       "mirrorDown": true,
-      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]",
-      "enabled": false
+      "enabled": false,
+      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.date_of_incorporation",
@@ -247,8 +248,8 @@
       "businessKey": "business.initial_assessment_method",
       "direction": "both",
       "mirrorDown": true,
-      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]",
-      "enabled": false
+      "enabled": false,
+      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.management_team",
@@ -262,8 +263,8 @@
       "businessKey": "business.business_stage_rescored_method",
       "direction": "both",
       "mirrorDown": true,
-      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]",
-      "enabled": false
+      "enabled": false,
+      "note": "DISABLED 2026-07-08 (Zach): business-stage-tracking field — not synced in EITHER direction. A contact-side re-scoring automation owns these (see Jackson Generals churn); they will move to their own BusinessStageTracking object. firmographic mirror (Company=source of truth; contact edits flow UP via native sync, Company edits fan DOWN). Mirror-all transition posture locked 2026-07-08. [candidate -> future BusinessStageTracking object]"
     },
     {
       "contactKey": "contact.my_company_is_registered_in_the_state_of_michigan_as_a_legal_entity",
@@ -368,8 +369,8 @@
       "businessKey": "business.independent_validation_company",
       "direction": "down",
       "mirrorDown": true,
-      "note": "Company MULTIPLE_OPTIONS. VERIFIED 2026-07-08 on live: the native GHL workflow 'Update Associated Company' (wf 50eac67a-94b1-415f-8873-7713f65b611e) WRITES this company multi-select (API can't) and OVERWRITES (replaces) the selection. UP path = app enrolls the contact into that workflow on change; app also DOWN-syncs company->contacts (contact multi-select is API-writable). direction=down for the app engine.",
-      "enabled": true
+      "enabled": true,
+      "note": "Company MULTIPLE_OPTIONS. VERIFIED 2026-07-08 on live: the native GHL workflow 'Update Associated Company' (wf 50eac67a-94b1-415f-8873-7713f65b611e) WRITES this company multi-select (API can't) and OVERWRITES (replaces) the selection. UP path = app enrolls the contact into that workflow on change; app also DOWN-syncs company->contacts (contact multi-select is API-writable). direction=down for the app engine."
     },
     {
       "contactKey": "contact.current_state_of_your_technology_product",
@@ -587,6 +588,5 @@
       "enabled": false,
       "note": "DISABLED 2026-07-09: both sides CHECKBOX — not API-writable. Maintain in UI or remodel to sync."
     }
-  ],
-  "_curation": "Curated 2026-07-08 (Sync-to-Production sprint, w/ Zach). Company = source of truth. MIRROR-ALL posture: every paired field mirrors DOWN to associated contacts because legacy contact-triggered workflows + legacy reports still read these off the contact; prune the mirror later as reports migrate to read Company directly. county retargeted to the 83-value contact.county_mi__full. The 2 company MULTIPLE_OPTIONS (i_am_selling, independent_validation_company) stay direction=down (API can't UPDATE company multi-select; set at intake-create/UI, app fans down). Business-stage-tracking rows tagged as candidates for a future dedicated object (w/ Activities, Grants, Client Outcomes). | 2026-07-09 completeness pass (Zach): added 24 rows (address block + website + 13 new custom-field pairs; 6 disabled/flagged for type mismatches). Excluded email/phone; personal LinkedIn disabled. Rule: every company field with a corresponding contact field is mapped."
+  ]
 }

@@ -1,0 +1,42 @@
+name: Nightly GHL reconcile
+
+# Backstop for the real-time up/down sync: sweeps every company and corrects any drift the
+# webhook missed (missed fires, direct company edits, out-of-band imports, mapping changes).
+# Idempotent + equality-guarded, so a clean night writes nothing. Runs here (not a Vercel
+# cron) because the full ~860-company sweep exceeds a serverless function's time budget.
+#
+# Mappings are read from Postgres (DATABASE_URL) — the same live mappings edited at /mappings.
+
+on:
+  schedule:
+    # 07:00 UTC = 2am EST / 3am EDT (cron is UTC and does not follow DST). Adjust as needed.
+    - cron: '0 7 * * *'
+  workflow_dispatch: {} # allow manual runs from the Actions tab
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Reconcile (apply, live)
+        run: npx vite-node scripts-ts/reconcile-run.ts --apply --yes --resume
+        env:
+          GHL_TARGET: live
+          GHL_API_KEY: ${{ secrets.GHL_API_KEY }}
+          GHL_LOCATION_ID: ${{ secrets.GHL_LOCATION_ID }}
+          GHL_CUSTOM_OBJECT_ID: ${{ secrets.GHL_CUSTOM_OBJECT_ID }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      - name: Upload reconcile report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reconcile-report
+          path: reports/
+          if-no-files-found: ignore
+          retention-days: 14
