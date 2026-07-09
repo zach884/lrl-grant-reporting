@@ -27,8 +27,8 @@ function loadEnvLocal() {
 
 (async () => {
   loadEnvLocal();
-  if (!process.env.POSTGRES_URL) {
-    console.error('POSTGRES_URL not set. Attach Vercel Postgres and add POSTGRES_URL to .env.local.');
+  if (!process.env.POSTGRES_URL && !process.env.DATABASE_URL) {
+    console.error('No DB connection. Attach Vercel Postgres/Neon and add POSTGRES_URL (or DATABASE_URL) to .env.local.');
     process.exit(1);
   }
 
