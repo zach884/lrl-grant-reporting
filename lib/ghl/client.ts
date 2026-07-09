@@ -124,8 +124,10 @@ export class GhlClient {
 
         if (res.ok) return parsed as T;
 
-        // Non-2xx. Retry on 429/5xx (respecting Retry-After), else throw.
-        if ((res.status === 429 || res.status >= 500) && attempt < maxAttempts) {
+        // Non-2xx. Retry on 429/5xx and GHL's transient "Request Timeout" 400s (its contacts
+        // list times out server-side ~30s under deep pagination), respecting Retry-After.
+        const isTransientTimeout = res.status === 400 && /request timeout/i.test(text);
+        if ((res.status === 429 || res.status >= 500 || isTransientTimeout) && attempt < maxAttempts) {
           const retryAfter = Number(res.headers.get('retry-after'));
           const wait = Number.isFinite(retryAfter) && retryAfter > 0
             ? retryAfter * 1000

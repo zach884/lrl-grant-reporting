@@ -81,6 +81,16 @@ describe('GhlClient.request', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("retries GHL's transient 400 'Request Timeout' then succeeds", async () => {
+    fetchMock
+      .mockResolvedValueOnce(res(400, { message: 'Request Timeout after 30000ms' }))
+      .mockResolvedValueOnce(res(200, { contacts: [{ id: 'c1' }] }));
+    const client = new GhlClient(config);
+    const out = await client.request<any>({ path: '/contacts/', maxAttempts: 3 });
+    expect(out.contacts[0].id).toBe('c1');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('treats an absolute URL (nextPageUrl) as-is without re-injecting baseUrl', async () => {
     fetchMock.mockResolvedValueOnce(res(200, { contacts: [] }));
     const client = new GhlClient(config);
