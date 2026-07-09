@@ -46,5 +46,23 @@ run it as an external scheduled job (GitHub Action / small cron box), not a Verc
   set that row to `down`.
 - **Company multi-select** fields are skipped by up-sync (API can't update them) — those
   use the native workflow-enroll path.
-- **Mapping edits in prod** are read-only from the committed file. An editable admin UI
-  needs a DB-backed store (future).
+- **Mapping edits in prod** are now editable in-app — see "Editable mapping store" below.
+  (The committed `config/field-mappings.json` remains the seed artifact.)
+
+## Editable mapping store (DB-backed) + `/mappings` UI
+The mapping table now lives in **Postgres** (Vercel/Neon), edited via a visual builder at
+**`/mappings`** — no redeploy to change a mapping.
+- **Store selection:** `lib/mapping/store.ts` picks `DbMappingStore` when `DATABASE_URL`
+  (or `POSTGRES_URL`) is set, else the file store (local scripts/tests). The sync engine is
+  unchanged — it still receives a `FieldMapping[]`.
+- **Env vars:**
+  - `DATABASE_URL` (or `POSTGRES_URL`) — auto-injected by the Neon/Vercel Postgres integration.
+  - `SYNC_WEBHOOK_SECRET` — webhook guard (unchanged).
+  - `ADMIN_SECRET` — guards the editor's write endpoint (`POST /api/mapping/[slug]/save`,
+    header `x-admin-secret`).
+- **Provision / seed (one-time):** attach Neon in the Vercel Storage tab, then locally with
+  `DATABASE_URL` in `.env.local`:
+  `npm run db:push` (create tables) → `npm run db:seed` (load `config/field-mappings.json`).
+  Local + prod share one Neon DB, so this seeds prod too.
+- **Note:** the webhook caches mappings for 10 min; a UI save invalidates that cache so
+  changes go live immediately.
