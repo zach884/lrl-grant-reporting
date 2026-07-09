@@ -5,6 +5,8 @@ import {
   planContactWrites,
   valuesEqual,
   scalarEqual,
+  scalarEqualForKey,
+  normUrl,
 } from '../downsync';
 import type { CustomFieldCatalog, CustomFieldDef, BusinessRecord, Contact } from '../../ghl/types';
 import type { FieldMapping } from '../../mapping/types';
@@ -231,6 +233,20 @@ describe('scalarEqual', () => {
     expect(scalarEqual(' Jackson ', 'jackson')).toBe(true);
     expect(scalarEqual(null, '')).toBe(true);
     expect(scalarEqual('49201', '49202')).toBe(false);
+  });
+});
+
+describe('website URL-normalized equality (no scheme/www/slash churn)', () => {
+  it('normUrl strips scheme, www, trailing slash', () => {
+    expect(normUrl('https://www.Classic-Turning.com/')).toBe('classic-turning.com');
+  });
+  it('scalarEqualForKey treats scheme variants as equal for website', () => {
+    expect(scalarEqualForKey('website', 'https://classicturning.com', 'classicturning.com')).toBe(true);
+    expect(scalarEqualForKey('website', 'https://a.com', 'https://b.com')).toBe(false);
+  });
+  it('non-URL scalars still compared plainly', () => {
+    expect(scalarEqualForKey('city', 'https://x.com', 'x.com')).toBe(false);
+    expect(scalarEqualForKey('city', 'Jackson', 'jackson')).toBe(true);
   });
 });
 

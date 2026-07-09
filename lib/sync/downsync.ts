@@ -125,6 +125,17 @@ export function scalarEqual(a: unknown, b: unknown): boolean {
   return na === nb;
 }
 
+/** Scalar keys whose values are URLs — compared with scheme/www/trailing-slash stripped
+ *  so "https://x.com" and "x.com" (and GHL's auto-re-added scheme) don't churn. */
+export const URL_SCALAR_KEYS: ReadonlySet<string> = new Set(['website']);
+export function normUrl(v: unknown): string {
+  return String(v ?? '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/+$/, '');
+}
+/** Equality for a named scalar: URL-aware for website, else case-insensitive. */
+export function scalarEqualForKey(key: string, a: unknown, b: unknown): boolean {
+  return URL_SCALAR_KEYS.has(key) ? normUrl(a) === normUrl(b) : scalarEqual(a, b);
+}
+
 /** Diff the desired state against a contact's current values (equality guard). */
 export function planContactWrites(
   desired: DesiredContactState,
@@ -165,7 +176,7 @@ export function planContactWrites(
   for (const [key, value] of Object.entries(desired.scalarInputs ?? {})) {
     if (value == null || value === '') continue;
     const cur = (contact as any)[key];
-    if (scalarEqual(cur, value)) { unchanged++; continue; }
+    if (scalarEqualForKey(key, cur, value)) { unchanged++; continue; }
     const hold = desired.holdByContactKey?.[key]?.map((v) => v.toLowerCase());
     if (hold && !isBlank(cur) && hold.includes(String(value).toLowerCase())) {
       skipped.push({ key, value, reason: `no-downgrade: refused to overwrite ${JSON.stringify(cur)} with hold value` });

@@ -17,7 +17,7 @@ import { getBusinessRecord, setBusinessFields } from '../ghl/businesses';
 import { getContact } from '../ghl/contacts';
 import { getAssociatedContactIds } from '../ghl/associations';
 import type { FieldMapping } from '../mapping/types';
-import { valuesEqual, scalarEqual, applyTransform, syncCompanyDown } from './downsync';
+import { valuesEqual, scalarEqual, scalarEqualForKey, URL_SCALAR_KEYS, applyTransform, syncCompanyDown } from './downsync';
 import { CompanySyncResult } from './types';
 
 const bare = (k: string) => k.replace(/^business\./, '');
@@ -114,8 +114,13 @@ export function planCompanyWrites(
   for (const [bareKey, value] of Object.entries(coerced.properties)) {
     const def = businessCatalog.byKey[`business.${bareKey}`] ?? businessCatalog.byKey[bareKey];
     const cur = company.properties[bareKey];
-    // Opaque code fields (e.g. country) compare case-insensitively so "us"/"US" don't churn.
-    const equal = rawKeys.has(bareKey) ? scalarEqual(cur, value) : companyValueEqual(def, cur, value);
+    // Opaque code fields (country) compare case-insensitively; URL fields (website) compare
+    // scheme/www-insensitively; else field-aware. Prevents cosmetic churn either direction.
+    const equal = rawKeys.has(bareKey)
+      ? scalarEqual(cur, value)
+      : URL_SCALAR_KEYS.has(bareKey)
+        ? scalarEqualForKey(bareKey, cur, value)
+        : companyValueEqual(def, cur, value);
     if (equal) { unchanged++; continue; }
     changed[bareKey] = value;
     drift.push({ field: bareKey, from: cur, to: value });
