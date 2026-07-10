@@ -44,6 +44,7 @@ function normalizeField(f: any): CustomFieldDef {
     fieldKey: f.fieldKey ?? f.key ?? '',
     dataType: f.dataType,
     parentId: f.parentId,
+    position: typeof f.position === 'number' ? f.position : undefined,
     options: normOptions(f.options ?? f.picklistOptions),
     rows: f.dataType === 'TEXTBOX_LIST' ? normRows(f.picklistOptions) : undefined,
   };
@@ -58,6 +59,7 @@ export async function getBusinessFieldCatalog(client: GhlClient = ghl()): Promis
   const folders: CustomFieldFolder[] = (data.folders ?? []).map((f: any) => ({
     id: f.id,
     name: f.name,
+    position: typeof f.position === 'number' ? f.position : undefined,
   }));
   return index(fields, folders);
 }
@@ -73,7 +75,27 @@ export async function getContactFieldCatalog(client: GhlClient = ghl()): Promise
   const fields = raw
     .filter((f: any) => !f.model || f.model === 'contact')
     .map(normalizeField);
-  return index(fields, []);
+
+  // The contact list endpoint returns parentId (folder) per field but NOT the folder objects.
+  // Each folder is a customField record with documentType:'folder', fetchable by id — resolve
+  // the distinct parents so the UI can group + order by folder like the business object.
+  const parentIds = Array.from(new Set(fields.map((f: CustomFieldDef) => f.parentId).filter(Boolean))) as string[];
+  const folders: CustomFieldFolder[] = (
+    await Promise.all(
+      parentIds.map(async (id) => {
+        try {
+          const fd = await client.request<any>({ path: `/locations/${client.locationId}/customFields/${id}`, autoLocation: false });
+          const f = fd.customField ?? fd;
+          if (f?.id && f.documentType === 'folder') {
+            return { id: f.id, name: f.name, position: typeof f.position === 'number' ? f.position : undefined };
+          }
+        } catch { /* skip a folder we can't resolve */ }
+        return null;
+      }),
+    )
+  ).filter(Boolean) as CustomFieldFolder[];
+
+  return index(fields, folders);
 }
 
 /**

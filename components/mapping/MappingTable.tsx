@@ -51,20 +51,21 @@ function rowStatus(r: EditableRow): { key: StatusFilter; label: string; bg: stri
   return { key: 'active', label: 'Active', bg: 'var(--accent-tint)', fg: 'var(--teal-700)' };
 }
 
-function FieldOptions({ scalars, fields, groupByFolder, current }: {
-  scalars: string[]; fields: CatalogFieldOpt[]; groupByFolder: boolean; current: string;
+function FieldOptions({ scalars, fields, current }: {
+  scalars: string[]; fields: CatalogFieldOpt[]; current: string;
 }) {
   const known = new Set<string>([...scalars, ...fields.map((f) => f.fieldKey)]);
+  // Group by folder, preserving the API's order (already sorted to GHL's folder + field
+  // display order). Map insertion order = GHL order — do NOT re-sort alphabetically.
   const groups = useMemo(() => {
-    if (!groupByFolder) return null;
     const byFolder = new Map<string, CatalogFieldOpt[]>();
     for (const f of fields) {
       const k = f.folder || 'Other';
       if (!byFolder.has(k)) byFolder.set(k, []);
       byFolder.get(k)!.push(f);
     }
-    return Array.from(byFolder.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [fields, groupByFolder]);
+    return Array.from(byFolder.entries());
+  }, [fields]);
 
   return (
     <>
@@ -73,15 +74,11 @@ function FieldOptions({ scalars, fields, groupByFolder, current }: {
       <optgroup label="Standard fields">
         {scalars.map((s) => <option key={s} value={s}>{s}</option>)}
       </optgroup>
-      {groups
-        ? groups.map(([folder, fs]) => (
-            <optgroup key={folder} label={folder}>
-              {fs.map((f) => <option key={f.fieldKey} value={f.fieldKey}>{f.name} — {f.fieldKey}</option>)}
-            </optgroup>
-          ))
-        : <optgroup label="Custom fields">
-            {fields.map((f) => <option key={f.fieldKey} value={f.fieldKey}>{f.name} — {f.fieldKey}</option>)}
-          </optgroup>}
+      {groups.map(([folder, fs]) => (
+        <optgroup key={folder} label={folder}>
+          {fs.map((f) => <option key={f.fieldKey} value={f.fieldKey}>{f.name} — {f.fieldKey}</option>)}
+        </optgroup>
+      ))}
     </>
   );
 }
@@ -147,7 +144,7 @@ export default function MappingTable({
             <div style={{ display: 'grid', gridTemplateColumns: GRID, gap: 12, alignItems: 'center' }}>
               {/* source */}
               <select className="lrl-focus" style={selectBase} disabled={disabled} value={r.contactKey} onChange={(e) => update(i, { contactKey: e.target.value })}>
-                <FieldOptions scalars={catalogs.contact.scalars} fields={catalogs.contact.fields} groupByFolder={false} current={r.contactKey} />
+                <FieldOptions scalars={catalogs.contact.scalars} fields={catalogs.contact.fields} current={r.contactKey} />
               </select>
               {/* direction (colored pill-select) */}
               <select
@@ -162,7 +159,7 @@ export default function MappingTable({
               </select>
               {/* destination */}
               <select className="lrl-focus" style={{ ...selectBase, fontFamily: 'var(--font-mono)', fontSize: 12.5, color: 'var(--teal-700)' }} disabled={disabled} value={r.businessKey} onChange={(e) => update(i, { businessKey: e.target.value })}>
-                <FieldOptions scalars={catalogs.business.scalars} fields={catalogs.business.fields} groupByFolder current={r.businessKey} />
+                <FieldOptions scalars={catalogs.business.scalars} fields={catalogs.business.fields} current={r.businessKey} />
               </select>
               {/* status */}
               <span>

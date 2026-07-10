@@ -30,8 +30,10 @@ export interface CustomFieldDef {
   /** e.g. "business.lara_id" or "contact.naics_code". */
   fieldKey: string;
   dataType: GhlDataType;
-  /** Folder id (business object only). */
+  /** Folder id (both objects). */
   parentId?: string;
+  /** GHL display order within its folder. */
+  position?: number;
   /** Present inconsistently on reads — verify option lists in the UI when it matters. */
   options?: GhlFieldOption[];
   /** TEXTBOX_LIST rows (each a labeled text box). Value is stored as { rowId: text }. */
@@ -41,6 +43,8 @@ export interface CustomFieldDef {
 export interface CustomFieldFolder {
   id: string;
   name: string;
+  /** GHL display order of the folder. */
+  position?: number;
 }
 
 export interface CustomFieldCatalog {

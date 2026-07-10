@@ -12,17 +12,34 @@ import type { CustomFieldCatalog } from '@/lib/ghl/types';
 const CONTACT_SCALARS = ['companyName', 'firstName', 'lastName', 'email', 'phone', 'address1', 'city', 'state', 'postalCode', 'country', 'website'];
 const BUSINESS_SCALARS = ['name', 'email', 'phone', 'website', 'address', 'city', 'state', 'postalCode', 'country'];
 
+const BIG = Number.MAX_SAFE_INTEGER;
+
+/** Shape + sort fields into GHL display order: by folder position, then field position.
+ *  The UI groups by folder preserving this order, so folders + fields match GHL exactly. */
 function shapeFields(cat: CustomFieldCatalog) {
-  const folderName = new Map(cat.folders.map((f) => [f.id, f.name]));
+  const folderById = new Map(cat.folders.map((f) => [f.id, f]));
   return cat.fields
     .filter((f) => f.fieldKey)
-    .map((f) => ({
-      fieldKey: f.fieldKey,
-      name: f.name,
-      dataType: f.dataType,
-      folder: f.parentId ? folderName.get(f.parentId) ?? null : null,
-      options: f.options ?? null,
-    }));
+    .map((f) => {
+      const folder = f.parentId ? folderById.get(f.parentId) : undefined;
+      return {
+        fieldKey: f.fieldKey,
+        name: f.name,
+        dataType: f.dataType,
+        folder: folder?.name ?? null,
+        options: f.options ?? null,
+        folderPos: folder?.position ?? BIG,
+        position: f.position ?? BIG,
+      };
+    })
+    .sort(
+      (a, b) =>
+        a.folderPos - b.folderPos ||
+        (a.folder ?? '~').localeCompare(b.folder ?? '~') ||
+        a.position - b.position ||
+        a.name.localeCompare(b.name),
+    )
+    .map(({ folderPos, position, ...rest }) => rest); // strip sort-only fields
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
