@@ -5,7 +5,7 @@
 // selects, enable is a switch, notes + validation warnings render on a secondary line.
 // Presentational — the parent owns row state and passes filter (query/status).
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MappingIssue, SyncDirection } from '@/lib/mapping/types';
 
 export interface CatalogFieldOpt {
@@ -51,34 +51,152 @@ function rowStatus(r: EditableRow): { key: StatusFilter; label: string; bg: stri
   return { key: 'active', label: 'Active', bg: 'var(--accent-tint)', fg: 'var(--teal-700)' };
 }
 
-function FieldOptions({ scalars, fields, current }: {
-  scalars: string[]; fields: CatalogFieldOpt[]; current: string;
+function optRowStyle(active: boolean): React.CSSProperties {
+  return {
+    display: 'block', width: '100%', textAlign: 'left', border: 'none', cursor: 'pointer',
+    padding: '7px 14px', fontSize: 12.5, fontFamily: 'var(--font-body)',
+    background: active ? 'var(--accent-tint)' : 'transparent',
+    color: active ? 'var(--teal-700)' : 'var(--text)',
+    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+  };
+}
+
+// A searchable field picker: click to open, type to filter by name or key. Results stay
+// grouped by folder in GHL display order (the catalog API pre-sorts them). Replaces a native
+// <select> so long field lists don't require scrolling. The menu is position:fixed (anchored
+// to the trigger) so the card's overflow:hidden can't clip it; it closes on scroll/resize/Esc.
+function SearchableFieldSelect({ scalars, fields, value, onChange, disabled, tone }: {
+  scalars: string[]; fields: CatalogFieldOpt[]; value: string;
+  onChange: (v: string) => void; disabled?: boolean; tone?: 'mono';
 }) {
-  const known = new Set<string>([...scalars, ...fields.map((f) => f.fieldKey)]);
-  // Group by folder, preserving the API's order (already sorted to GHL's folder + field
-  // display order). Map insertion order = GHL order — do NOT re-sort alphabetically.
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  const byKey = useMemo(() => {
+    const m = new Map<string, CatalogFieldOpt>();
+    for (const f of fields) m.set(f.fieldKey, f);
+    return m;
+  }, [fields]);
+
+  const cur = value ? byKey.get(value) : undefined;
+  const currentLabel = value
+    ? (cur ? `${cur.name} — ${value}` : scalars.includes(value) ? value : `${value} · not in catalog`)
+    : '';
+
   const groups = useMemo(() => {
-    const byFolder = new Map<string, CatalogFieldOpt[]>();
+    const needle = q.trim().toLowerCase();
+    const ok = (name: string, key: string) =>
+      !needle || name.toLowerCase().includes(needle) || key.toLowerCase().includes(needle);
+    const out: { folder: string; items: { key: string; label: string }[] }[] = [];
+    const std = scalars.filter((s) => ok(s, s)).map((s) => ({ key: s, label: s }));
+    if (std.length) out.push({ folder: 'Standard fields', items: std });
+    const byFolder = new Map<string, { key: string; label: string }[]>();
     for (const f of fields) {
+      if (!ok(f.name, f.fieldKey)) continue;
       const k = f.folder || 'Other';
       if (!byFolder.has(k)) byFolder.set(k, []);
-      byFolder.get(k)!.push(f);
+      byFolder.get(k)!.push({ key: f.fieldKey, label: `${f.name} — ${f.fieldKey}` });
     }
-    return Array.from(byFolder.entries());
-  }, [fields]);
+    for (const [folder, items] of Array.from(byFolder.entries())) out.push({ folder, items });
+    return out;
+  }, [q, scalars, fields]);
+
+  const firstMatch = groups[0]?.items[0]?.key;
+
+  function openMenu() {
+    if (disabled) return;
+    const r = triggerRef.current?.getBoundingClientRect();
+    if (r) {
+      const width = Math.max(r.width, 340);
+      const left = Math.min(r.left, window.innerWidth - width - 10);
+      setRect({ top: r.bottom + 4, left: Math.max(8, left), width });
+    }
+    setQ('');
+    setOpen(true);
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  function pick(k: string) { onChange(k); setOpen(false); }
+
+  const triggerStyle: React.CSSProperties = {
+    ...selectBase,
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, minWidth: 0,
+    ...(tone === 'mono' ? { fontFamily: 'var(--font-mono)', fontSize: 12.5, color: 'var(--teal-700)' } : {}),
+    ...(disabled ? { cursor: 'default', opacity: 0.7 } : {}),
+  };
 
   return (
     <>
-      <option value="">— choose field —</option>
-      {current && !known.has(current) && <option value={current}>{current} (not in catalog)</option>}
-      <optgroup label="Standard fields">
-        {scalars.map((s) => <option key={s} value={s}>{s}</option>)}
-      </optgroup>
-      {groups.map(([folder, fs]) => (
-        <optgroup key={folder} label={folder}>
-          {fs.map((f) => <option key={f.fieldKey} value={f.fieldKey}>{f.name} — {f.fieldKey}</option>)}
-        </optgroup>
-      ))}
+      <button
+        ref={triggerRef} type="button" className="lrl-focus" style={triggerStyle}
+        disabled={disabled} onClick={() => (open ? setOpen(false) : openMenu())}
+        title={currentLabel || 'Choose a field'}
+      >
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: currentLabel ? undefined : 'var(--gray-400)' }}>
+          {currentLabel || '— choose field —'}
+        </span>
+        <i className="fa-solid fa-chevron-down" style={{ fontSize: 10, color: 'var(--gray-400)', flex: 'none' }} />
+      </button>
+
+      {open && rect && (
+        <div style={{ position: 'fixed', top: rect.top, left: rect.left, width: rect.width, zIndex: 1000,
+          background: 'var(--surface)', border: '1px solid var(--border-strong)', borderRadius: 10, boxShadow: 'var(--shadow-md, 0 12px 32px rgba(0,0,0,.16))', overflow: 'hidden' }}>
+          <div style={{ padding: 8, borderBottom: '1px solid var(--border)', position: 'relative' }}>
+            <i className="fa-solid fa-magnifying-glass" style={{ position: 'absolute', left: 18, top: 18, fontSize: 11, color: 'var(--gray-400)' }} />
+            <input
+              autoFocus type="text" value={q} placeholder="Type to filter fields…"
+              onChange={(e) => setQ(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && q.trim() && firstMatch) { e.preventDefault(); pick(firstMatch); } }}
+              className="lrl-focus"
+              style={{ width: '100%', border: '1px solid var(--border-strong)', borderRadius: 7, background: 'var(--surface-subtle)', padding: '8px 10px 8px 28px', fontSize: 13, color: 'var(--text)', fontFamily: 'var(--font-body)' }}
+            />
+          </div>
+          <div style={{ maxHeight: 320, overflowY: 'auto', padding: '4px 0' }}>
+            {value && (
+              <button type="button" onClick={() => pick('')}
+                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--surface-subtle)')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                style={optRowStyle(false)}>
+                <span style={{ color: 'var(--gray-400)' }}>— clear —</span>
+              </button>
+            )}
+            {groups.length === 0 && (
+              <div style={{ padding: '16px 14px', fontSize: 13, color: 'var(--gray-450)', textAlign: 'center' }}>No fields match “{q}”.</div>
+            )}
+            {groups.map((g) => (
+              <div key={g.folder}>
+                <div style={{ padding: '7px 14px 4px', fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--gray-450)', position: 'sticky', top: 0, background: 'var(--surface)' }}>{g.folder}</div>
+                {g.items.map((it) => {
+                  const active = it.key === value;
+                  return (
+                    <button key={it.key} type="button" onClick={() => pick(it.key)}
+                      onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = 'var(--surface-subtle)'; }}
+                      onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = 'transparent'; }}
+                      style={optRowStyle(active)}>
+                      {it.label}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -143,9 +261,7 @@ export default function MappingTable({
           <div key={i} style={{ borderTop: i === 0 ? 'none' : '1px solid var(--border)', padding: '11px 20px', opacity: dim }}>
             <div style={{ display: 'grid', gridTemplateColumns: GRID, gap: 12, alignItems: 'center' }}>
               {/* source */}
-              <select className="lrl-focus" style={selectBase} disabled={disabled} value={r.contactKey} onChange={(e) => update(i, { contactKey: e.target.value })}>
-                <FieldOptions scalars={catalogs.contact.scalars} fields={catalogs.contact.fields} current={r.contactKey} />
-              </select>
+              <SearchableFieldSelect scalars={catalogs.contact.scalars} fields={catalogs.contact.fields} value={r.contactKey} disabled={disabled} onChange={(v) => update(i, { contactKey: v })} />
               {/* direction (colored pill-select) */}
               <select
                 className="lrl-focus"
@@ -158,9 +274,7 @@ export default function MappingTable({
                 <option value="both">⇄ Two-way</option>
               </select>
               {/* destination */}
-              <select className="lrl-focus" style={{ ...selectBase, fontFamily: 'var(--font-mono)', fontSize: 12.5, color: 'var(--teal-700)' }} disabled={disabled} value={r.businessKey} onChange={(e) => update(i, { businessKey: e.target.value })}>
-                <FieldOptions scalars={catalogs.business.scalars} fields={catalogs.business.fields} current={r.businessKey} />
-              </select>
+              <SearchableFieldSelect scalars={catalogs.business.scalars} fields={catalogs.business.fields} value={r.businessKey} disabled={disabled} tone="mono" onChange={(v) => update(i, { businessKey: v })} />
               {/* status */}
               <span>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', padding: '4px 9px', borderRadius: 999, background: st.bg, color: st.fg }}>{st.label}</span>
