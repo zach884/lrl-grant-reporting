@@ -13,6 +13,7 @@ export const geoZoneEnricher: Enricher = {
   name: 'geo-zone',
   description: 'Classifies whether the company address falls in a HUBZone and/or Opportunity Zone.',
   produces: ['business.geo_disadvantaged'],
+  addressDependent: true,
   async enrich(input: EnricherInput): Promise<EnrichmentProposal[]> {
     const { hubzone, opportunityZone } = await input.geocode();
     if (hubzone == null && opportunityZone == null) return []; // geocode failed → unknown

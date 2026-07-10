@@ -41,20 +41,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const set = await mappingStore.load();
     const { up, down } = await syncContactUpAndFanOut(String(contactId), set.mappings, catalogs, { apply: !dryRun });
 
-    // Real-time enrichment of the touched company (county / geo-zone / NAICS). Non-fatal:
-    // enrichment failures must never break the sync. Enriched company values propagate down
-    // to contacts on the next sync cycle / nightly reconcile.
-    let enrich: { applied: number; skipped: number; fields: string[] } | { error: string } | null = null;
-    if (up.companyId) {
+    // Real-time enrichment of the touched company. Address-dependent enrichers (county,
+    // geo-zone) only run when the company address actually changed this sync — that's the
+    // only thing that can change their result, and it avoids geocoding on every unrelated
+    // contact edit. Address-independent enrichers (NAICS) always run (they self-gate cheaply).
+    // Non-fatal: enrichment failures must never break the sync.
+    const ADDRESS_KEYS = new Set(['address', 'address1', 'city', 'state', 'postalcode', 'zip', 'country']);
+    const addressChanged = up.written.some((k) => ADDRESS_KEYS.has(k.replace(/^business\./, '').toLowerCase()));
+    const enrichers = addressChanged ? defaultEnrichers : defaultEnrichers.filter((e) => !e.addressDependent);
+    let enrich: { applied: number; skipped: number; fields: string[]; addressChanged: boolean } | { error: string } | null = null;
+    if (up.companyId && enrichers.length) {
       try {
         const r = await enrichCompany(
           up.companyId,
-          defaultEnrichers,
+          enrichers,
           catalogs.business,
           { mode: 'overwrite', minConfidence: 0.7 },
           { apply: !dryRun },
         );
-        enrich = { applied: r.applied.length, skipped: r.skipped.length, fields: r.applied.map((a) => a.businessKey) };
+        enrich = { applied: r.applied.length, skipped: r.skipped.length, fields: r.applied.map((a) => a.businessKey), addressChanged };
       } catch (e: any) {
         enrich = { error: e?.message ?? 'enrichment failed' };
       }

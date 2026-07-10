@@ -30,6 +30,7 @@ export const countyEnricher: Enricher = {
   name: 'county',
   description: 'Derives the company county from its postal address (Census + Nominatim + FCC).',
   produces: ['business.county'],
+  addressDependent: true,
   async enrich(input: EnricherInput): Promise<EnrichmentProposal[]> {
     const { county } = await input.geocode();
     const def = input.businessCatalog.byKey['business.county'];

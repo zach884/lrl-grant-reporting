@@ -55,6 +55,9 @@ export interface Enricher {
   description?: string;
   /** Company field keys this enricher can fill. */
   produces: string[];
+  /** True if the enricher derives from the company address (county, geo-zone). The real-time
+   *  hook only runs these when the company address actually changed; the nightly batch runs all. */
+  addressDependent?: boolean;
   enrich(input: EnricherInput): Promise<EnrichmentProposal[]>;
 }
 
