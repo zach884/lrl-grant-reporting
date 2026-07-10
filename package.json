@@ -13,9 +13,12 @@
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "db:seed": "vite-node scripts-ts/seed-mappings.ts",
-    "db:dump": "vite-node scripts-ts/dump-mappings.ts"
+    "db:dump": "vite-node scripts-ts/dump-mappings.ts",
+    "enrich": "vite-node scripts-ts/enrich-run.ts",
+    "reconcile": "vite-node scripts-ts/reconcile-run.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.110.0",
     "@neondatabase/serverless": "^1.1.0",
     "@tailwindcss/forms": "^0.5.11",
     "drizzle-orm": "^0.45.2",

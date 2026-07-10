@@ -1,0 +1,41 @@
+name: Nightly data enrichment
+
+# Runs the enrichment engine over every company: county, geo-zone (HUBZone/OZ), and
+# AI-classified NAICS. Overwrite policy with a confidence gate; the enrichers skip
+# already-correct values, so a clean night writes little. Runs here (not a Vercel cron)
+# because the full sweep does external geocoding + an AI call per company and exceeds a
+# serverless function's time budget.
+
+on:
+  schedule:
+    # 08:00 UTC = 3am EST / 4am EDT (after the reconcile at 07:00). Cron is UTC; adjust as needed.
+    - cron: '0 8 * * *'
+  workflow_dispatch: {} # allow manual runs from the Actions tab
+
+jobs:
+  enrich:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Enrich (apply, live)
+        run: npx vite-node scripts-ts/enrich-run.ts --apply --yes --resume
+        env:
+          GHL_TARGET: live
+          GHL_API_KEY: ${{ secrets.GHL_API_KEY }}
+          GHL_LOCATION_ID: ${{ secrets.GHL_LOCATION_ID }}
+          GHL_CUSTOM_OBJECT_ID: ${{ secrets.GHL_CUSTOM_OBJECT_ID }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      - name: Upload enrichment report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: enrich-report
+          path: reports/
+          if-no-files-found: ignore
+          retention-days: 14

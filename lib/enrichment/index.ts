@@ -3,13 +3,15 @@
 export * from './types';
 export * from './engine';
 export { countyEnricher, countyRawToLabel } from './enrichers/county';
-export { geoDisadvantagedEnricher } from './enrichers/geoDisadvantaged';
+export { geoZoneEnricher } from './enrichers/geoZone';
 export { laraIdEnricher } from './enrichers/laraId';
+export { naicsEnricher, deriveNaicsText } from './enrichers/naics';
 
 import { countyEnricher } from './enrichers/county';
-import { geoDisadvantagedEnricher } from './enrichers/geoDisadvantaged';
+import { geoZoneEnricher } from './enrichers/geoZone';
 import { laraIdEnricher } from './enrichers/laraId';
+import { naicsEnricher } from './enrichers/naics';
 import { Enricher } from './types';
 
-/** Default registry. LARA is included but currently a no-op until its source is wired. */
-export const defaultEnrichers: Enricher[] = [countyEnricher, geoDisadvantagedEnricher, laraIdEnricher];
+/** Default registry. NAICS is AI-classified; LARA is a no-op until its source is wired. */
+export const defaultEnrichers: Enricher[] = [countyEnricher, geoZoneEnricher, naicsEnricher, laraIdEnricher];

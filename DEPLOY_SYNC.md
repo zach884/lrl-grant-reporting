@@ -47,6 +47,29 @@ night writes nothing; it reads live mappings from Postgres.
 - **Required GitHub repo secrets** (Settings → Secrets and variables → Actions): `GHL_API_KEY`,
   `GHL_LOCATION_ID`, `GHL_CUSTOM_OBJECT_ID`, `DATABASE_URL` (same values as `.env.local`/Vercel).
 
+## Data Enrichment module (automated field completion)
+Enrichers auto-fill/correct company fields with provenance (source · method · confidence),
+under an overwrite policy. Registered in `lib/enrichment/index.ts` (`defaultEnrichers`):
+- **county** → `business.county` (Census geocoder).
+- **geo-zone** → `business.geo_zone` (ArcGIS HUBZone + Opportunity Zone). ⚠️ **Create this field**
+  first: a **SINGLE_OPTIONS** on the company object with option labels exactly `HUBZone`,
+  `Opportunity Zone`, `HUBZone + Opportunity Zone`, `N/A` — otherwise the proposal is skipped.
+- **naics** → `business.naics_code` (Claude `claude-haiku-4-5` classifies from the company
+  description, validated against the bundled official 2022 NAICS list). Requires **`ANTHROPIC_API_KEY`**;
+  skips cleanly if unset. Only classifies when the current code is missing/invalid.
+- **lara** → stub (deferred).
+
+**Runs two ways (both):**
+- **Real-time:** `pages/api/sync/up.ts` calls `enrichCompany` after the up-sync (non-fatal —
+  enrichment errors never break the sync). Adds an `enrich` summary to the webhook response.
+- **Nightly batch:** GitHub Action `.github/workflows/nightly-enrich.yml` (08:00 UTC +
+  `workflow_dispatch`) runs `scripts-ts/enrich-run.ts` over all companies. Extra repo secret:
+  **`ANTHROPIC_API_KEY`** (plus the reconcile set). Local: `npm run enrich -- --limit 5` (dry-run).
+
+**New env var:** `ANTHROPIC_API_KEY` — add to Vercel Production (for the real-time hook) and the
+GitHub Action secrets (for the batch). **UI:** `/enrichment` lists the enrichers and offers a
+single-company dry-run spot-check.
+
 ## Notes / decisions
 - **Direction policy:** up-sync honors `direction` in the mapping (`up`/`both`). Today 32
   fields are `both`, so a contact edit propagates up to the company (last-edit-wins). To

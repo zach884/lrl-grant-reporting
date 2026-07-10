@@ -86,7 +86,12 @@ export interface ConfigData {
 // --- Enrichment ---
 export interface EnrichmentResult {
   county: string | null;
+  /** hubzone || opportunityZone (null when geocode failed). Kept for the Sheets export. */
   geoDisadvantaged: boolean | null;
+  /** In an SBA HUBZone. */
+  hubzone?: boolean | null;
+  /** In an Opportunity Zone. */
+  opportunityZone?: boolean | null;
 }
 
 // --- GHL Field Options ---

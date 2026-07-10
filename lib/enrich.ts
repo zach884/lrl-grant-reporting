@@ -18,16 +18,18 @@ export async function enrichAddress(
 
   if (geocodeResult) {
     const { lat, lng, county } = geocodeResult;
-    const geoDisadvantaged = await queryArcGIS(lat, lng);
-    return { county, geoDisadvantaged };
+    const { hubzone, opportunityZone } = await queryArcGIS(lat, lng);
+    const geoDisadvantaged =
+      hubzone == null && opportunityZone == null ? null : Boolean(hubzone) || Boolean(opportunityZone);
+    return { county, geoDisadvantaged, hubzone, opportunityZone };
   }
 
-  // Fallback: look up county by zip code
+  // Fallback: look up county by zip code (no lat/lng → can't determine zones)
   const county = await countyFromZip(postalCode);
   if (county) {
     console.log(`Zip fallback: ${postalCode} → ${county}`);
   }
-  return { county, geoDisadvantaged: null };
+  return { county, geoDisadvantaged: null, hubzone: null, opportunityZone: null };
 }
 
 /** Look up county using Nominatim (OpenStreetMap) geocoder + FCC Area API */
@@ -173,98 +175,43 @@ function extractGeocodeResult(match: any): GeocodeResult | null {
   return { lat, lng, county };
 }
 
-// Cache for ArcGIS layer URLs discovered from the webmap
-let arcgisLayerUrls: string[] | null = null;
+// Typed zone layers so we can report WHICH zone(s) a point falls in (not just a combined
+// boolean). Keyed by zone so the geo-zone enricher can emit HUBZone / Opportunity Zone /
+// both / N/A. These are the canonical SBA HUBZone + Opportunity Zone feature services.
+const ZONE_LAYERS: Array<{ key: 'hubzone' | 'opportunityZone'; url: string }> = [
+  { key: 'hubzone', url: 'https://services.arcgis.com/VTyQ9soqVukalItT/arcgis/rest/services/HUBZones_Redesignated_Areas/FeatureServer/0' },
+  { key: 'opportunityZone', url: 'https://services2.arcgis.com/FiaPA4ga0iQKduv3/arcgis/rest/services/Opportunity_Zones/FeatureServer/0' },
+];
 
-async function getArcGISLayerUrls(): Promise<string[]> {
-  if (arcgisLayerUrls && arcgisLayerUrls.length > 0) return arcgisLayerUrls;
-
-  try {
-    const res = await fetch(
-      'https://www.arcgis.com/sharing/rest/content/items/d2f96fbb11cc49169de85cb577278e4b/data?f=json'
-    );
-    if (!res.ok) throw new Error(`ArcGIS webmap fetch failed: ${res.status}`);
-
-    const data = await res.json();
-    const urls: string[] = [];
-
-    // Walk through all operational layers and sublayers to find feature service URLs
-    const extractUrls = (layers: any[]) => {
-      for (const layer of layers) {
-        if (layer.url) {
-          urls.push(layer.url);
-        }
-        if (layer.layers) extractUrls(layer.layers);
-        if (layer.featureCollection?.layers) {
-          for (const fcLayer of layer.featureCollection.layers) {
-            if (fcLayer.layerDefinition?.url) urls.push(fcLayer.layerDefinition.url);
-          }
-        }
+/** Point-in-polygon per zone. Each flag is true/false, or null if that layer query failed. */
+async function queryArcGIS(
+  lat: number,
+  lng: number,
+): Promise<{ hubzone: boolean | null; opportunityZone: boolean | null }> {
+  const out: { hubzone: boolean | null; opportunityZone: boolean | null } = {
+    hubzone: null,
+    opportunityZone: null,
+  };
+  for (const layer of ZONE_LAYERS) {
+    try {
+      const params = new URLSearchParams({
+        geometry: `${lng},${lat}`,
+        geometryType: 'esriGeometryPoint',
+        inSR: '4326',
+        spatialRel: 'esriSpatialRelIntersects',
+        returnCountOnly: 'true',
+        f: 'json',
+      });
+      const res = await fetch(`${layer.url}/query?${params}`);
+      if (!res.ok) {
+        console.warn(`ArcGIS ${layer.key} query returned ${res.status}`);
+        continue; // leave null (unknown for this layer)
       }
-    };
-
-    if (data.operationalLayers) extractUrls(data.operationalLayers);
-    if (data.tables) extractUrls(data.tables);
-
-    console.log('ArcGIS layer URLs discovered:', urls);
-
-    if (urls.length > 0) {
-      arcgisLayerUrls = urls;
-      return urls;
+      const data = await res.json();
+      out[layer.key] = Number(data.count) > 0;
+    } catch (err) {
+      console.warn(`ArcGIS ${layer.key} query failed:`, err);
     }
-  } catch (err) {
-    console.warn('Failed to fetch ArcGIS webmap data:', err);
   }
-
-  // Fallback: use well-known HUBZone and Opportunity Zone services
-  console.log('Using fallback ArcGIS layer URLs');
-  arcgisLayerUrls = [
-    // HUBZone qualified areas (SBA)
-    'https://services.arcgis.com/VTyQ9soqVukalItT/arcgis/rest/services/HUBZones_Redesignated_Areas/FeatureServer/0',
-    // Opportunity Zones
-    'https://services2.arcgis.com/FiaPA4ga0iQKduv3/arcgis/rest/services/Opportunity_Zones/FeatureServer/0',
-  ];
-  return arcgisLayerUrls;
-}
-
-async function queryArcGIS(lat: number, lng: number): Promise<boolean | null> {
-  try {
-    const layerUrls = await getArcGISLayerUrls();
-
-    if (layerUrls.length === 0) {
-      console.warn('No ArcGIS layer URLs available');
-      return null;
-    }
-
-    // Query each layer — if any returns count > 0, the point is in a disadvantaged area
-    for (const layerUrl of layerUrls) {
-      try {
-        const params = new URLSearchParams({
-          geometry: `${lng},${lat}`,
-          geometryType: 'esriGeometryPoint',
-          inSR: '4326',
-          spatialRel: 'esriSpatialRelIntersects',
-          returnCountOnly: 'true',
-          f: 'json',
-        });
-
-        const res = await fetch(`${layerUrl}/query?${params}`);
-        if (!res.ok) {
-          console.warn(`ArcGIS query to ${layerUrl} returned ${res.status}`);
-          continue;
-        }
-
-        const data = await res.json();
-        if (data.count > 0) return true;
-      } catch (err) {
-        console.warn(`ArcGIS query failed for ${layerUrl}:`, err);
-        continue;
-      }
-    }
-
-    return false;
-  } catch (err) {
-    console.error('ArcGIS query error:', err);
-    return null;
-  }
+  return out;
 }

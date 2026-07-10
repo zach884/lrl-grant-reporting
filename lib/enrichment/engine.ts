@@ -59,7 +59,7 @@ export async function runEnrichers(
     const r = await enrichAddress(
       address.address1 ?? '', address.city ?? '', address.state ?? '', address.postalCode ?? '',
     );
-    geocodeCache = { county: r.county, geoDisadvantaged: r.geoDisadvantaged };
+    geocodeCache = { county: r.county, hubzone: r.hubzone ?? null, opportunityZone: r.opportunityZone ?? null };
     return geocodeCache;
   };
   const input: EnricherInput = { company, businessCatalog, address, geocode };

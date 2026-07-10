@@ -14,6 +14,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { getCatalogs } from '@/lib/ghl/catalogCache';
 import { mappingStore } from '@/lib/mapping';
 import { syncContactUpAndFanOut } from '@/lib/sync';
+import { enrichCompany, defaultEnrichers } from '@/lib/enrichment';
 
 function extractContactId(req: NextApiRequest): string | undefined {
   const b: any = req.body ?? {};
@@ -40,6 +41,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const set = await mappingStore.load();
     const { up, down } = await syncContactUpAndFanOut(String(contactId), set.mappings, catalogs, { apply: !dryRun });
 
+    // Real-time enrichment of the touched company (county / geo-zone / NAICS). Non-fatal:
+    // enrichment failures must never break the sync. Enriched company values propagate down
+    // to contacts on the next sync cycle / nightly reconcile.
+    let enrich: { applied: number; skipped: number; fields: string[] } | { error: string } | null = null;
+    if (up.companyId) {
+      try {
+        const r = await enrichCompany(
+          up.companyId,
+          defaultEnrichers,
+          catalogs.business,
+          { mode: 'overwrite', minConfidence: 0.7 },
+          { apply: !dryRun },
+        );
+        enrich = { applied: r.applied.length, skipped: r.skipped.length, fields: r.applied.map((a) => a.businessKey) };
+      } catch (e: any) {
+        enrich = { error: e?.message ?? 'enrichment failed' };
+      }
+    }
+
     return res.status(200).json({
       ok: true,
       dryRun,
@@ -53,6 +73,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             fieldsWritten: down.results.reduce((n, r) => n + r.written.length + (r.companyNameWritten ? 1 : 0), 0),
           }
         : null,
+      enrich,
     });
   } catch (e: any) {
     console.error('sync/up error:', e);

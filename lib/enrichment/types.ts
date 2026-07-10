@@ -36,7 +36,10 @@ export interface DerivedAddress {
 
 export interface GeocodeResult {
   county: string | null;
-  geoDisadvantaged: boolean | null;
+  /** In an SBA HUBZone (null if the layer query failed). */
+  hubzone: boolean | null;
+  /** In an Opportunity Zone (null if the layer query failed). */
+  opportunityZone: boolean | null;
 }
 
 export interface EnricherInput {
