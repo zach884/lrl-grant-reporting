@@ -13,7 +13,7 @@ interface Skipped { businessKey: string; reason: string }
 
 const ENRICHERS = [
   { name: 'County', produces: 'business.county', source: 'Census geocoder', method: 'api', confidence: '0.92', desc: 'Derives the county from the company address.' },
-  { name: 'Geographic zone', produces: 'business.geo_zone', source: 'ArcGIS · SBA HUBZone + Opportunity Zone', method: 'api', confidence: '0.85', desc: 'HUBZone / Opportunity Zone / both / N/A by point-in-polygon on the address.' },
+  { name: 'Geographic zone', produces: 'business.geo_disadvantaged', source: 'ArcGIS · SBA HUBZone + Opportunity Zone', method: 'api', confidence: '0.85', desc: 'HUBZone / Opportunity Zone / both / None by point-in-polygon on the address.' },
   { name: 'NAICS code', produces: 'business.naics_code', source: 'Claude (haiku) + official 2022 NAICS set', method: 'ai', confidence: 'model', desc: 'Classifies the 6-digit NAICS from the company description; validated against the official list.' },
   { name: 'LARA ID', produces: 'business.lara_id', source: '— not wired', method: '—', confidence: '—', desc: 'Michigan business registry lookup/verify. Coming later.', soon: true },
 ];

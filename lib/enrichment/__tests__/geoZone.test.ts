@@ -28,8 +28,8 @@ describe('geoZoneEnricher', () => {
   it('emits Opportunity Zone when only in an OZ', async () => {
     expect(await value({ county: null, hubzone: false, opportunityZone: true })).toBe('Opportunity Zone');
   });
-  it('emits N/A when confirmed in neither zone', async () => {
-    expect(await value({ county: null, hubzone: false, opportunityZone: false })).toBe('N/A');
+  it('emits None when confirmed in neither zone', async () => {
+    expect(await value({ county: null, hubzone: false, opportunityZone: false })).toBe('None');
   });
   it('skips when geocode failed (both unknown)', async () => {
     const out = await geoZoneEnricher.enrich(input({ county: null, hubzone: null, opportunityZone: null }));

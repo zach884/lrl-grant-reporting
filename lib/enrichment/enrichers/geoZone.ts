@@ -1,17 +1,18 @@
 // lib/enrichment/enrichers/geoZone.ts — HUBZone / Opportunity Zone classification.
 //
 // Uses the geocode's per-layer point-in-polygon checks (lib/enrich.ts queryArcGIS) and emits
-// ONE single-select value for business.geo_zone: 'HUBZone', 'Opportunity Zone',
-// 'HUBZone + Opportunity Zone', or 'N/A'. Single-select (not multi-select) because company
-// MULTIPLE_OPTIONS fields aren't API-writable on update; the combined value covers overlap.
-// The target field must exist with matching option labels or the engine skips the proposal.
+// ONE single-select value for business.geo_disadvantaged (the live "Geographically
+// Disadvantaged" field): 'HUBZone', 'Opportunity Zone', 'HUBZone + Opportunity Zone', or
+// 'None'. Single-select (not multi-select) because company MULTIPLE_OPTIONS fields aren't
+// API-writable on update; the combined value covers overlap. Labels must match the field's
+// option labels exactly (coerce resolves label→key) or the engine skips the proposal.
 
 import { Enricher, EnricherInput, EnrichmentProposal } from '../types';
 
 export const geoZoneEnricher: Enricher = {
   name: 'geo-zone',
   description: 'Classifies whether the company address falls in a HUBZone and/or Opportunity Zone.',
-  produces: ['business.geo_zone'],
+  produces: ['business.geo_disadvantaged'],
   async enrich(input: EnricherInput): Promise<EnrichmentProposal[]> {
     const { hubzone, opportunityZone } = await input.geocode();
     if (hubzone == null && opportunityZone == null) return []; // geocode failed → unknown
@@ -22,12 +23,12 @@ export const geoZoneEnricher: Enricher = {
     if (inHub && inOz) value = 'HUBZone + Opportunity Zone';
     else if (inHub) value = 'HUBZone';
     else if (inOz) value = 'Opportunity Zone';
-    else if (hubzone === false && opportunityZone === false) value = 'N/A';
+    else if (hubzone === false && opportunityZone === false) value = 'None';
     else return []; // one layer positive-free but the other unknown → not confident, skip
 
     return [
       {
-        businessKey: 'business.geo_zone',
+        businessKey: 'business.geo_disadvantaged',
         value,
         provenance: {
           source: 'arcgis-hubzone-oz',

@@ -51,9 +51,9 @@ night writes nothing; it reads live mappings from Postgres.
 Enrichers auto-fill/correct company fields with provenance (source · method · confidence),
 under an overwrite policy. Registered in `lib/enrichment/index.ts` (`defaultEnrichers`):
 - **county** → `business.county` (Census geocoder).
-- **geo-zone** → `business.geo_zone` (ArcGIS HUBZone + Opportunity Zone). ⚠️ **Create this field**
-  first: a **SINGLE_OPTIONS** on the company object with option labels exactly `HUBZone`,
-  `Opportunity Zone`, `HUBZone + Opportunity Zone`, `N/A` — otherwise the proposal is skipped.
+- **geo-zone** → `business.geo_disadvantaged` (ArcGIS HUBZone + Opportunity Zone). SINGLE_OPTIONS
+  "Geographically Disadvantaged" with option labels `HUBZone`, `Opportunity Zone`,
+  `HUBZone + Opportunity Zone`, `None` (labels must match exactly or the proposal is skipped).
 - **naics** → `business.naics_code` (Claude `claude-haiku-4-5` classifies from the company
   description, validated against the bundled official 2022 NAICS list). Requires **`ANTHROPIC_API_KEY`**;
   skips cleanly if unset. Only classifies when the current code is missing/invalid.

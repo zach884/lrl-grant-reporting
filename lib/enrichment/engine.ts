@@ -2,7 +2,8 @@
 
 import { GhlClient, ghl } from '../ghl/client';
 import { BusinessRecord, CustomFieldCatalog } from '../ghl/types';
-import { isUnwritable, isCreateOnly } from '../ghl/coerce';
+import { isUnwritable, isCreateOnly, resolveOptionKey } from '../ghl/coerce';
+import type { CustomFieldDef } from '../ghl/types';
 import { getBusinessRecord, setBusinessFields } from '../ghl/businesses';
 import { enrichAddress } from '../enrich';
 import {
@@ -17,6 +18,15 @@ import {
 } from './types';
 
 const bare = (k: string) => k.replace(/^business\./, '');
+
+/** True if the proposed value already matches the company's current value (so no write is
+ *  needed). Option fields compare by resolved key (label↔key); others compare case-insensitively. */
+function alreadyEqual(def: CustomFieldDef, current: unknown, proposed: unknown): boolean {
+  if (def.dataType === 'SINGLE_OPTIONS' || def.dataType === 'RADIO') {
+    return resolveOptionKey(current, def.options) === resolveOptionKey(proposed, def.options);
+  }
+  return String(current ?? '').trim().toLowerCase() === String(proposed ?? '').trim().toLowerCase();
+}
 
 /** Pull address inputs from a company record's properties (several key spellings). */
 export function deriveAddress(company: BusinessRecord): DerivedAddress {
@@ -103,6 +113,11 @@ export async function applyProposals(
     const hasValue = current != null && current !== '' && !(Array.isArray(current) && current.length === 0);
     if (policy.mode === 'fill-empty' && hasValue) {
       skipped.push({ businessKey: p.businessKey, reason: 'already set (fill-empty)' });
+      continue;
+    }
+    // Idempotency guard (applies in overwrite mode too): don't rewrite an unchanged value.
+    if (hasValue && alreadyEqual(def, current, p.value)) {
+      skipped.push({ businessKey: p.businessKey, reason: 'already up to date' });
       continue;
     }
     values[bare(p.businessKey)] = p.value;
