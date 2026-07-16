@@ -1,213 +1,95 @@
-// pages/mappings.tsx — Field Mappings module (contact⇄company sync).
-//
-// Reskinned to the LRL Sync Engine design system (dark ink shell + teal/yellow workspace).
-// All behavior is unchanged: load rows annotated against live catalogs, edit the table,
-// auto-suggest pairings, and save (admin secret, held in sessionStorage) — live immediately.
+// pages/mappings.tsx — Field Mappings hub: a card grid of every sync connection
+// (GHL↔GHL and GHL→Wix together). Click a card to open its editor at /mappings/[id].
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/router';
 import Shell from '@/components/shell/Shell';
-import MappingTable, { type EditableRow, type MapperCatalogs, type StatusFilter } from '@/components/mapping/MappingTable';
-import type { MappingIssue, ResolvedFieldMapping, FieldMapping } from '@/lib/mapping/types';
+import { TOOLS, objectLabel } from '@/lib/mapping/tools';
 
-const SLUG = 'contact-company';
-const SECRET_KEY = 'mapping_admin_secret';
-
-function toRow(m: ResolvedFieldMapping): EditableRow {
-  return {
-    contactKey: m.contactKey, businessKey: m.businessKey, direction: m.direction,
-    mirrorDown: m.mirrorDown, enabled: m.enabled, note: m.note,
-    holdValues: m.holdValues, transform: m.transform, issues: m.issues,
-  };
-}
-function toMapping(r: EditableRow): FieldMapping {
-  const m: FieldMapping = { contactKey: r.contactKey, businessKey: r.businessKey, direction: r.direction, mirrorDown: r.mirrorDown };
-  if (typeof r.enabled === 'boolean') m.enabled = r.enabled;
-  if (r.note) m.note = r.note;
-  if (r.holdValues?.length) m.holdValues = r.holdValues;
-  if (r.transform) m.transform = r.transform;
-  return m;
+interface Side { tool: string; object: string }
+interface ConnectionCard {
+  id: string; name: string; source: Side; target: Side; oneWay: boolean;
+  fieldCount: number; activeCount: number; enabled: boolean; updatedAt: string;
 }
 
-const FILTERS: { id: StatusFilter; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'active', label: 'Active' },
-  { id: 'review', label: 'Needs review' },
-  { id: 'off', label: 'Off' },
-];
+const primaryBtn: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', gap: 7, padding: '10px 16px', borderRadius: 8, border: 'none',
+  background: 'var(--brand)', color: 'var(--ink-900)', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, cursor: 'pointer', boxShadow: 'var(--shadow-brand)',
+};
 
-export default function MappingsPage() {
+function ObjChip({ side, wixNames }: { side: Side; wixNames: Record<string, string> }) {
+  const t = TOOLS[side.tool];
+  const tint = t?.tint ?? 'var(--gray-100)', fg = t?.fg ?? 'var(--gray-500)';
+  const label = side.tool === 'wix' ? (wixNames[side.object] ?? side.object) : objectLabel(side.tool, side.object);
+  const icon = side.tool === 'wix' ? 'fa-table-cells-large' : (t?.objects.find((o) => o.id === side.object)?.icon ?? 'fa-cube');
+  return (
+    <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+      <span style={{ width: 36, height: 36, borderRadius: 9, background: tint, color: fg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, flex: 'none' }}><i className={`fa-solid ${icon}`} /></span>
+      <span style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2, minWidth: 0 }}>
+        <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: fg }}>{t?.short ?? side.tool}</span>
+        <span style={{ fontWeight: 600, fontSize: 13.5, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label || '—'}</span>
+      </span>
+    </span>
+  );
+}
+
+export default function MappingsHub() {
+  const router = useRouter();
+  const [connections, setConnections] = useState<ConnectionCard[]>([]);
+  const [wixNames, setWixNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState('');
-  const [catalogs, setCatalogs] = useState<MapperCatalogs | null>(null);
-  const [rows, setRows] = useState<EditableRow[]>([]);
-  const [issues, setIssues] = useState<MappingIssue[]>([]);
-  const [version, setVersion] = useState<number>(0);
-  const [updatedAt, setUpdatedAt] = useState<string>('');
-  const [dirty, setDirty] = useState(false);
-
-  const [query, setQuery] = useState('');
-  const [status, setStatus] = useState<StatusFilter>('all');
-
-  const [adminSecret, setAdminSecret] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [saveMsg, setSaveMsg] = useState('');
-  const [saveErr, setSaveErr] = useState('');
-
-  useEffect(() => { setAdminSecret(sessionStorage.getItem(SECRET_KEY) ?? ''); }, []);
-
-  const loadSync = useCallback(async () => {
-    const res = await fetch(`/api/mapping/${SLUG}`);
-    if (!res.ok) throw new Error((await res.json()).error ?? `load failed (${res.status})`);
-    const data = await res.json();
-    setRows((data.mappings as ResolvedFieldMapping[]).map(toRow));
-    setIssues(data.issues ?? []);
-    setVersion(data.version ?? 0);
-    setUpdatedAt(data.updatedAt ?? '');
-    setDirty(false);
-  }, []);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     (async () => {
       try {
-        const catRes = await fetch('/api/mapping/catalogs');
-        if (!catRes.ok) throw new Error((await catRes.json()).error ?? 'catalogs failed');
-        setCatalogs(await catRes.json());
-        await loadSync();
-      } catch (e: any) {
-        setLoadError(e?.message ?? 'Failed to load');
-      } finally {
-        setLoading(false);
-      }
+        const r = await fetch('/api/mapping/connections');
+        if (!r.ok) throw new Error((await r.json()).error ?? 'failed to load');
+        setConnections((await r.json()).connections ?? []);
+      } catch (e: any) { setError(e?.message ?? 'failed to load'); } finally { setLoading(false); }
+      try { const w = await fetch('/api/wix/collections'); if (w.ok) { const m: Record<string, string> = {}; for (const c of (await w.json()).collections ?? []) m[c.id] = c.displayName; setWixNames(m); } } catch { /* ignore */ }
     })();
-  }, [loadSync]);
-
-  function onRowsChange(next: EditableRow[]) {
-    setRows(next); setDirty(true); setSaveMsg(''); setSaveErr('');
-  }
-
-  async function autoSuggest() {
-    setSaveErr('');
-    try {
-      const res = await fetch(`/api/mapping/${SLUG}/suggest`);
-      if (!res.ok) throw new Error((await res.json()).error ?? 'suggest failed');
-      const { suggestions } = (await res.json()) as { suggestions: FieldMapping[] };
-      const have = new Set(rows.map((r) => `${r.contactKey}→${r.businessKey}`));
-      const additions = suggestions.filter((s) => !have.has(`${s.contactKey}→${s.businessKey}`)).map((s) => ({ ...s } as EditableRow));
-      if (!additions.length) { setSaveMsg('No new suggestions — all suggested pairs are already present.'); return; }
-      setRows([...rows, ...additions]); setDirty(true);
-      setSaveMsg(`Added ${additions.length} suggested row(s). Review, then Save.`);
-    } catch (e: any) { setSaveErr(e?.message ?? 'suggest failed'); }
-  }
-
-  async function save() {
-    if (!adminSecret) { setSaveErr('Enter the admin secret to save.'); return; }
-    setSaving(true); setSaveMsg(''); setSaveErr('');
-    try {
-      sessionStorage.setItem(SECRET_KEY, adminSecret);
-      const res = await fetch(`/api/mapping/${SLUG}/save`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-admin-secret': adminSecret },
-        body: JSON.stringify({ mappings: rows.map(toMapping) }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? `save failed (${res.status})`);
-      await loadSync();
-      setSaveMsg(`Saved v${data.version} · ${data.count} mappings · live now (no redeploy).`);
-    } catch (e: any) { setSaveErr(e?.message ?? 'save failed'); }
-    finally { setSaving(false); }
-  }
-
-  const activeCount = useMemo(() => rows.filter((r) => r.enabled !== false).length, [rows]);
-  const errorCount = issues.filter((i) => i.level === 'error').length;
-  const warnCount = issues.filter((i) => i.level === 'warning').length;
-
-  const primaryBtn: React.CSSProperties = {
-    display: 'inline-flex', alignItems: 'center', gap: 7, padding: '9px 16px', borderRadius: 8, border: 'none',
-    background: 'var(--brand)', color: 'var(--ink-900)', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13,
-    cursor: 'pointer', boxShadow: 'var(--shadow-brand)',
-  };
-  const secondaryBtn: React.CSSProperties = {
-    display: 'inline-flex', alignItems: 'center', gap: 7, padding: '9px 15px', borderRadius: 8,
-    border: '1px solid var(--border-strong)', background: 'var(--surface)', color: 'var(--text-secondary)',
-    fontFamily: 'var(--font-body)', fontWeight: 600, fontSize: 13, cursor: 'pointer',
-  };
+  }, []);
 
   return (
     <Shell active="mappings" breadcrumb="Field Mappings" env="live">
       <div style={{ padding: '26px 30px', maxWidth: 1180, margin: '0 auto' }}>
-        {/* ---- title block ---- */}
-        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 20, marginBottom: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 20, marginBottom: 22 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-            <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 11, letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--brand)' }}>Contact ⇄ Company sync</span>
+            <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 11, letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--brand)' }}>Sync connections</span>
             <h1 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 27, letterSpacing: '-.02em', margin: 0, color: 'var(--text)' }}>Field Mappings</h1>
-            <p style={{ margin: 0, fontSize: 14, color: 'var(--gray-500)' }}>
-              {loading ? 'Loading mappings…' : <><b style={{ color: 'var(--text)', fontWeight: 700 }}>{activeCount}</b> of {rows.length} fields syncing to GoHighLevel — set direction and transforms per field.
-                {version ? <span style={{ color: 'var(--gray-400)' }}> · v{version}{updatedAt ? ` · updated ${new Date(updatedAt).toLocaleDateString()}` : ''}</span> : null}</>}
-            </p>
+            <p style={{ margin: 0, fontSize: 14, color: 'var(--gray-500)', maxWidth: 620 }}>Every connection that keeps GoHighLevel — and your website — in sync. Open one to configure which fields map to each other.</p>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 12 }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12.5, fontWeight: 600, color: dirty ? 'var(--yellow-700)' : 'var(--teal-700)' }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: dirty ? 'var(--brand)' : 'var(--teal-500)' }} />
-              {dirty ? 'Unsaved changes' : 'All changes saved'}
-            </span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <button type="button" style={secondaryBtn} onClick={autoSuggest} disabled={loading || saving}><i className="fa-solid fa-wand-magic-sparkles" />Auto-suggest</button>
-              <button type="button" style={{ ...primaryBtn, opacity: loading || saving || !dirty ? 0.5 : 1 }} onClick={save} disabled={loading || saving || !dirty}><i className="fa-solid fa-floppy-disk" />{saving ? 'Saving…' : 'Save'}</button>
-            </div>
-          </div>
+          <button type="button" style={primaryBtn} onClick={() => router.push('/mappings/new')}><i className="fa-solid fa-plus" /> New mapping</button>
         </div>
 
-        {loading && <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 24, fontSize: 14, color: 'var(--gray-500)' }}>Loading…</div>}
-        {loadError && <div style={{ background: '#fde8e8', border: '1px solid #f5c2c0', borderRadius: 14, padding: 16, fontSize: 14, color: '#b42318' }}>{loadError}</div>}
+        {loading && <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 24, fontSize: 14, color: 'var(--gray-500)' }}>Loading connections…</div>}
+        {error && <div style={{ background: '#fde8e8', border: '1px solid #f5c2c0', borderRadius: 14, padding: 16, fontSize: 14, color: '#b42318' }}>{error}</div>}
 
-        {!loading && !loadError && catalogs && (
-          <>
-            {(errorCount > 0 || warnCount > 0) && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 16px', borderRadius: 10, marginBottom: 14, fontSize: 13.5, fontWeight: 600,
-                background: errorCount ? '#fde8e8' : 'var(--brand-tint)', color: errorCount ? '#b42318' : 'var(--yellow-700)', border: `1px solid ${errorCount ? '#f5c2c0' : 'var(--brand)'}` }}>
-                <i className={`fa-solid ${errorCount ? 'fa-circle-exclamation' : 'fa-triangle-exclamation'}`} />
-                {errorCount > 0 && <span>{errorCount} error{errorCount > 1 ? 's' : ''}</span>}
-                {errorCount > 0 && warnCount > 0 && <span>·</span>}
-                {warnCount > 0 && <span>{warnCount} warning{warnCount > 1 ? 's' : ''}</span>}
-                <span style={{ fontWeight: 500 }}>across mappings — see the flagged rows below.</span>
-              </div>
-            )}
-
-            {/* ---- controls: search + status filter + admin secret ---- */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
-              <div style={{ position: 'relative', flex: '1 1 260px', minWidth: 220 }}>
-                <i className="fa-solid fa-magnifying-glass" style={{ position: 'absolute', left: 12, top: 11, fontSize: 12, color: 'var(--gray-400)' }} />
-                <input type="text" className="lrl-focus" placeholder="Search source or destination field…" value={query} onChange={(e) => setQuery(e.target.value)}
-                  style={{ width: '100%', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', padding: '9px 12px 9px 32px', fontSize: 13, color: 'var(--text)', fontFamily: 'var(--font-body)' }} />
-              </div>
-              <div style={{ display: 'flex', gap: 2, background: 'var(--gray-100)', padding: 3, borderRadius: 999 }}>
-                {FILTERS.map((f) => {
-                  const on = status === f.id;
-                  return (
-                    <button key={f.id} type="button" onClick={() => setStatus(f.id)}
-                      style={{ padding: '6px 13px', borderRadius: 999, border: 'none', cursor: 'pointer', fontFamily: 'var(--font-body)', fontWeight: 600, fontSize: 12.5,
-                        background: on ? 'var(--surface)' : 'transparent', color: on ? 'var(--text)' : 'var(--gray-500)', boxShadow: on ? 'var(--shadow-xs)' : 'none' }}>
-                      {f.label}
-                    </button>
-                  );
-                })}
-              </div>
-              <div style={{ position: 'relative', flex: '0 0 auto' }}>
-                <i className="fa-solid fa-key" style={{ position: 'absolute', left: 11, top: 11, fontSize: 11, color: 'var(--gray-400)' }} />
-                <input type="password" className="lrl-focus" placeholder="Admin secret" value={adminSecret} onChange={(e) => setAdminSecret(e.target.value)}
-                  style={{ width: 190, border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', padding: '9px 12px 9px 30px', fontSize: 13, color: 'var(--text)', fontFamily: 'var(--font-body)' }} />
-              </div>
-            </div>
-
-            {(saveMsg || saveErr) && (
-              <div style={{ marginBottom: 12, fontSize: 13, fontWeight: 600, color: saveErr ? '#b42318' : 'var(--teal-700)' }}>
-                <i className={`fa-solid ${saveErr ? 'fa-circle-exclamation' : 'fa-circle-check'}`} style={{ marginRight: 7 }} />
-                {saveErr || saveMsg}
-              </div>
-            )}
-
-            <MappingTable rows={rows} catalogs={catalogs} disabled={saving} filter={{ query, status }} onChange={onRowsChange} />
-          </>
+        {!loading && !error && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(346px, 1fr))', gap: 16 }}>
+            {connections.map((c) => (
+              <button key={c.id} type="button" onClick={() => router.push(`/mappings/${c.id}`)}
+                onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.boxShadow = 'var(--shadow-lg)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'var(--shadow-sm)'; }}
+                style={{ textAlign: 'left', cursor: 'pointer', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, boxShadow: 'var(--shadow-sm)', padding: 18, transition: 'transform .14s, box-shadow .14s', display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                  <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 16, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</span>
+                  <span style={{ flex: 'none', fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 9.5, letterSpacing: '.1em', textTransform: 'uppercase', padding: '4px 9px', borderRadius: 999, background: c.enabled ? 'var(--accent-tint)' : 'var(--gray-100)', color: c.enabled ? 'var(--teal-700)' : 'var(--gray-450)' }}>{c.enabled ? 'Active' : 'Off'}</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: 10, alignItems: 'center' }}>
+                  <ObjChip side={c.source} wixNames={wixNames} />
+                  <i className={`fa-solid ${c.oneWay ? 'fa-arrow-right-long' : 'fa-right-left'}`} style={{ color: 'var(--gray-400)', fontSize: 14 }} />
+                  <span style={{ display: 'flex', justifyContent: 'flex-end' }}><ObjChip side={c.target} wixNames={wixNames} /></span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, paddingTop: 12, borderTop: '1px solid var(--border)', fontSize: 12, color: 'var(--gray-500)' }}>
+                  <span><b style={{ color: 'var(--text)' }}>{c.fieldCount}</b> fields · {c.activeCount} active</span>
+                  <span>{c.oneWay ? 'One-way' : 'Two-way'}{c.updatedAt ? ` · Updated ${new Date(c.updatedAt).toLocaleDateString()}` : ''}</span>
+                </div>
+              </button>
+            ))}
+            {connections.length === 0 && <div style={{ gridColumn: '1 / -1', padding: '40px', textAlign: 'center', color: 'var(--gray-450)', fontSize: 14, background: 'var(--surface)', border: '1px dashed var(--border-strong)', borderRadius: 14 }}>No connections yet. Click <b>New mapping</b> to create one.</div>}
+          </div>
         )}
       </div>
     </Shell>

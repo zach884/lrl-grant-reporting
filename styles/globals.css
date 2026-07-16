@@ -24,6 +24,11 @@
   --teal-600: #047c72;
   --teal-700: #035c55;
 
+  /* Violet (Wix / website tool color-coding) */
+  --violet-100: #e7e3fd;
+  --violet-500: #7c6cf0;
+  --violet-700: #4a3fb0;
+
   /* Ink (dark chrome / sidebar) */
   --ink-900: #171717;
   --ink-850: #1e1e22;
