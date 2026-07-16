@@ -5,23 +5,7 @@
 // already accommodates Data Enrichment / Activity Reporting / Grant Reporting.
 
 import type { ReactNode } from 'react';
-
-interface ModuleItem {
-  id: string;
-  label: string;
-  icon: string; // Font Awesome solid glyph, e.g. "fa-gauge-high"
-  href?: string;
-  soon?: boolean;
-}
-
-const MODULES: ModuleItem[] = [
-  { id: 'dashboard', label: 'Dashboard', icon: 'fa-gauge-high', soon: true },
-  { id: 'mappings', label: 'Field Mappings', icon: 'fa-arrow-right-arrow-left', href: '/mappings' },
-  { id: 'enrichment', label: 'Data Enrichment', icon: 'fa-wand-magic-sparkles', href: '/enrichment' },
-  { id: 'activity', label: 'Activity Reporting', icon: 'fa-clipboard-list', soon: true },
-  { id: 'grants', label: 'Grant Reporting', icon: 'fa-file-invoice-dollar', soon: true },
-  { id: 'settings', label: 'Settings', icon: 'fa-gear', soon: true },
-];
+import { MODULES } from '@/lib/nav/modules';
 
 export default function AppShell({
   active,

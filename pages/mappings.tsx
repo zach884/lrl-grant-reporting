@@ -5,7 +5,7 @@
 // auto-suggest pairings, and save (admin secret, held in sessionStorage) — live immediately.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import AppShell from '@/components/shell/AppShell';
+import Shell from '@/components/shell/Shell';
 import MappingTable, { type EditableRow, type MapperCatalogs, type StatusFilter } from '@/components/mapping/MappingTable';
 import type { MappingIssue, ResolvedFieldMapping, FieldMapping } from '@/lib/mapping/types';
 
@@ -133,7 +133,7 @@ export default function MappingsPage() {
   };
 
   return (
-    <AppShell active="mappings" breadcrumb="Field Mappings" env="live">
+    <Shell active="mappings" breadcrumb="Field Mappings" env="live">
       <div style={{ padding: '26px 30px', maxWidth: 1180, margin: '0 auto' }}>
         {/* ---- title block ---- */}
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 20, marginBottom: 20 }}>
@@ -210,6 +210,6 @@ export default function MappingsPage() {
           </>
         )}
       </div>
-    </AppShell>
+    </Shell>
   );
 }

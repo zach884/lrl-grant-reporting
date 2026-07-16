@@ -15,7 +15,8 @@
     "db:seed": "vite-node scripts-ts/seed-mappings.ts",
     "db:dump": "vite-node scripts-ts/dump-mappings.ts",
     "enrich": "vite-node scripts-ts/enrich-run.ts",
-    "reconcile": "vite-node scripts-ts/reconcile-run.ts"
+    "reconcile": "vite-node scripts-ts/reconcile-run.ts",
+    "wix:sync": "vite-node scripts-ts/wix-sync-run.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",

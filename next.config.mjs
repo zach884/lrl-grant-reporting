@@ -7,6 +7,24 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  // Allow GHL to iframe the app (embedded custom menu item). We set ONLY the
+  // `frame-ancestors` CSP directive (not a full CSP, which could break the app) and never
+  // send X-Frame-Options: DENY. Add LRL's white-label GHL domain to the list if the embed
+  // is served under a custom domain.
+  async headers() {
+    const frameAncestors = [
+      "'self'",
+      'https://*.gohighlevel.com',
+      'https://*.leadconnectorhq.com',
+      'https://*.msgsndr.com',
+    ].join(' ');
+    return [
+      {
+        source: '/:path*',
+        headers: [{ key: 'Content-Security-Policy', value: `frame-ancestors ${frameAncestors};` }],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

@@ -5,7 +5,7 @@
 // dry-run spot-check (preview proposals with provenance, no writes).
 
 import { useState } from 'react';
-import AppShell from '@/components/shell/AppShell';
+import Shell from '@/components/shell/Shell';
 
 interface Provenance { source: string; method: string; confidence: number; rationale?: string }
 interface Applied { businessKey: string; value: unknown; provenance: Provenance }
@@ -54,7 +54,7 @@ export default function EnrichmentPage() {
   const card: React.CSSProperties = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, boxShadow: 'var(--shadow-sm)' };
 
   return (
-    <AppShell active="enrichment" breadcrumb="Data Enrichment" env="live">
+    <Shell active="enrichment" breadcrumb="Data Enrichment" env="live">
       <div style={{ padding: '26px 30px', maxWidth: 1080, margin: '0 auto' }}>
         <div style={{ marginBottom: 20 }}>
           <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 11, letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--brand)' }}>Automated field completion</span>
@@ -142,6 +142,6 @@ export default function EnrichmentPage() {
           )}
         </div>
       </div>
-    </AppShell>
+    </Shell>
   );
 }

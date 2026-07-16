@@ -70,6 +70,29 @@ under an overwrite policy. Registered in `lib/enrichment/index.ts` (`defaultEnri
 GitHub Action secrets (for the batch). **UI:** `/enrichment` lists the enrichers and offers a
 single-company dry-run spot-check.
 
+## GHL → Wix CMS sync (Website Sync module) — Phase 1
+Outbound sync from a GHL object to ONE Wix CMS collection, config-driven per mapping set.
+Additive — the contact↔company sync above is untouched. Phase 1 = Contact → the Wix **Team**
+collection (match key `ghlContactId`).
+
+- **UI:** `/wix-sync` ("Website Sync" nav) — pick a Wix collection, set the match key, map each
+  GHL field → Wix column (searchable picker), Save (admin secret), Dry-run spot-check.
+- **DB:** `wix_mapping_sets` + `wix_mapping_rows` — run **`npm run db:push`** once to create them.
+- **Real-time:** `POST /api/wix-sync` (GHL "Contact Changed" → Webhook), guarded by
+  **`WIX_SYNC_WEBHOOK_SECRET`** (`x-webhook-secret` header or `?secret=`); `?dryRun=1` to preview.
+- **Backfill:** `npm run wix:sync -- --limit 5` (dry-run) → `--apply --yes` (writes). Resumable
+  (`--resume`), `--set <id>`, `--only <contactId,…>`.
+- **Coercion:** `lib/wix/coerce.ts` handles TEXT/RICH_TEXT/NUMBER/URL/EMAIL/DATE/ARRAY_STRING,
+  IMAGE (GHL file → Wix Media import), and (MULTI_)REFERENCE (option labels → referenced item ids).
+
+**New env vars (all required for live Wix writes):** `WIX_OAUTH_CLIENT_ID`,
+`WIX_OAUTH_CLIENT_SECRET`, `WIX_APP_INSTANCE_ID`, `WIX_SITE_ID`
+(= `65e70070-9e36-4105-99b8-436ce90376d7`), `WIX_SYNC_WEBHOOK_SECRET`. Add to `.env.local`,
+Vercel, and GitHub secrets. Auth = a Wix **OAuth app** (Wix Data + Media Manager scopes) installed
+on the LRL site; the app exchanges client credentials for a short-lived token
+(`POST /oauth2/token`). A static `WIX_API_TOKEN` is honored as a local escape hatch. Until these
+are set, `/wix-sync` shows a "Wix not connected" banner and the Wix API routes return 503.
+
 ## Notes / decisions
 - **Direction policy:** up-sync honors `direction` in the mapping (`up`/`both`). Today 32
   fields are `both`, so a contact edit propagates up to the company (last-edit-wins). To
