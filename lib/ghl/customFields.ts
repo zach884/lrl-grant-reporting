@@ -50,11 +50,9 @@ function normalizeField(f: any): CustomFieldDef {
   };
 }
 
-/** Company (`business`) object custom fields + folders. */
-export async function getBusinessFieldCatalog(client: GhlClient = ghl()): Promise<CustomFieldCatalog> {
-  const data = await client.request<any>({
-    path: '/custom-fields/object-key/business',
-  });
+/** Catalog from the object-key endpoint (business + custom_objects.*; NOT contact/opportunity). */
+export async function getObjectKeyFieldCatalog(objectKey: string, client: GhlClient = ghl()): Promise<CustomFieldCatalog> {
+  const data = await client.request<any>({ path: `/custom-fields/object-key/${objectKey}` });
   const fields = (data.fields ?? []).map(normalizeField);
   const folders: CustomFieldFolder[] = (data.folders ?? []).map((f: any) => ({
     id: f.id,
@@ -64,21 +62,22 @@ export async function getBusinessFieldCatalog(client: GhlClient = ghl()): Promis
   return index(fields, folders);
 }
 
-/** Contact custom fields (via the location endpoint — the only one that returns them). */
-export async function getContactFieldCatalog(client: GhlClient = ghl()): Promise<CustomFieldCatalog> {
+/** Catalog from the location endpoint, filtered to one model (contact or opportunity — the
+ *  object-key endpoint rejects those). Resolves folder objects by id like the contact catalog. */
+export async function getLocationModelFieldCatalog(model: 'contact' | 'opportunity', client: GhlClient = ghl()): Promise<CustomFieldCatalog> {
   const data = await client.request<any>({
     path: `/locations/${client.locationId}/customFields`,
     autoLocation: false,
   });
   const raw = data.customFields ?? data.fields ?? [];
-  // Keep only contact-model fields (endpoint can include opportunity/custom object fields).
+  // The endpoint returns fields for multiple models; keep only this one (contact fields have no
+  // model tag, so treat untagged as contact).
   const fields = raw
-    .filter((f: any) => !f.model || f.model === 'contact')
+    .filter((f: any) => (model === 'contact' ? !f.model || f.model === 'contact' : f.model === model))
     .map(normalizeField);
 
-  // The contact list endpoint returns parentId (folder) per field but NOT the folder objects.
-  // Each folder is a customField record with documentType:'folder', fetchable by id — resolve
-  // the distinct parents so the UI can group + order by folder like the business object.
+  // Folder objects aren't in the list endpoint; each is a customField with documentType:'folder',
+  // fetchable by id — resolve distinct parents so the UI can group + order by folder.
   const parentIds = Array.from(new Set(fields.map((f: CustomFieldDef) => f.parentId).filter(Boolean))) as string[];
   const folders: CustomFieldFolder[] = (
     await Promise.all(
@@ -96,6 +95,26 @@ export async function getContactFieldCatalog(client: GhlClient = ghl()): Promise
   ).filter(Boolean) as CustomFieldFolder[];
 
   return index(fields, folders);
+}
+
+/** Company (`business`) object custom fields + folders. */
+export function getBusinessFieldCatalog(client: GhlClient = ghl()): Promise<CustomFieldCatalog> {
+  return getObjectKeyFieldCatalog('business', client);
+}
+
+/** Contact custom fields (via the location endpoint — the only one that returns them). */
+export function getContactFieldCatalog(client: GhlClient = ghl()): Promise<CustomFieldCatalog> {
+  return getLocationModelFieldCatalog('contact', client);
+}
+
+/**
+ * Object-agnostic catalog: dispatch to the right endpoint per object.
+ *   contact / opportunity → location endpoint (object-key rejects these)
+ *   business / custom_objects.* → object-key endpoint
+ */
+export function getFieldCatalog(objectKey: string, client: GhlClient = ghl()): Promise<CustomFieldCatalog> {
+  if (objectKey === 'contact' || objectKey === 'opportunity') return getLocationModelFieldCatalog(objectKey, client);
+  return getObjectKeyFieldCatalog(objectKey, client);
 }
 
 /**

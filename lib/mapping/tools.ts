@@ -57,6 +57,24 @@ export function toolDef(id: string): ToolDef | undefined {
   return TOOLS[id];
 }
 
+/**
+ * Scalar foreign-key links between GHL objects — how this account actually connects records
+ * (the association *relation records* are empty; links live in scalar fields). The mapper
+ * offers these as destinations too; traversal is encoded as "scalar:<on>:<field>".
+ *   on='source' → the source record carries the target's id in <field> (one counterpart).
+ *   on='target' → target records carry the source id in <field> (fan-out).
+ */
+export interface ScalarLink { source: string; target: string; field: string; on: 'source' | 'target' }
+export const SCALAR_LINKS: ScalarLink[] = [
+  { source: 'contact', target: 'business', field: 'businessId', on: 'source' },
+  { source: 'business', target: 'contact', field: 'businessId', on: 'target' },
+  { source: 'opportunity', target: 'contact', field: 'contactId', on: 'source' },
+  { source: 'contact', target: 'opportunity', field: 'contactId', on: 'target' },
+];
+export function scalarLinksFrom(sourceObject: string): ScalarLink[] {
+  return SCALAR_LINKS.filter((l) => l.source === sourceObject);
+}
+
 /** A pairing is one-way if EITHER side is a one-way-target tool. */
 export function pairingIsOneWay(leftToolId: string, rightToolId: string): boolean {
   return TOOLS[leftToolId]?.sync === 'one-way-target' || TOOLS[rightToolId]?.sync === 'one-way-target';

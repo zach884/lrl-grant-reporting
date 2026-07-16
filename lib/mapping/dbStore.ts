@@ -22,6 +22,19 @@ export interface SyncSummary {
   name: string;
   count: number;
   updatedAt: string;
+  sourceObject: string;
+  destObject: string;
+  associationId: string | null;
+}
+
+export interface SyncMeta {
+  slug: string;
+  name: string;
+  sourceObject: string;
+  destObject: string;
+  associationId: string | null;
+  version: number;
+  updatedAt: string;
 }
 
 /** Row -> domain object. Nulls collapse to `undefined` so `enabled` stays tri-state
@@ -117,9 +130,59 @@ export class DbMappingStore implements MappingStore {
         name: s.name,
         count: set.mappings.length,
         updatedAt: s.updatedAt instanceof Date ? s.updatedAt.toISOString() : String(s.updatedAt),
+        sourceObject: s.sourceObject,
+        destObject: s.destObject,
+        associationId: s.associationId ?? null,
       });
     }
     return out;
+  }
+
+  /** A sync's object pairing + association (without its rows). */
+  async getSyncMeta(slug: string): Promise<SyncMeta | null> {
+    const db = getDb();
+    const s = await db.query.syncs.findFirst({ where: eq(syncs.slug, slug) });
+    if (!s) return null;
+    return {
+      slug: s.slug,
+      name: s.name,
+      sourceObject: s.sourceObject,
+      destObject: s.destObject,
+      associationId: s.associationId ?? null,
+      version: s.version,
+      updatedAt: s.updatedAt instanceof Date ? s.updatedAt.toISOString() : String(s.updatedAt),
+    };
+  }
+
+  /** Create a new (empty) sync connection. Throws if the slug already exists. */
+  async createSync(input: { slug: string; name: string; sourceObject: string; destObject: string; associationId?: string | null }): Promise<SyncMeta> {
+    const db = getDb();
+    const existing = await db.query.syncs.findFirst({ where: eq(syncs.slug, input.slug) });
+    if (existing) throw new Error(`sync already exists: ${input.slug}`);
+    const now = new Date();
+    const [s] = await db
+      .insert(syncs)
+      .values({
+        slug: input.slug,
+        name: input.name,
+        sourceObject: input.sourceObject,
+        destObject: input.destObject,
+        associationId: input.associationId ?? null,
+        version: 1,
+        updatedAt: now,
+      })
+      .returning();
+    return {
+      slug: s.slug, name: s.name, sourceObject: s.sourceObject, destObject: s.destObject,
+      associationId: s.associationId ?? null, version: s.version, updatedAt: now.toISOString(),
+    };
+  }
+
+  /** Delete a sync connection + its rows (field_mappings cascade). */
+  async deleteSync(slug: string): Promise<void> {
+    const db = getDb();
+    await db.delete(syncs).where(eq(syncs.slug, slug));
+    this.cache.delete(slug);
   }
 
   /** Drop cached mappings (all slugs, or one). Call after out-of-band writes (e.g. seed). */

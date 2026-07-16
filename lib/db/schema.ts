@@ -15,6 +15,9 @@ export const syncs = pgTable('syncs', {
   /** Object identifiers for the two sides (v1: "contact" / "business"). */
   sourceObject: text('source_object').notNull().default('contact'),
   destObject: text('dest_object').notNull().default('business'),
+  /** For GHL↔GHL syncs of other object pairs: which GHL association to traverse.
+   *  NULL for the legacy contact-company sync (it uses the contact.businessId scalar). */
+  associationId: text('association_id'),
   /** Bumped on every save; mirrors MappingSet.version. */
   version: integer('version').notNull().default(1),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

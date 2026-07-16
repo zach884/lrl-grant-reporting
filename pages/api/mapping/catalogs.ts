@@ -16,7 +16,7 @@ const BIG = Number.MAX_SAFE_INTEGER;
 
 /** Shape + sort fields into GHL display order: by folder position, then field position.
  *  The UI groups by folder preserving this order, so folders + fields match GHL exactly. */
-function shapeFields(cat: CustomFieldCatalog) {
+export function shapeFields(cat: CustomFieldCatalog) {
   const folderById = new Map(cat.folders.map((f) => [f.id, f]));
   return cat.fields
     .filter((f) => f.fieldKey)
