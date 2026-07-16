@@ -35,7 +35,7 @@ export default function SearchableFieldSelect({ scalars, fields, value, onChange
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
-  const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [rect, setRect] = useState<{ top?: number; bottom?: number; left: number; width: number; maxList: number } | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
   const byKey = useMemo(() => {
@@ -75,7 +75,19 @@ export default function SearchableFieldSelect({ scalars, fields, value, onChange
     if (r) {
       const width = Math.max(r.width, 340);
       const left = Math.min(r.left, window.innerWidth - width - 10);
-      setRect({ top: r.bottom + 4, left: Math.max(8, left), width });
+      // Flip upward when there isn't room below (e.g. a row near the bottom of the GHL
+      // iframe), and cap the list to the space actually available so it never runs off-screen.
+      const spaceBelow = window.innerHeight - r.bottom;
+      const spaceAbove = r.top;
+      const openUp = spaceBelow < 260 && spaceAbove > spaceBelow;
+      const avail = (openUp ? spaceAbove : spaceBelow) - 16;
+      const maxList = Math.max(120, Math.min(320, avail - 52)); // 52 ≈ the search box
+      setRect({
+        left: Math.max(8, left),
+        width,
+        maxList,
+        ...(openUp ? { bottom: window.innerHeight - r.top + 4 } : { top: r.bottom + 4 }),
+      });
     }
     setQ('');
     setOpen(true);
@@ -118,7 +130,8 @@ export default function SearchableFieldSelect({ scalars, fields, value, onChange
       </button>
 
       {open && rect && (
-        <div style={{ position: 'fixed', top: rect.top, left: rect.left, width: rect.width, zIndex: 1000,
+        <div style={{ position: 'fixed', left: rect.left, width: rect.width, zIndex: 1000,
+          ...(rect.top !== undefined ? { top: rect.top } : { bottom: rect.bottom }),
           background: 'var(--surface)', border: '1px solid var(--border-strong)', borderRadius: 10, boxShadow: 'var(--shadow-md, 0 12px 32px rgba(0,0,0,.16))', overflow: 'hidden' }}>
           <div style={{ padding: 8, borderBottom: '1px solid var(--border)', position: 'relative' }}>
             <i className="fa-solid fa-magnifying-glass" style={{ position: 'absolute', left: 18, top: 18, fontSize: 11, color: 'var(--gray-400)' }} />
@@ -130,7 +143,7 @@ export default function SearchableFieldSelect({ scalars, fields, value, onChange
               style={{ width: '100%', border: '1px solid var(--border-strong)', borderRadius: 7, background: 'var(--surface-subtle)', padding: '8px 10px 8px 28px', fontSize: 13, color: 'var(--text)', fontFamily: 'var(--font-body)' }}
             />
           </div>
-          <div style={{ maxHeight: 320, overflowY: 'auto', padding: '4px 0' }}>
+          <div style={{ maxHeight: rect.maxList, overflowY: 'auto', padding: '4px 0' }}>
             {value && (
               <button type="button" onClick={() => pick('')}
                 onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--surface-subtle)')}
