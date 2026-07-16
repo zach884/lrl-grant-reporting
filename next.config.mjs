@@ -17,6 +17,9 @@ const nextConfig = {
       'https://*.gohighlevel.com',
       'https://*.leadconnectorhq.com',
       'https://*.msgsndr.com',
+      // LRL white-label GHL domain (the account is served from here).
+      'https://app.leanrocketlab.org',
+      'https://*.leanrocketlab.org',
     ].join(' ');
     return [
       {
