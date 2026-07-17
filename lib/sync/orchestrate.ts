@@ -124,18 +124,23 @@ export async function reconcileAllGeneric(opts: GenericReconcileOptions): Promis
   const co2c = await loadPushConnection(COMPANY_TO_CONTACTS_SLUG);
   if (!co2c) throw new Error(`${COMPANY_TO_CONTACTS_SLUG} connection is not configured`);
 
-  // Distinct companies that have contacts (same scope the built-in reconcile uses).
+  // Enumerate ALL contacts once and group by company (same as the built-in reconcile), so the
+  // per-company sweep reuses this roster instead of re-querying contacts per company. The roster is
+  // injected as resolveCounterpartIds, so syncConnection skips its listContactsByBusiness lookup —
+  // that per-company search is the difference between ~30min and ~50min over 876 companies.
   const all = await enumerateAllContacts(client);
-  const companySet = new Set<string>();
+  const byCompany = new Map<string, string[]>();
   for (const c of all) {
     const b = c.businessId;
     if (!b) continue;
     if (opts.onlyCompanyIds && !opts.onlyCompanyIds.includes(b)) continue;
-    companySet.add(b);
+    const arr = byCompany.get(b) ?? [];
+    arr.push(c.id);
+    byCompany.set(b, arr);
   }
 
   const done = opts.checkpoint ? await opts.checkpoint.loadDone() : new Set<string>();
-  let companyIds = Array.from(companySet);
+  let companyIds = Array.from(byCompany.keys());
   const companiesTotal = companyIds.length;
   let companiesSkipped = 0;
   if (done.size) companyIds = companyIds.filter((id) => { const skip = done.has(id); if (skip) companiesSkipped++; return !skip; });
@@ -144,7 +149,8 @@ export async function reconcileAllGeneric(opts: GenericReconcileOptions): Promis
   let progressDone = companiesSkipped;
   await runPool(companyIds, concurrency, async (companyId) => {
     try {
-      const res = await syncConnection(co2c, companyId, { apply: opts.apply }, undefined, client);
+      const roster = byCompany.get(companyId) ?? [];
+      const res = await syncConnection(co2c, companyId, { apply: opts.apply }, { resolveCounterpartIds: async () => roster }, client);
       const result = toCompanyResult(companyId, res, opts.apply);
       stats.companiesProcessed++;
       stats.contactsProcessed += result.results.length;
