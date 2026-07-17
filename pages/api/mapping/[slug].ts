@@ -15,10 +15,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!hasDatabase) return res.status(503).json({ error: 'Database not configured (POSTGRES_URL missing)' });
   const slug = String(req.query.slug);
 
-  // Delete a connection (admin-guarded). contact-company is protected — it's the live sync.
+  // Delete a connection (admin-guarded).
   if (req.method === 'DELETE') {
     if (!isAdmin(req)) return res.status(401).json({ error: 'unauthorized' });
-    if (slug === 'contact-company') return res.status(400).json({ error: 'the contact↔company sync cannot be deleted' });
     try {
       await getDbStore().deleteSync(slug);
       return res.status(200).json({ ok: true });
