@@ -1,11 +1,10 @@
 // lib/sync/orchestrate.ts — real-time + batch orchestration on the generic push-connection model.
 //
-// This is the cutover target for the built-in contact↔company engine (lib/sync/{up,down}sync.ts +
-// reconcile.ts). It drives the SAME two directions through the object-agnostic engine (apply.ts),
-// reading the connection definitions from the DB (the `contact-to-company` + `company-to-contacts`
-// push connections). Loop-safety is inherited from the engine's equality guard: writes fire only on
-// real diffs, so a re-triggered webhook converges to a no-op. Selected via SYNC_ENGINE_MODE=generic;
-// while unset, every caller keeps using the built-in engine, so shipping this changes nothing.
+// This is the sole contact↔company sync engine (the built-in lib/sync/{up,down}sync engine was
+// retired after this reached full parity). It drives both directions through the object-agnostic
+// engine (apply.ts), reading the connection definitions from the DB (the `contact-to-company` +
+// `company-to-contacts` push connections). Loop-safety is inherited from the engine's equality
+// guard: writes fire only on real diffs, so a re-triggered webhook converges to a no-op.
 
 import { getDbStore } from '../mapping/store';
 import { enumerateAllContacts } from '../ghl/contacts';
@@ -20,11 +19,6 @@ import { ghl } from '../ghl/client';
 
 export const CONTACT_TO_COMPANY_SLUG = 'contact-to-company';
 export const COMPANY_TO_CONTACTS_SLUG = 'company-to-contacts';
-
-/** True when the generic push-connection engine should drive real-time + reconcile (cutover flag). */
-export function useGenericEngine(): boolean {
-  return (process.env.SYNC_ENGINE_MODE ?? 'builtin').toLowerCase() === 'generic';
-}
 
 const bare = (k: string) => (k.includes('.') ? k.split('.').slice(1).join('.') : k);
 

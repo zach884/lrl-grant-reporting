@@ -12,9 +12,7 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getCatalogs } from '@/lib/ghl/catalogCache';
-import { mappingStore } from '@/lib/mapping';
-import { syncContactUpAndFanOut } from '@/lib/sync';
-import { applyContactChange, useGenericEngine } from '@/lib/sync/orchestrate';
+import { applyContactChange } from '@/lib/sync/orchestrate';
 import { enrichCompany, defaultEnrichers } from '@/lib/enrichment';
 
 function extractContactId(req: NextApiRequest): string | undefined {
@@ -40,42 +38,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const catalogs = await getCatalogs();
 
-    // Cutover flag: SYNC_ENGINE_MODE=generic drives the two push connections through the
-    // object-agnostic engine; otherwise the proven built-in engine. Both are equality-guarded.
-    // `companyId`, `companyFieldsWritten` (bare keys), and the response payload are normalized so
-    // the enrichment gate + JSON shape are identical either way.
-    let companyId: string | undefined;
-    let companyFieldsWritten: string[];
-    let upResp: Record<string, unknown>;
-    let downResp: Record<string, unknown> | null;
-
-    if (useGenericEngine()) {
-      const r = await applyContactChange(String(contactId), { apply: !dryRun });
-      companyId = r.companyId;
-      companyFieldsWritten = r.companyFieldsWritten;
-      const fwd = r.up.forward[0];
-      upResp = { engine: 'generic', written: companyFieldsWritten, unchanged: fwd?.unchanged ?? 0, drift: fwd?.changes ?? [], skipped: fwd?.skipped ?? [], note: r.up.note };
-      downResp = r.down
-        ? {
-            contacts: r.down.counterpartCount,
-            contactsChanged: r.down.forward.filter((f) => (dryRun ? f.changes.length : f.written.length) > 0).length,
-            fieldsWritten: r.down.forward.reduce((n, f) => n + (dryRun ? f.changes.length : f.written.length), 0),
-          }
-        : null;
-    } else {
-      const set = await mappingStore.load();
-      const { up, down } = await syncContactUpAndFanOut(String(contactId), set.mappings, catalogs, { apply: !dryRun });
-      companyId = up.companyId;
-      companyFieldsWritten = up.written.map((k) => k.replace(/^business\./, ''));
-      upResp = { engine: 'builtin', written: up.written, unchanged: up.unchanged, drift: up.drift, skipped: up.skipped, note: up.note };
-      downResp = down
-        ? {
-            contacts: down.contactCount,
-            contactsChanged: down.results.filter((r) => r.written.length > 0 || r.companyNameWritten).length,
-            fieldsWritten: down.results.reduce((n, r) => n + r.written.length + (r.companyNameWritten ? 1 : 0), 0),
-          }
-        : null;
-    }
+    // Contact changed → push UP to its primary company; if the company changed, fan OUT down to all
+    // its contacts. Equality-guarded end to end, so it's idempotent and can't ping-pong.
+    const r = await applyContactChange(String(contactId), { apply: !dryRun });
+    const companyId = r.companyId;
+    const companyFieldsWritten = r.companyFieldsWritten;
+    const fwd = r.up.forward[0];
+    const upResp: Record<string, unknown> = { written: companyFieldsWritten, unchanged: fwd?.unchanged ?? 0, drift: fwd?.changes ?? [], skipped: fwd?.skipped ?? [], note: r.up.note };
+    const downResp: Record<string, unknown> | null = r.down
+      ? {
+          contacts: r.down.counterpartCount,
+          contactsChanged: r.down.forward.filter((f) => (dryRun ? f.changes.length : f.written.length) > 0).length,
+          fieldsWritten: r.down.forward.reduce((n, f) => n + (dryRun ? f.changes.length : f.written.length), 0),
+        }
+      : null;
 
     // Real-time enrichment of the touched company. Address-dependent enrichers (county,
     // geo-zone) only run when the company address actually changed this sync — that's the

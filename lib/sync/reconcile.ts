@@ -1,24 +1,13 @@
-// lib/sync/reconcile.ts — the scheduled DOWN-sync sweep.
+// lib/sync/reconcile.ts — shared reconcile infrastructure (bounded pool, checkpoint, run report).
 //
-// Native GHL workflows are best-effort; THIS is the guarantee. It re-pushes every
-// company's mirrored fields to all associated contacts and logs any drift it corrects.
-// Run nightly / pre-reporting. Equality-guarded, so a clean run writes nothing.
-//
-// Hardened for LIVE scale (~868 companies / ~1,050 linked contacts):
-//  - bounded concurrency (a company pool; each company still syncs its contacts serially)
-//  - resumability via an optional checkpoint (skip companies already done)
-//  - a bounded `limit` for staged first runs, and an `onProgress` callback
-//  - a structured run report (target/apply/timings/stats/drift) it can persist to disk
-// All of this is additive — the original `reconcileAll(mappings, catalogs, {apply})` call
-// still behaves exactly as before (concurrency defaults to 1, no checkpoint, no report file).
+// The all-companies sweep itself now lives in lib/sync/orchestrate.ts (reconcileAllGeneric), on the
+// generic push-connection engine. This module holds the reusable pieces both the sweep and the CLI
+// depend on: a bounded worker pool, a resumable file checkpoint, and the report type + renderer.
+// (Historically this file also held the built-in contact↔company down-sync `reconcileAll`; that
+// engine was retired once the generic engine reached full parity — see git history.)
 
 import { promises as fs } from 'node:fs';
-import { GhlClient, ghl } from '../ghl/client';
-import { CustomFieldCatalog, Contact } from '../ghl/types';
-import { enumerateAllContacts } from '../ghl/contacts';
-import type { FieldMapping } from '../mapping/types';
-import { syncCompanyDown } from './downsync';
-import { CompanySyncResult, ReconcileStats } from './types';
+import type { CompanySyncResult, ReconcileStats } from './types';
 
 /** Resumability hook. Company-granular: a company is "done" once fully processed. */
 export interface ReconcileCheckpoint {
@@ -28,7 +17,7 @@ export interface ReconcileCheckpoint {
 
 /**
  * File-backed checkpoint (append-only JSONL of {companyId,ts}). Safe to re-run:
- * down-sync is idempotent, so the checkpoint is a speed/robustness aid, not a
+ * the sweep is idempotent, so the checkpoint is a speed/robustness aid, not a
  * correctness requirement.
  */
 export class FileReconcileCheckpoint implements ReconcileCheckpoint {
@@ -53,23 +42,18 @@ export class FileReconcileCheckpoint implements ReconcileCheckpoint {
   }
 }
 
-export interface ReconcileOptions {
-  apply: boolean;
-  client?: GhlClient;
-  /** Called after each company is processed (for progress UIs / logs). */
-  onCompany?: (result: CompanySyncResult) => void;
-  /** Called after each company finishes, with running counts (done includes skipped). */
-  onProgress?: (done: number, total: number) => void;
-  /** Limit to specific company ids (else all companies that have contacts). */
-  onlyCompanyIds?: string[];
-  /** How many companies to process in parallel (default 1 = original behavior). */
-  concurrency?: number;
-  /** Process at most this many companies this run (staged first passes). */
-  limit?: number;
-  /** Skip companies already recorded done, and record each as it completes. */
-  checkpoint?: ReconcileCheckpoint;
-  /** Pre-fetched contacts (skips the full enumerate — for tests / chained runs). */
-  contacts?: Contact[];
+/** Simple bounded worker pool preserving safe (single-threaded) stat mutation. */
+export async function runPool<T>(items: T[], limit: number, worker: (item: T) => Promise<void>): Promise<void> {
+  const n = Math.max(1, Math.min(limit, items.length));
+  let next = 0;
+  const runners = Array.from({ length: n }, async () => {
+    while (true) {
+      const idx = next++;
+      if (idx >= items.length) return;
+      await worker(items[idx]);
+    }
+  });
+  await Promise.all(runners);
 }
 
 export interface ReconcileReport {
@@ -86,117 +70,6 @@ export interface ReconcileReport {
     concurrency: number;
     companiesTotal: number; // companies with contacts in scope this run
     companiesSkipped: number; // skipped via checkpoint
-  };
-}
-
-/** Simple bounded worker pool preserving safe (single-threaded) stat mutation. */
-export async function runPool<T>(items: T[], limit: number, worker: (item: T) => Promise<void>): Promise<void> {
-  const n = Math.max(1, Math.min(limit, items.length));
-  let next = 0;
-  const runners = Array.from({ length: n }, async () => {
-    while (true) {
-      const idx = next++;
-      if (idx >= items.length) return;
-      await worker(items[idx]);
-    }
-  });
-  await Promise.all(runners);
-}
-
-/**
- * Group all contacts by businessId and re-push each company's mirrored state.
- * Reads all contacts once (light), then syncCompanyDown re-reads each contact's
- * custom fields (needed for the equality guard) and the company record once.
- */
-export async function reconcileAll(
-  mappings: FieldMapping[],
-  catalogs: { business: CustomFieldCatalog; contact: CustomFieldCatalog },
-  opts: ReconcileOptions,
-): Promise<ReconcileReport> {
-  const client = opts.client ?? ghl();
-  const startedAt = new Date();
-  const concurrency = opts.concurrency ?? 1;
-  const stats: ReconcileStats = {
-    companiesProcessed: 0,
-    contactsProcessed: 0,
-    contactsChanged: 0,
-    fieldsWritten: 0,
-    errors: [],
-  };
-  const changed: CompanySyncResult[] = [];
-
-  // Group contacts by company.
-  const byCompany = new Map<string, Contact[]>();
-  const all = opts.contacts ?? (await enumerateAllContacts(client));
-  for (const c of all) {
-    if (!c.businessId) continue;
-    if (opts.onlyCompanyIds && !opts.onlyCompanyIds.includes(c.businessId)) continue;
-    const arr = byCompany.get(c.businessId) ?? [];
-    arr.push(c);
-    byCompany.set(c.businessId, arr);
-  }
-
-  // Resumability: drop already-done companies.
-  const done = opts.checkpoint ? await opts.checkpoint.loadDone() : new Set<string>();
-  let entries = Array.from(byCompany.entries());
-  const companiesTotal = entries.length;
-  let companiesSkipped = 0;
-  if (done.size) {
-    entries = entries.filter(([id]) => {
-      const skip = done.has(id);
-      if (skip) companiesSkipped++;
-      return !skip;
-    });
-  }
-  if (opts.limit != null) entries = entries.slice(0, opts.limit);
-
-  let progressDone = companiesSkipped;
-  const total = companiesTotal;
-
-  await runPool(entries, concurrency, async ([companyId, contacts]) => {
-    try {
-      const result = await syncCompanyDown(companyId, mappings, catalogs, {
-        apply: opts.apply,
-        client,
-        contacts,
-      });
-      stats.companiesProcessed++;
-      stats.contactsProcessed += result.results.length;
-      let companyChanged = false;
-      for (const r of result.results) {
-        const wrote = r.written.length + (r.companyNameWritten ? 1 : 0);
-        if (wrote > 0) { stats.contactsChanged++; stats.fieldsWritten += wrote; companyChanged = true; }
-        for (const s of r.skipped) {
-          stats.errors.push({ companyId, contactId: r.contactId, message: `skipped ${s.key}: ${s.reason}` });
-        }
-      }
-      if (companyChanged) changed.push(result);
-      opts.onCompany?.(result);
-      // Mark done ONLY on success — an errored company must be retried on resume,
-      // not silently skipped.
-      if (opts.checkpoint) { try { await opts.checkpoint.markDone(companyId); } catch { /* best-effort */ } }
-    } catch (e: any) {
-      stats.errors.push({ companyId, message: e?.message ?? String(e) });
-    } finally {
-      progressDone++;
-      opts.onProgress?.(progressDone, total);
-    }
-  });
-
-  const finishedAt = new Date();
-  return {
-    stats,
-    changed,
-    run: {
-      target: process.env.GHL_TARGET ?? 'live',
-      apply: opts.apply,
-      startedAt: startedAt.toISOString(),
-      finishedAt: finishedAt.toISOString(),
-      durationMs: finishedAt.getTime() - startedAt.getTime(),
-      concurrency,
-      companiesTotal,
-      companiesSkipped,
-    },
   };
 }
 

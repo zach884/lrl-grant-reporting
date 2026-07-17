@@ -11,10 +11,8 @@
 
 import { readFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { getBusinessFieldCatalog, getContactFieldCatalog } from '../lib/ghl/customFields';
-import { mappingStore } from '../lib/mapping';
-import { reconcileAll, writeReconcileReport, FileReconcileCheckpoint } from '../lib/sync/reconcile';
-import { reconcileAllGeneric, useGenericEngine } from '../lib/sync/orchestrate';
+import { writeReconcileReport, FileReconcileCheckpoint } from '../lib/sync/reconcile';
+import { reconcileAllGeneric } from '../lib/sync/orchestrate';
 
 function loadEnvLocal() {
   try {
@@ -53,10 +51,6 @@ function flag(name: string): boolean { return process.argv.includes(`--${name}`)
   console.log(`Reconcile ${apply ? 'APPLY' : 'DRY-RUN'} | target=${target} | concurrency=${concurrency}` +
     (limit ? ` | limit=${limit}` : '') + (only ? ` | only=${only.length}` : ''));
 
-  const { mappings } = await mappingStore.load();
-  const [contact, business] = await Promise.all([getContactFieldCatalog(), getBusinessFieldCatalog()]);
-  console.log(`Loaded ${mappings.length} mappings; catalogs contact=${Object.keys(contact.byKey).length} business=${Object.keys(business.byKey).length}`);
-
   // --ckpt <name> lets a distinct run use its own checkpoint (avoids resuming a stale one
   // from a previous, different apply). Defaults to the target/mode name.
   const ckptName = arg('ckpt') ?? `${target}-${apply ? 'apply' : 'dryrun'}`;
@@ -71,11 +65,8 @@ function flag(name: string): boolean { return process.argv.includes(`--${name}`)
       lastLog = Date.now();
     }
   };
-  const generic = useGenericEngine();
-  console.log(`Engine: ${generic ? 'GENERIC (company-to-contacts push)' : 'BUILTIN (syncCompanyDown)'}`);
-  const report = generic
-    ? await reconcileAllGeneric({ apply, concurrency, limit, onlyCompanyIds: only, checkpoint, onProgress })
-    : await reconcileAll(mappings, { business, contact }, { apply, concurrency, limit, onlyCompanyIds: only, checkpoint, onProgress });
+  console.log('Engine: generic (company-to-contacts push)');
+  const report = await reconcileAllGeneric({ apply, concurrency, limit, onlyCompanyIds: only, checkpoint, onProgress });
 
   const summary = await writeReconcileReport(report, {
     jsonPath: join(reportsDir, `report-${tag}.json`),
