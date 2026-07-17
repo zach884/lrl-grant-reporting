@@ -29,15 +29,24 @@ function normColumn(f: any): WixColumn {
   return col;
 }
 
-/** List all data collections (id + display name). */
+/** List the site's USER-CREATED CMS collections (id + display name).
+ *
+ * Wix returns every collection here — including installed-app system collections (Stores'
+ * Products/Categories, Bookings' Schedules, Blog's Posts/Categories/Tags, Members' *Data,
+ * Forms/Coupons/Badges, etc.) which the mapper can't meaningfully target. We keep only
+ * `collectionType === 'NATIVE'` ("User-created collection" per the Wix Data API), i.e. what
+ * shows under "Your Collections" in the CMS. Defensive: if the API omits collectionType
+ * entirely, fall back to all collections rather than blanking the dropdown. */
 export async function listCollections(client: WixClient = wix()): Promise<WixCollectionSummary[]> {
   const data = await client.request<any>({
     method: 'GET',
     path: '/wix-data/v2/collections',
     params: { 'paging.limit': 200 },
   });
-  const cols = data.collections ?? data.dataCollections ?? [];
-  return cols.map((c: any) => ({ id: c.id ?? c._id, displayName: c.displayName ?? c.id }));
+  const cols: any[] = data.collections ?? data.dataCollections ?? [];
+  const typed = cols.some((c) => c.collectionType);
+  const userCollections = typed ? cols.filter((c) => c.collectionType === 'NATIVE') : cols;
+  return userCollections.map((c: any) => ({ id: c.id ?? c._id, displayName: c.displayName ?? c.id }));
 }
 
 /** Full schema for one collection: writable + system columns with types. */
