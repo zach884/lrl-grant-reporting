@@ -162,33 +162,48 @@ export function coerceBusinessProperties(
   mode: WriteMode = 'update',
   rawKeys: ReadonlySet<string> = EMPTY_SET,
 ): CoerceResult {
+  return coerceObjectProperties('business', values, catalogByKey, mode, rawKeys);
+}
+
+/**
+ * Object-agnostic version of the above — coerces { fieldKey|bareKey: value } into a writable
+ * `properties` object for any objects-API object (business, custom_objects.*). `fieldKey` may be
+ * "<objectKey>.foo" or bare "foo". Same rules/writability as the business path.
+ */
+export function coerceObjectProperties(
+  objectKey: string,
+  values: Record<string, unknown>,
+  catalogByKey: Record<string, CustomFieldDef>,
+  mode: WriteMode = 'update',
+  rawKeys: ReadonlySet<string> = EMPTY_SET,
+): CoerceResult {
   const properties: Record<string, unknown> = {};
   const skipped: CoerceResult['skipped'] = [];
+  const prefix = `${objectKey}.`;
 
   for (const [inputKey, rawValue] of Object.entries(values)) {
     if (rawValue == null || rawValue === '' || (Array.isArray(rawValue) && rawValue.length === 0)) {
       continue; // never overwrite with empty
     }
-    const bareKey = inputKey.startsWith('business.') ? inputKey.slice('business.'.length) : inputKey;
+    const bareKey = inputKey.startsWith(prefix) ? inputKey.slice(prefix.length) : inputKey;
     // Opaque pass-through (e.g. country ISO code): store the value as a trimmed string,
-    // bypassing this field's option/date/number coercion. Used for SINGLE_OPTIONS fields
-    // whose value is really an external code we sync verbatim from the contact side.
+    // bypassing this field's option/date/number coercion.
     if (rawKeys.has(bareKey)) {
       properties[bareKey] = String(rawValue).trim();
       continue;
     }
-    const def = catalogByKey[`business.${bareKey}`] ?? catalogByKey[bareKey];
+    const def = catalogByKey[`${objectKey}.${bareKey}`] ?? catalogByKey[bareKey];
     const dataType = def?.dataType;
 
     if (dataType && isUnwritable(dataType)) {
-      throw new GhlUnwritableFieldError(`business.${bareKey}`, dataType);
+      throw new GhlUnwritableFieldError(`${objectKey}.${bareKey}`, dataType);
     }
     if (dataType && isCreateOnly(dataType) && mode !== 'create') {
       throw new GhlUnwritableFieldError(
-        `business.${bareKey}`,
+        `${objectKey}.${bareKey}`,
         dataType,
-        `is settable only at record creation (POST /objects/business/records with an array of ` +
-          `option keys). It is immutable via update — set it when the company is created, or maintain in the UI.`,
+        `is settable only at record creation (POST /objects/${objectKey}/records with an array of ` +
+          `option keys). It is immutable via update — set it at creation, or maintain in the UI.`,
       );
     }
 

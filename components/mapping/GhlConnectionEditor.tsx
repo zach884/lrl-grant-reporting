@@ -47,6 +47,7 @@ export default function GhlConnectionEditor({ slug = 'contact-company' }: { slug
   const [adminSecret, setAdminSecret] = useState('');
   const [saving, setSaving] = useState(false); const [saveMsg, setSaveMsg] = useState(''); const [saveErr, setSaveErr] = useState('');
   const [dryId, setDryId] = useState(''); const [dryResult, setDryResult] = useState<any>(null);
+  const [applyResult, setApplyResult] = useState<any>(null); const [applying, setApplying] = useState(false);
 
   const isContactCompany = slug === 'contact-company';
 
@@ -104,8 +105,22 @@ export default function GhlConnectionEditor({ slug = 'contact-company' }: { slug
       const r = await fetch('/api/mapping/dry-run', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-secret': adminSecret }, body: JSON.stringify({ slug, sourceRecordId: dryId.trim() }) });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? 'dry-run failed');
-      setDryResult(d.result);
+      setDryResult(d.result); setApplyResult(null);
     } catch (e: any) { setSaveErr(e?.message ?? 'dry-run failed'); } finally { setSaving(false); }
+  }
+
+  async function runApply() {
+    if (!dryResult) { setSaveErr('Run a dry-run preview first.'); return; }
+    const changeCount = (dryResult.counterparts ?? []).reduce((s: number, c: any) => s + (c.changes?.length ?? 0), 0);
+    if (!changeCount) { setSaveErr('Nothing to write — the preview showed no changes.'); return; }
+    if (!window.confirm(`Apply LIVE writes: ${changeCount} field change(s) across ${dryResult.counterpartCount} record(s)? This writes to GoHighLevel.`)) return;
+    setApplying(true); setSaveErr(''); setApplyResult(null);
+    try {
+      const r = await fetch('/api/mapping/apply', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-secret': adminSecret }, body: JSON.stringify({ slug, sourceRecordId: dryId.trim() }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? 'apply failed');
+      setApplyResult(d.result);
+    } catch (e: any) { setSaveErr(e?.message ?? 'apply failed'); } finally { setApplying(false); }
   }
 
   const activeCount = useMemo(() => rows.filter((r) => r.enabled !== false).length, [rows]);
@@ -164,11 +179,20 @@ export default function GhlConnectionEditor({ slug = 'contact-company' }: { slug
               <div style={{ display: 'flex', gap: 10 }}>
                 <input value={dryId} onChange={(e) => setDryId(e.target.value)} placeholder={`${srcLabel} record id`} style={{ ...inputBase, flex: 1 }} />
                 <button type="button" style={{ ...secondaryBtn, opacity: saving ? 0.6 : 1 }} disabled={saving} onClick={runDryRun}><i className="fa-solid fa-flask" /> Preview</button>
+                <button type="button" style={{ ...primaryBtn, opacity: applying || !dryResult ? 0.5 : 1 }} disabled={applying || !dryResult} onClick={runApply} title="Write these changes to GoHighLevel"><i className="fa-solid fa-bolt" />{applying ? 'Applying…' : 'Apply this record'}</button>
               </div>
-              {dryResult && (
+              {dryResult && !applyResult && (
                 <div style={{ marginTop: 12 }}>
-                  <div style={{ fontSize: 13, color: 'var(--gray-600)', marginBottom: 6 }}>{dryResult.counterpartCount} counterpart(s){dryResult.note ? ` · ${dryResult.note}` : ''}</div>
+                  <div style={{ fontSize: 13, color: 'var(--gray-600)', marginBottom: 6 }}>Preview · {dryResult.counterpartCount} counterpart(s){dryResult.note ? ` · ${dryResult.note}` : ''}</div>
                   <pre style={{ background: 'var(--ink-900)', color: '#e6edf3', borderRadius: 10, padding: 14, fontSize: 12, overflowX: 'auto' }}>{JSON.stringify(dryResult.counterparts, null, 2)}</pre>
+                </div>
+              )}
+              {applyResult && (
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal-700)', marginBottom: 6 }}>
+                    <i className="fa-solid fa-circle-check" style={{ marginRight: 7 }} />Applied · {applyResult.forward?.reduce((s: number, f: any) => s + (f.written?.length ?? 0), 0)} field(s) written across {applyResult.counterpartCount} record(s){applyResult.reverse?.note ? ` · ${applyResult.reverse.note}` : ''}
+                  </div>
+                  <pre style={{ background: 'var(--ink-900)', color: '#e6edf3', borderRadius: 10, padding: 14, fontSize: 12, overflowX: 'auto' }}>{JSON.stringify({ forward: applyResult.forward, reverse: applyResult.reverse }, null, 2)}</pre>
                 </div>
               )}
             </div>

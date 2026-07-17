@@ -46,14 +46,14 @@ export interface ConnectionDryRun {
 const isOption = (def?: CustomFieldDef) => def?.dataType === 'SINGLE_OPTIONS' || def?.dataType === 'RADIO';
 
 /** The value that would be written to the target field (option label for option types). */
-function proposedValue(raw: unknown, def?: CustomFieldDef): unknown {
+export function proposedValue(raw: unknown, def?: CustomFieldDef): unknown {
   if (raw == null || raw === '') return raw;
   if (isOption(def) && def?.options) return resolveOptionLabel(raw, def.options) ?? String(raw);
   return typeof raw === 'string' ? raw.trim() : raw;
 }
 
 /** Compare a target's current value to the proposed one, in the field's stored form. */
-function equalForField(def: CustomFieldDef | undefined, current: unknown, proposed: unknown): boolean {
+export function equalForField(def: CustomFieldDef | undefined, current: unknown, proposed: unknown): boolean {
   if (isOption(def) && def?.options) {
     const a = resolveOptionKey(current, def.options);
     const b = resolveOptionKey(proposed, def.options);
