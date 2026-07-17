@@ -29,7 +29,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       sourceObject: meta.sourceObject,
       targetObject: meta.destObject,
       associationId: meta.associationId,
-      rows: set.mappings.map((m) => ({ sourceKey: m.contactKey, targetKey: m.businessKey, direction: m.direction })),
+      rows: set.mappings.map((m) => ({ sourceKey: m.contactKey, targetKey: m.businessKey, direction: m.direction, transform: m.transform, enabled: m.enabled })),
     };
     const result = await planConnectionDryRun(connection, sourceRecordId);
     return res.status(200).json({ result });

@@ -18,6 +18,12 @@ export interface DryRunRow {
   sourceKey: string;
   targetKey: string;
   direction: 'up' | 'down' | 'both';
+  /** Optional per-row value transform (e.g. 'countryCode'). Applied to the source value. */
+  transform?: string;
+  /** Tri-state (undefined ⇒ enabled). A disabled row is never synced — matches the built-in
+   *  engine's `enabled !== false` gate; without this the generic engine would write fields the
+   *  user turned off. */
+  enabled?: boolean;
 }
 export interface DryRunConnection {
   sourceObject: string;
@@ -45,16 +51,26 @@ export interface ConnectionDryRun {
 
 const isOption = (def?: CustomFieldDef) => def?.dataType === 'SINGLE_OPTIONS' || def?.dataType === 'RADIO';
 
+/** A per-row value transform. Mirrors lib/sync/downsync.applyTransform, kept local so the generic
+ *  engine has no dependency on the built-in contact↔company engine. A transformed value is opaque:
+ *  it bypasses this field's option→label coercion and is compared case-insensitively.
+ *  'countryCode': uppercase+trim the ISO code, synced verbatim ("us"/"US" never churn). */
+export function transformValue(transform: string | undefined, value: unknown): unknown {
+  if (transform === 'countryCode' && value != null && value !== '') return String(value).trim().toUpperCase();
+  return value;
+}
+
 /** The value that would be written to the target field (option label for option types). */
-export function proposedValue(raw: unknown, def?: CustomFieldDef): unknown {
+export function proposedValue(raw: unknown, def?: CustomFieldDef, transform?: string): unknown {
   if (raw == null || raw === '') return raw;
+  if (transform) return transformValue(transform, raw); // opaque — skip option→label coercion
   if (isOption(def) && def?.options) return resolveOptionLabel(raw, def.options) ?? String(raw);
   return typeof raw === 'string' ? raw.trim() : raw;
 }
 
 /** Compare a target's current value to the proposed one, in the field's stored form. */
-export function equalForField(def: CustomFieldDef | undefined, current: unknown, proposed: unknown): boolean {
-  if (isOption(def) && def?.options) {
+export function equalForField(def: CustomFieldDef | undefined, current: unknown, proposed: unknown, transform?: string): boolean {
+  if (!transform && isOption(def) && def?.options) {
     const a = resolveOptionKey(current, def.options);
     const b = resolveOptionKey(proposed, def.options);
     return a != null && b != null ? a === b : String(current ?? '') === String(proposed ?? '');
@@ -89,7 +105,7 @@ export async function planConnectionDryRun(
     sourceRecordId,
   };
 
-  const pushRows = connection.rows.filter((r) => r.direction === 'up' || r.direction === 'both');
+  const pushRows = connection.rows.filter((r) => r.enabled !== false && (r.direction === 'up' || r.direction === 'both'));
   if (!pushRows.length) return { ...base, counterpartCount: 0, counterparts: [], note: 'no source→target rows' };
 
   const [source, targetCatalog, ids] = await Promise.all([
@@ -110,9 +126,9 @@ export async function planConnectionDryRun(
       const def = targetCatalog.byKey[row.targetKey];
       const raw = source.get(row.sourceKey);
       if (raw == null || raw === '' || (Array.isArray(raw) && raw.length === 0)) { continue; }
-      const proposed = proposedValue(raw, def);
+      const proposed = proposedValue(raw, def, row.transform);
       const current = target.get(row.targetKey);
-      if (equalForField(def, current, proposed)) unchanged++;
+      if (equalForField(def, current, proposed, row.transform)) unchanged++;
       else changes.push({ sourceKey: row.sourceKey, targetKey: row.targetKey, from: current, to: proposed });
     }
     counterparts.push({ targetId, changes, unchanged, skipped });

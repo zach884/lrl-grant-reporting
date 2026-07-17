@@ -45,6 +45,14 @@ describe('syncConnection (apply)', () => {
     expect(r.forward.find((f) => f.targetId === 'op2')!.unchanged).toBe(1);
   });
 
+  it('never writes a disabled row (enabled === false)', async () => {
+    const conn: DryRunConnection = { ...pushConn, rows: [{ sourceKey: 'name', targetKey: 'name', direction: 'up', enabled: false }] };
+    const { deps, writes } = makeDeps(['op1']); // op1 differs, but the row is disabled
+    const r = await syncConnection(conn, 'co1', { apply: true }, deps as any);
+    expect(writes).toHaveLength(0);
+    expect(r.forward[0].changes).toHaveLength(0);
+  });
+
   it('apply:false plans without writing', async () => {
     const { deps, writes } = makeDeps(['op1', 'op2']);
     const r = await syncConnection(pushConn, 'co1', { apply: false }, deps as any);
@@ -82,5 +90,51 @@ describe('syncConnection (apply)', () => {
     expect(writes).toHaveLength(1);
     expect(writes[0]).toMatchObject({ objectKey: 'business', id: 'co1', changes: { name: 'Old Name' } });
     expect(r.reverse?.written).toContain('name');
+  });
+
+  describe('countryCode transform', () => {
+    const countryCat = cat([{
+      id: 'ctry', name: 'Country', fieldKey: 'business.country', dataType: 'SINGLE_OPTIONS',
+      options: [{ key: 'us', label: 'United States' }, { key: 'ca', label: 'Canada' }],
+    }]);
+    const conn: DryRunConnection = {
+      sourceObject: 'contact', targetObject: 'business', associationId: 'scalar:source:businessId',
+      rows: [{ sourceKey: 'country', targetKey: 'business.country', direction: 'up', transform: 'countryCode' }],
+    };
+    // contact scalar "us" (lowercase); business option field empty -> should write "US" VERBATIM (not the label).
+    function makeCountryDeps(businessCountry: unknown) {
+      const writes: any[] = [];
+      const recs: Record<string, RecordFields> = {
+        'contact:ct1': rec('contact', 'ct1', { country: 'us' }),
+        'business:co1': rec('business', 'co1', { 'business.country': businessCountry, country: businessCountry }),
+      };
+      const deps = {
+        readRecordFields: async (o: string, id: string) => recs[`${o}:${id}`],
+        resolveCounterpartIds: async () => ['co1'],
+        getCatalog: async () => countryCat,
+        writeRecordFields: async (objectKey: string, id: string, changes: Record<string, unknown>, _c: any, _cl: any, rawKeys: Set<string>) => {
+          writes.push({ objectKey, id, changes, rawKeys: rawKeys ? Array.from(rawKeys) : [] });
+          return { written: Object.keys(changes), skipped: [] };
+        },
+      };
+      return { deps, writes };
+    }
+
+    it('writes the uppercased ISO code verbatim and flags it opaque (no option-label coercion)', async () => {
+      const { deps, writes } = makeCountryDeps('');
+      const r = await syncConnection(conn, 'ct1', { apply: true }, deps as any);
+      expect(writes).toHaveLength(1);
+      expect(writes[0].changes['business.country']).toBe('US');   // NOT "United States"
+      expect(writes[0].rawKeys).toContain('country');             // opaque write
+      expect(r.forward[0].changes[0]).toMatchObject({ fieldKey: 'business.country', to: 'US' });
+    });
+
+    it('does not churn when the target already holds the option key ("us")', async () => {
+      const { deps, writes } = makeCountryDeps('us'); // stored option key vs source "us" -> "US", case-insensitive equal
+      const r = await syncConnection(conn, 'ct1', { apply: true }, deps as any);
+      expect(writes).toHaveLength(0);
+      expect(r.forward[0].changes).toHaveLength(0);
+      expect(r.forward[0].unchanged).toBe(1);
+    });
   });
 });

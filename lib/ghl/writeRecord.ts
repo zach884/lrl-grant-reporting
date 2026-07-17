@@ -42,7 +42,7 @@ async function writeContact(id: string, changes: Record<string, unknown>, catalo
   };
 }
 
-async function writeObjectRecord(objectKey: string, id: string, changes: Record<string, unknown>, catalog: CustomFieldCatalog, client: GhlClient): Promise<WriteResult> {
+async function writeObjectRecord(objectKey: string, id: string, changes: Record<string, unknown>, catalog: CustomFieldCatalog, client: GhlClient, rawKeys: ReadonlySet<string>): Promise<WriteResult> {
   const skipped: WriteResult['skipped'] = [];
   const writable: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(changes)) {
@@ -53,7 +53,7 @@ async function writeObjectRecord(objectKey: string, id: string, changes: Record<
     }
     writable[k] = v;
   }
-  const { properties, skipped: cs } = coerceObjectProperties(objectKey, writable, catalog.byKey, 'update');
+  const { properties, skipped: cs } = coerceObjectProperties(objectKey, writable, catalog.byKey, 'update', rawKeys);
   if (Object.keys(properties).length) {
     await client.request({ method: 'PUT', path: `/objects/${objectKey}/records/${id}`, body: { properties } });
   }
@@ -79,16 +79,22 @@ async function writeOpportunity(id: string, changes: Record<string, unknown>, ca
   };
 }
 
-/** Write `changes` (targetFieldKey → source value) to a record on any GHL object. */
+const EMPTY_KEYS: ReadonlySet<string> = new Set();
+
+/** Write `changes` (targetFieldKey → source value) to a record on any GHL object.
+ *  `rawKeys` (bare keys) are written opaquely on the objects API — used for transformed values
+ *  (e.g. countryCode) that must bypass option-label coercion. The contact-scalar path (where the
+ *  only current transform, country, lands) writes verbatim already, so rawKeys is a no-op there. */
 export function writeRecordFields(
   objectKey: string,
   recordId: string,
   changes: Record<string, unknown>,
   catalog: CustomFieldCatalog,
   client: GhlClient = ghl(),
+  rawKeys: ReadonlySet<string> = EMPTY_KEYS,
 ): Promise<WriteResult> {
   if (Object.keys(changes).length === 0) return Promise.resolve({ written: [], skipped: [] });
   if (objectKey === 'contact') return writeContact(recordId, changes, catalog, client);
   if (objectKey === 'opportunity') return writeOpportunity(recordId, changes, catalog, client);
-  return writeObjectRecord(objectKey, recordId, changes, catalog, client);
+  return writeObjectRecord(objectKey, recordId, changes, catalog, client, rawKeys);
 }
