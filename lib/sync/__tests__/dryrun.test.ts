@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { planConnectionDryRun, type DryRunConnection } from '../dryrun';
+import { planConnectionDryRun, canonicalizeSource, proposedValue, equalForField, isHeldDowngrade, type DryRunConnection } from '../dryrun';
 import type { CustomFieldCatalog, CustomFieldDef, GhlFieldOption } from '../../ghl/types';
 import type { RecordFields } from '../../ghl/records';
 
@@ -85,5 +85,43 @@ describe('planConnectionDryRun', () => {
     const downOnly: DryRunConnection = { ...connection, rows: [{ sourceKey: 'x', targetKey: 'y', direction: 'down' }] };
     const r = await planConnectionDryRun(downOnly, 'co1', deps as any);
     expect(r.note).toMatch(/no source/);
+  });
+});
+
+describe('field-aware value helpers (parity with the built-in engine)', () => {
+  const srcOpt: CustomFieldDef = { id: 's', name: 'S', fieldKey: 'contact.x', dataType: 'SINGLE_OPTIONS', options: [{ key: 'src_key', label: 'Shared Label' }] };
+  const tgtOpt: CustomFieldDef = { id: 't', name: 'T', fieldKey: 'business.x', dataType: 'SINGLE_OPTIONS', options: [{ key: 'tgt_key', label: 'Shared Label' }] };
+  const dateDef: CustomFieldDef = { id: 'd', name: 'D', fieldKey: 'business.d', dataType: 'DATE' };
+  const multiDef: CustomFieldDef = { id: 'm', name: 'M', fieldKey: 'business.m', dataType: 'MULTIPLE_OPTIONS', options: [{ key: 'a', label: 'Alpha' }, { key: 'b', label: 'Beta' }] };
+
+  it('canonicalizeSource maps an option KEY to its shared LABEL (cross-object bridge)', () => {
+    expect(canonicalizeSource('src_key', srcOpt)).toBe('Shared Label');
+    // then the target resolves that label to its own option
+    expect(proposedValue('Shared Label', tgtOpt)).toBe('Shared Label');
+    expect(equalForField(tgtOpt, 'tgt_key', 'Shared Label')).toBe(true); // stored key == proposed label
+  });
+
+  it('proposedValue SKIPS an unresolvable option (never writes a stale raw string)', () => {
+    expect(proposedValue('Not A Real Option', tgtOpt)).toBeNull();
+  });
+
+  it('DATE compares by day and coerces to full ISO', () => {
+    expect(proposedValue('2026-05-15', dateDef)).toBe('2026-05-15T00:00:00Z');
+    expect(equalForField(dateDef, '2026-05-15T00:00:00Z', '2026-05-15')).toBe(true);
+  });
+
+  it('website compares URL-normalized (scheme/www/slash-insensitive)', () => {
+    expect(equalForField(undefined, 'https://www.x.com/', 'x.com', undefined, 'website')).toBe(true);
+    expect(equalForField(undefined, 'https://x.com', 'y.com', undefined, 'website')).toBe(false);
+  });
+
+  it('MULTIPLE_OPTIONS compares as an order-insensitive key set', () => {
+    expect(equalForField(multiDef, ['b', 'a'], ['Alpha', 'Beta'])).toBe(true);
+  });
+
+  it('isHeldDowngrade protects an existing value but allows filling a blank', () => {
+    expect(isHeldDowngrade(['Other'], 'Jackson County', 'Other')).toBe(true);
+    expect(isHeldDowngrade(['Other'], '', 'Other')).toBe(false);
+    expect(isHeldDowngrade(['Other'], 'Jackson County', 'Real County')).toBe(false);
   });
 });

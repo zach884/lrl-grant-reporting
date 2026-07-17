@@ -10,7 +10,7 @@ import { readRecordFields } from '../ghl/records';
 import { getCatalog } from '../ghl/catalogCache';
 import { writeRecordFields } from '../ghl/writeRecord';
 import { resolveCounterpartIds } from './traverse';
-import { equalForField, proposedValue } from './dryrun';
+import { equalForField, proposedValue, canonicalizeSource, isHeldDowngrade } from './dryrun';
 import type { CustomFieldCatalog } from '../ghl/types';
 import type { GhlClient } from '../ghl/client';
 import type { DryRunConnection } from './dryrun';
@@ -39,35 +39,40 @@ export interface ApplyDeps {
 /** The bare form of a field key ("business.country" → "country"), for the opaque-write set. */
 const bareKey = (k: string) => (k.includes('.') ? k.split('.').slice(1).join('.') : k);
 
-/** Diff source→target for a set of rows (returns per-field changes; source value is what we write).
- *  Transformed rows write the transformed value opaquely (bare key added to `rawKeys` so the writer
- *  bypasses option coercion — e.g. countryCode syncs the ISO code verbatim). */
+interface DiffRow { sourceKey: string; targetKey: string; transform?: string; holdValues?: string[] }
+
+/** Diff source→target for a set of rows (returns per-field changes; the resolved target value is
+ *  what we write). Source option KEYS are canonicalized to shared LABELS via the SOURCE catalog
+ *  before proposing to the target (else cross-object option fields churn). Field-aware equality +
+ *  the no-downgrade hold guard mirror the built-in engine. Transformed rows write opaquely (bare
+ *  key added to `rawKeys` so the writer bypasses option coercion — e.g. countryCode). */
 function diff(
   getSource: (k: string) => unknown,
   getTarget: (k: string) => unknown,
-  rows: { sourceKey: string; targetKey: string; transform?: string }[],
+  rows: DiffRow[],
+  sourceCatalog: CustomFieldCatalog,
   targetCatalog: CustomFieldCatalog,
-): { changes: ApplyChange[]; unchanged: number; writeValues: Record<string, unknown>; rawKeys: Set<string> } {
+): { changes: ApplyChange[]; unchanged: number; writeValues: Record<string, unknown>; rawKeys: Set<string>; skipped: Array<{ key: string; reason: string }> } {
   const changes: ApplyChange[] = [];
   const writeValues: Record<string, unknown> = {};
   const rawKeys = new Set<string>();
+  const skipped: Array<{ key: string; reason: string }> = [];
   let unchanged = 0;
   for (const row of rows) {
     const raw = getSource(row.sourceKey);
     if (raw == null || raw === '' || (Array.isArray(raw) && raw.length === 0)) continue;
     const def = targetCatalog.byKey[row.targetKey];
-    const proposed = proposedValue(raw, def, row.transform);
+    const canonical = row.transform ? raw : canonicalizeSource(raw, sourceCatalog.byKey[row.sourceKey]);
+    const proposed = proposedValue(canonical, def, row.transform);
+    if (proposed == null || proposed === '' || (Array.isArray(proposed) && proposed.length === 0)) continue;
     const current = getTarget(row.targetKey);
-    if (equalForField(def, current, proposed, row.transform)) { unchanged++; continue; }
+    if (equalForField(def, current, proposed, row.transform, row.targetKey)) { unchanged++; continue; }
+    if (isHeldDowngrade(row.holdValues, current, proposed)) { skipped.push({ key: row.targetKey, reason: `no-downgrade: kept ${JSON.stringify(current)}` }); continue; }
     changes.push({ fieldKey: row.targetKey, from: current, to: proposed });
-    if (row.transform) {
-      writeValues[row.targetKey] = proposed;      // already-transformed value, written verbatim
-      rawKeys.add(bareKey(row.targetKey));         // opaque: skip the writer's option coercion
-    } else {
-      writeValues[row.targetKey] = raw;            // write the source raw; writeRecordFields coerces
-    }
+    writeValues[row.targetKey] = proposed;         // resolved target value; writer coerces to stored form
+    if (row.transform) rawKeys.add(bareKey(row.targetKey)); // opaque: skip the writer's option coercion
   }
-  return { changes, unchanged, writeValues, rawKeys };
+  return { changes, unchanged, writeValues, rawKeys, skipped };
 }
 
 /** Apply (or, with apply:false, plan) a two-way connection from one source record. */
@@ -105,12 +110,12 @@ export async function syncConnection(
   const forward: ForwardResult[] = [];
   for (const targetId of ids) {
     const target = await readRec(connection.targetObject, targetId, client);
-    const { changes, unchanged, writeValues, rawKeys } = diff((k) => source.get(k), (k) => target.get(k), pushRows, targetCatalog);
+    const { changes, unchanged, writeValues, rawKeys, skipped: heldSkips } = diff((k) => source.get(k), (k) => target.get(k), pushRows, sourceCatalog, targetCatalog);
     let written: string[] = [];
-    let skipped: Array<{ key: string; reason: string }> = [];
+    let skipped: Array<{ key: string; reason: string }> = [...heldSkips];
     if (opts.apply && changes.length) {
       const w = await write(connection.targetObject, targetId, writeValues, targetCatalog, client, rawKeys);
-      written = w.written; skipped = w.skipped;
+      written = w.written; skipped = [...heldSkips, ...w.skipped];
     }
     forward.push({ targetId, changes, unchanged, written, skipped });
   }
@@ -122,15 +127,17 @@ export async function syncConnection(
       reverse = { changes: [], written: [], skipped: [], note: `reverse (pull) skipped: ${ids.length} counterparts, ambiguous source-of-truth` };
     } else {
       const target = await readRec(connection.targetObject, ids[0], client);
-      // reverse rows are target→source: swap source/target keys (transform carries over).
-      const revRows = pullRows.map((r) => ({ sourceKey: r.targetKey, targetKey: r.sourceKey, transform: r.transform }));
-      const { changes, unchanged, writeValues, rawKeys } = diff((k) => target.get(k), (k) => source.get(k), revRows, sourceCatalog);
-      let written: string[] = []; let skipped: Array<{ key: string; reason: string }> = [];
+      // reverse rows are target→source: swap source/target keys (transform + hold carry over).
+      // The reverse SOURCE is the counterpart (targetObject) — canonicalize via targetCatalog; the
+      // reverse TARGET is the source record (sourceObject) — coerce/compare via sourceCatalog.
+      const revRows = pullRows.map((r) => ({ sourceKey: r.targetKey, targetKey: r.sourceKey, transform: r.transform, holdValues: r.holdValues }));
+      const { changes, writeValues, rawKeys, skipped: heldSkips } = diff((k) => target.get(k), (k) => source.get(k), revRows, targetCatalog, sourceCatalog);
+      let written: string[] = []; let skipped: Array<{ key: string; reason: string }> = [...heldSkips];
       if (opts.apply && changes.length) {
         const w = await write(connection.sourceObject, sourceRecordId, writeValues, sourceCatalog, client, rawKeys);
-        written = w.written; skipped = w.skipped;
+        written = w.written; skipped = [...heldSkips, ...w.skipped];
       }
-      reverse = { changes, written, skipped, note: unchanged ? undefined : undefined };
+      reverse = { changes, written, skipped };
     }
   }
 
