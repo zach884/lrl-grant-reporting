@@ -27,6 +27,11 @@ jobs:
       - name: Reconcile (apply, live)
         run: npx vite-node scripts-ts/reconcile-run.ts --apply --yes --resume
         env:
+          # Cutover to the generic push-connection engine (2026-07-17). The built-in engine remains
+          # in the codebase; revert this one line to roll the nightly sweep back. Real-time webhook
+          # was flipped first via Vercel SYNC_ENGINE_MODE. Parity was verified across all 876
+          # companies (0 meaningful diffs) + a full generic dry-run (0 would-change) before flipping.
+          SYNC_ENGINE_MODE: generic
           GHL_TARGET: live
           GHL_API_KEY: ${{ secrets.GHL_API_KEY }}
           GHL_LOCATION_ID: ${{ secrets.GHL_LOCATION_ID }}
