@@ -90,7 +90,7 @@ export interface ReconcileReport {
 }
 
 /** Simple bounded worker pool preserving safe (single-threaded) stat mutation. */
-async function runPool<T>(items: T[], limit: number, worker: (item: T) => Promise<void>): Promise<void> {
+export async function runPool<T>(items: T[], limit: number, worker: (item: T) => Promise<void>): Promise<void> {
   const n = Math.max(1, Math.min(limit, items.length));
   let next = 0;
   const runners = Array.from({ length: n }, async () => {

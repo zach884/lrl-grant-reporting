@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { getBusinessFieldCatalog, getContactFieldCatalog } from '../lib/ghl/customFields';
 import { mappingStore } from '../lib/mapping';
 import { reconcileAll, writeReconcileReport, FileReconcileCheckpoint } from '../lib/sync/reconcile';
+import { reconcileAllGeneric, useGenericEngine } from '../lib/sync/orchestrate';
 
 function loadEnvLocal() {
   try {
@@ -64,19 +65,17 @@ function flag(name: string): boolean { return process.argv.includes(`--${name}`)
     : undefined;
 
   let lastLog = Date.now();
-  const report = await reconcileAll(mappings, { business, contact }, {
-    apply,
-    concurrency,
-    limit,
-    onlyCompanyIds: only,
-    checkpoint,
-    onProgress: (done, total) => {
-      if (Date.now() - lastLog > 2000 || done === total) {
-        console.log(`  progress ${done}/${total} companies`);
-        lastLog = Date.now();
-      }
-    },
-  });
+  const onProgress = (done: number, total: number) => {
+    if (Date.now() - lastLog > 2000 || done === total) {
+      console.log(`  progress ${done}/${total} companies`);
+      lastLog = Date.now();
+    }
+  };
+  const generic = useGenericEngine();
+  console.log(`Engine: ${generic ? 'GENERIC (company-to-contacts push)' : 'BUILTIN (syncCompanyDown)'}`);
+  const report = generic
+    ? await reconcileAllGeneric({ apply, concurrency, limit, onlyCompanyIds: only, checkpoint, onProgress })
+    : await reconcileAll(mappings, { business, contact }, { apply, concurrency, limit, onlyCompanyIds: only, checkpoint, onProgress });
 
   const summary = await writeReconcileReport(report, {
     jsonPath: join(reportsDir, `report-${tag}.json`),
