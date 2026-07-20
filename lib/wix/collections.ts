@@ -67,24 +67,38 @@ export async function getCollectionSchema(
   };
 }
 
-/** Find the single item whose `column` equals `value` (the upsert match lookup). */
+/** Query up to `limit` items whose `column` equals `value`, INCLUDING drafts. Draft inclusion is
+ *  essential for dedup: a drafted (hidden) row is invisible to a normal query, so without this the
+ *  sync would create a DUPLICATE of a person who already exists as a draft. */
+export async function queryItemsByColumn(
+  collectionId: string,
+  column: string,
+  value: string,
+  limit: number,
+  client: WixClient = wix(),
+): Promise<WixItem[]> {
+  const data = await client.request<any>({
+    method: 'POST',
+    path: '/wix-data/v2/items/query',
+    body: {
+      dataCollectionId: collectionId,
+      query: { filter: { [column]: value }, paging: { limit } },
+      publishPluginOptions: { includeDraftItems: true },
+    },
+  });
+  const items = data.dataItems ?? data.items ?? [];
+  return items.map((it: any) => it.data ?? it.dataItem?.data ?? it);
+}
+
+/** Find the single item whose `column` equals `value` (the upsert match lookup, drafts included). */
 export async function queryItemByMatch(
   collectionId: string,
   column: string,
   value: string,
   client: WixClient = wix(),
 ): Promise<WixItem | null> {
-  const data = await client.request<any>({
-    method: 'POST',
-    path: '/wix-data/v2/items/query',
-    body: {
-      dataCollectionId: collectionId,
-      query: { filter: { [column]: value }, paging: { limit: 1 } },
-    },
-  });
-  const items = data.dataItems ?? data.items ?? [];
-  const first = items[0];
-  return first ? (first.data ?? first.dataItem?.data ?? first) : null;
+  const items = await queryItemsByColumn(collectionId, column, value, 1, client);
+  return items[0] ?? null;
 }
 
 /** Full item by id (re-read before diffing — query returns partial items). */

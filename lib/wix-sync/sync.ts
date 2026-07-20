@@ -18,6 +18,7 @@ import {
   insertItem,
   patchItem,
   queryItemByMatch,
+  queryItemsByColumn,
   replaceReferences,
   resolveReferenceIds,
   type FieldModification,
@@ -125,7 +126,7 @@ export async function syncContactToWix(
     return { sourceId: contactId, action: 'skip', written: [], unchanged: 0, skipped: [], dryRun: !opts.apply, note: `match field "${set.matchSourceField}" is empty` };
   }
 
-  const existing = await queryItemByMatch(set.wixCollectionId, set.matchTargetColumn, String(matchValue), client);
+  let existing = await queryItemByMatch(set.wixCollectionId, set.matchTargetColumn, String(matchValue), client);
 
   // HIDE (gate flipped to Hidden / blank with a linked row): set the visibility column, keep the row.
   if (engineAction === 'hide') {
@@ -144,6 +145,22 @@ export async function syncContactToWix(
     const change: WixFieldChange = { targetColumn: vis.column, from: cur, to: vis.hiddenValue, via: 'value' };
     if (opts.apply && itemId) await patchItem(set.wixCollectionId, itemId, [{ fieldPath: vis.column, value: vis.hiddenValue }], client);
     return { sourceId: contactId, itemId, action: 'hide', written: [change], unchanged: 0, skipped: [], dryRun: !opts.apply };
+  }
+
+  // Dedup first-link: the hard key (ghl id) missed → try the configured secondary keys (e.g. email)
+  // to ADOPT a pre-existing (possibly hand-made or drafted) row instead of creating a duplicate.
+  // Exactly-one match adopts; >1 is ambiguous and defers to review (never auto-creates/merges).
+  if (!existing && engineAction === 'upsert' && set.secondaryMatch?.length) {
+    for (const sm of set.secondaryMatch) {
+      const sv = resolveContactField(contact, catalog, sm.sourceField).value;
+      if (sv == null || sv === '') continue;
+      const hits = await queryItemsByColumn(set.wixCollectionId, sm.targetColumn, String(sv), 2, client);
+      if (hits.length > 1) {
+        return { sourceId: contactId, action: 'skip', written: [], unchanged: 0, skipped: [], dryRun: !opts.apply,
+          note: `dedup: ${sm.targetColumn}="${sv}" matched ${hits.length} rows → needs review (not created)` };
+      }
+      if (hits.length === 1) { existing = hits[0]; break; }
+    }
   }
 
   const written: WixFieldChange[] = [];
@@ -198,6 +215,12 @@ export async function syncContactToWix(
   // Always ensure the match key is present on inserts.
   insertBody[set.matchTargetColumn] = String(matchValue);
 
+  // Adopted/legacy row missing the hard key → stamp it, so subsequent syncs match by id (idempotent).
+  if (existing && String((existing as any)[set.matchTargetColumn] ?? '') !== String(matchValue)) {
+    written.push({ targetColumn: set.matchTargetColumn, from: (existing as any)[set.matchTargetColumn], to: String(matchValue), via: 'value' });
+    valueMods.push({ fieldPath: set.matchTargetColumn, value: String(matchValue) });
+  }
+
   const action: WixSyncResult['action'] =
     written.length === 0 && existing ? 'noop' : existing ? 'patch' : 'insert';
 
@@ -239,6 +262,19 @@ export async function syncContactToWix(
       if (ids.length) await replaceReferences(set.wixCollectionId, itemId, ref.col.key, ids, client);
     } catch (e: any) {
       skipped.push({ targetColumn: ref.col.key, reason: `reference write failed: ${e?.message ?? e}` });
+    }
+  }
+
+  // ID write-back: stamp the Wix row id onto the GHL contact (e.g. contact.wix_team_row_id) — audit
+  // trail + fast dedup guard + the hook a future Wix→GHL direction uses. Only when it differs.
+  if (set.writebackField && itemId) {
+    const current = resolveContactField(contact, catalog, set.writebackField).value;
+    if (String(current ?? '') !== String(itemId)) {
+      try {
+        await writeRecordFields('contact', contact.id, { [set.writebackField]: itemId }, catalog, gclient);
+      } catch (e: any) {
+        skipped.push({ targetColumn: set.writebackField, reason: `id write-back failed: ${e?.message ?? e}` });
+      }
     }
   }
 

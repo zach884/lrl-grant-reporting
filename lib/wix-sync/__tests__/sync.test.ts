@@ -202,3 +202,67 @@ describe('syncContactToWix — status gate', () => {
     expect(calls.some((c) => c.path === '/wix-data/v2/items')).toBe(false);
   });
 });
+
+// --- dedup: email-first link + id write-back (P1 #3) ---
+const dedupCatalog = cat([
+  { id: 'bioId', name: 'Bio', fieldKey: 'contact.bio', dataType: 'LARGE_TEXT' },
+  { id: 'wtrId', name: 'Wix Team Row', fieldKey: 'contact.wix_team_row_id', dataType: 'TEXT' },
+]);
+function dedupSet(): WixMappingSet {
+  return {
+    ...baseSet([
+      { sourceFieldKey: 'fullName', targetColumnKey: 'title_fld' },
+      { sourceFieldKey: 'email', targetColumnKey: 'email' },
+      { sourceFieldKey: 'contact.bio', targetColumnKey: 'bio' },
+    ]),
+    secondaryMatch: [{ sourceField: 'email', targetColumn: 'email' }],
+    writebackField: 'contact.wix_team_row_id',
+  };
+}
+/** Stub whose query result depends on the filtered column (ghlContactId vs email). */
+function wixDedup(onGhlId: any, onEmail: any[]) {
+  const calls: Array<{ path: string; method: string; body: any }> = [];
+  const client = {
+    request: async ({ path, method = 'GET', body }: any) => {
+      calls.push({ path, method, body });
+      if (path === '/wix-data/v2/items/query') {
+        const f = body?.query?.filter ?? {};
+        if ('ghlContactId' in f) return { dataItems: onGhlId ? [{ data: onGhlId }] : [] };
+        if ('email' in f) return { dataItems: onEmail.map((d) => ({ data: d })) };
+        return { dataItems: [] };
+      }
+      if (path === '/wix-data/v2/items') return { dataItem: { data: { _id: 'newItem', ...body.dataItem.data } } };
+      return {};
+    },
+  } as any;
+  return { client, calls };
+}
+
+describe('syncContactToWix — dedup + id write-back', () => {
+  it('adopts an existing row by email when the id key misses, stamping ghlContactId', async () => {
+    const { client, calls } = wixDedup(null, [{ _id: 'i9', title_fld: 'Zach K', email: 'z@x.io', bio: 'OldBio' }]);
+    const r = await syncContactToWix('c1', dedupSet(), dedupCatalog, schema, { apply: true, client, ghlClient: ghlRec(contact).client });
+    expect(r.action).toBe('patch');                                         // adopted, not inserted
+    expect(calls.some((c) => c.path === '/wix-data/v2/items')).toBe(false); // no insert
+    const patch = calls.find((c) => c.path === '/wix-data/v2/bulk/items/patch');
+    const mods = patch!.body.patches[0].fieldModifications;
+    expect(mods.some((m: any) => m.fieldPath === 'ghlContactId' && m.setFieldOptions.value === 'c1')).toBe(true);
+  });
+
+  it('defers to review (skip, no create) when the secondary key matches multiple rows', async () => {
+    const { client, calls } = wixDedup(null, [{ _id: 'a', email: 'z@x.io' }, { _id: 'b', email: 'z@x.io' }]);
+    const r = await syncContactToWix('c1', dedupSet(), dedupCatalog, schema, { apply: true, client, ghlClient: ghlRec(contact).client });
+    expect(r.action).toBe('skip');
+    expect(r.note).toMatch(/needs review/);
+    expect(calls.some((c) => c.path === '/wix-data/v2/items')).toBe(false);
+  });
+
+  it('writes the new Wix row id back to the GHL contact after insert', async () => {
+    const { client } = wixDedup(null, []); // no id match, no email match → insert
+    const g = ghlRec(contact);
+    const r = await syncContactToWix('c1', dedupSet(), dedupCatalog, schema, { apply: true, client, ghlClient: g.client });
+    expect(r.action).toBe('insert');
+    expect(r.itemId).toBe('newItem');
+    expect(g.calls.some((c) => c.method === 'PUT' && String(c.path).includes('/contacts/'))).toBe(true);
+  });
+});
