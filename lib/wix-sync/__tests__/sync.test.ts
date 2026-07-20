@@ -164,8 +164,14 @@ function gateSet(): WixMappingSet {
       { sourceFieldKey: 'contact.bio', targetColumnKey: 'bio' },
     ]),
     gate: { field: 'contact.status', actions: { Approved: 'upsert', Published: 'update', Hidden: 'hide', Pending: 'skip', '': 'skip' }, onPublishSetStatus: 'Published' },
-    visibility: { column: 'Status', visibleValue: 'Visible', hiddenValue: 'Hidden' },
+    visibility: { mode: 'publishState' },
   };
+}
+/** Pull the _publishStatus value out of a recorded bulk-patch call, if any. */
+function patchedPublishStatus(calls: Array<{ path: string; body: any }>): string | undefined {
+  const patch = calls.find((c) => c.path === '/wix-data/v2/bulk/items/patch'
+    && (c.body?.patches?.[0]?.fieldModifications ?? []).some((m: any) => m.fieldPath === '_publishStatus'));
+  return patch?.body.patches[0].fieldModifications.find((m: any) => m.fieldPath === '_publishStatus')?.setFieldOptions?.value;
 }
 
 describe('syncContactToWix — status gate', () => {
@@ -176,22 +182,22 @@ describe('syncContactToWix — status gate', () => {
     expect(calls.some((c) => c.path === '/wix-data/v2/items')).toBe(false);
   });
 
-  it('Approved + no row → insert, Status=Visible, writes status back to Published', async () => {
+  it('Approved + no row → insert, then PUBLISH it, and write status back to Published', async () => {
     const { client, calls } = wixStub(null);
     const g = ghlRec(mkContact('Approved'));
     const r = await syncContactToWix('c1', gateSet(), gateCatalog, gateSchema, { apply: true, client, ghlClient: g.client });
     expect(r.action).toBe('insert');
     const insert = calls.find((c) => c.path === '/wix-data/v2/items');
-    expect(insert!.body.dataItem.data).toMatchObject({ ghlContactId: 'c1', Status: 'Visible' });
+    expect(insert!.body.dataItem.data).toMatchObject({ ghlContactId: 'c1' });
+    expect(patchedPublishStatus(calls)).toBe('PUBLISHED');                  // insert lands DRAFT → published
     expect(g.calls.some((c) => c.method === 'PUT' && String(c.path).includes('/contacts/'))).toBe(true);
   });
 
-  it('Hidden + existing → hides the row (Status=Hidden), no create', async () => {
-    const { client, calls } = wixStub({ _id: 'i1', title_fld: 'Zach K', bio: 'Founder', ghlContactId: 'c1', Status: 'Visible' });
+  it('Hidden + existing published → unpublishes it (DRAFT), no create', async () => {
+    const { client, calls } = wixStub({ _id: 'i1', title_fld: 'Zach K', bio: 'Founder', ghlContactId: 'c1', _publishStatus: 'PUBLISHED' });
     const r = await syncContactToWix('c1', gateSet(), gateCatalog, gateSchema, { apply: true, client, ghlClient: ghlRec(mkContact('Hidden')).client });
     expect(r.action).toBe('hide');
-    const patch = calls.find((c) => c.path === '/wix-data/v2/bulk/items/patch');
-    expect(patch!.body.patches[0].fieldModifications[0]).toMatchObject({ fieldPath: 'Status', setFieldOptions: { value: 'Hidden' } });
+    expect(patchedPublishStatus(calls)).toBe('DRAFT');
     expect(calls.some((c) => c.path === '/wix-data/v2/items')).toBe(false);
   });
 

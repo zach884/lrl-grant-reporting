@@ -34,12 +34,12 @@ export interface WixSecondaryMatch {
   targetColumn: string;
 }
 
-/** Engine-controlled visibility column on the target collection (e.g. Wix 'Status' Visible/Hidden). */
-export interface WixVisibility {
-  column: string;
-  visibleValue: string;
-  hiddenValue: string;
-}
+/** How the engine shows/hides a row. `publishState` uses Wix's native Published/Draft (every Wix CMS
+ *  supports it — hide=unpublish, show=publish). `column` is a fallback for a collection that instead
+ *  filters its page on a real boolean/text column. */
+export type WixVisibility =
+  | { mode: 'publishState' }
+  | { mode: 'column'; column: string; visibleValue: string; hiddenValue: string };
 
 /** Value transforms for GHL field -> Wix column type gaps (see lib/wix/coerce.ts). */
 export type WixTransform =

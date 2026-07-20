@@ -137,7 +137,9 @@ export interface FieldModification {
   value?: unknown;
 }
 
-/** Partial update of one item via bulk patch (SET_FIELD per field). */
+/** Partial update of one item via bulk patch (SET_FIELD per field). `includeDraftItems` is always
+ *  set so patches also apply to DRAFT rows — required for Publish-plugin collections (Wix rejects a
+ *  draft-item modification without it, WDE0197), and harmless for published ones. */
 export async function patchItem(
   collectionId: string,
   itemId: string,
@@ -159,8 +161,20 @@ export async function patchItem(
           })),
         },
       ],
+      publishPluginOptions: { includeDraftItems: true },
     },
   });
+}
+
+/** Set an item's Wix publish state ('PUBLISHED' shows it on the site, 'DRAFT' hides it). Verified
+ *  against the live Team collection: `_publishStatus` is patchable both ways with includeDraftItems. */
+export async function setPublishStatus(
+  collectionId: string,
+  itemId: string,
+  status: 'PUBLISHED' | 'DRAFT',
+  client: WixClient = wix(),
+): Promise<void> {
+  await patchItem(collectionId, itemId, [{ fieldPath: '_publishStatus', value: status }], client);
 }
 
 /** Add a column to a collection (used to create the ghl*Id match-key column if missing). */

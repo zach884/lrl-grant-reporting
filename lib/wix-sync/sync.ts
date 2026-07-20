@@ -21,6 +21,7 @@ import {
   queryItemsByColumn,
   replaceReferences,
   resolveReferenceIds,
+  setPublishStatus,
   type FieldModification,
 } from '../wix/collections';
 import { importImageFromUrl, toImageFieldValue } from '../wix/media';
@@ -128,7 +129,7 @@ export async function syncContactToWix(
 
   let existing = await queryItemByMatch(set.wixCollectionId, set.matchTargetColumn, String(matchValue), client);
 
-  // HIDE (gate flipped to Hidden / blank with a linked row): set the visibility column, keep the row.
+  // HIDE (gate flipped to Hidden / blank with a linked row): de-provision, keep the row + ids.
   if (engineAction === 'hide') {
     if (!existing) {
       return { sourceId: contactId, action: 'noop', written: [], unchanged: 0, skipped: [], dryRun: !opts.apply, note: 'hide: no linked row to hide' };
@@ -136,8 +137,17 @@ export async function syncContactToWix(
     const itemId = (existing as any)._id as string | undefined;
     const vis = set.visibility;
     if (!vis) {
-      return { sourceId: contactId, itemId, action: 'noop', written: [], unchanged: 0, skipped: [{ targetColumn: '(visibility)', reason: 'hide requested but no visibility column configured' }], dryRun: !opts.apply };
+      return { sourceId: contactId, itemId, action: 'noop', written: [], unchanged: 0, skipped: [{ targetColumn: '(visibility)', reason: 'hide requested but no visibility configured' }], dryRun: !opts.apply };
     }
+    if (vis.mode === 'publishState') {
+      if (String((existing as any)._publishStatus) === 'DRAFT') {
+        return { sourceId: contactId, itemId, action: 'noop', written: [], unchanged: 1, skipped: [], dryRun: !opts.apply, note: 'already hidden (draft)' };
+      }
+      const change: WixFieldChange = { targetColumn: '_publishStatus', from: (existing as any)._publishStatus, to: 'DRAFT', via: 'value' };
+      if (opts.apply && itemId) await setPublishStatus(set.wixCollectionId, itemId, 'DRAFT', client);
+      return { sourceId: contactId, itemId, action: 'hide', written: [change], unchanged: 0, skipped: [], dryRun: !opts.apply };
+    }
+    // column mode
     const cur = (existing as any)[vis.column];
     if (valuesEqual(cur, vis.hiddenValue)) {
       return { sourceId: contactId, itemId, action: 'noop', written: [], unchanged: 1, skipped: [], dryRun: !opts.apply, note: 'already hidden' };
@@ -202,14 +212,20 @@ export async function syncContactToWix(
     return { sourceId: contactId, action: 'skip', written: [], unchanged, skipped, dryRun: !opts.apply, note: 'update-only: no existing row to update' };
   }
 
-  // Visibility: any live upsert/update makes the row visible (Approved/Published → Visible).
-  if (set.visibility) {
+  // Visibility: a live upsert/update makes the row visible. publishState → ensure _publishStatus is
+  // PUBLISHED (patched AFTER the upsert, since a fresh insert lands DRAFT); column → write the column.
+  let needsPublish = false;
+  if (set.visibility?.mode === 'column') {
     const vcur = existing ? (existing as any)[set.visibility.column] : undefined;
     if (!(existing && valuesEqual(vcur, set.visibility.visibleValue))) {
       written.push({ targetColumn: set.visibility.column, from: vcur, to: set.visibility.visibleValue, via: 'value' });
       valueMods.push({ fieldPath: set.visibility.column, value: set.visibility.visibleValue });
       insertBody[set.visibility.column] = set.visibility.visibleValue;
     }
+  } else if (set.visibility?.mode === 'publishState') {
+    const curStatus = existing ? String((existing as any)._publishStatus ?? '') : '';
+    needsPublish = curStatus !== 'PUBLISHED'; // fresh insert (DRAFT) or currently hidden → publish
+    if (needsPublish) written.push({ targetColumn: '_publishStatus', from: curStatus || 'DRAFT', to: 'PUBLISHED', via: 'value' });
   }
 
   // Always ensure the match key is present on inserts.
@@ -249,6 +265,9 @@ export async function syncContactToWix(
     const created = await insertItem(set.wixCollectionId, insertBody, client);
     itemId = (created as any)?._id;
   }
+
+  // 2b) publishState visibility: publish the row (a fresh insert lands DRAFT; a hidden row republishes).
+  if (needsPublish && itemId) await setPublishStatus(set.wixCollectionId, itemId, 'PUBLISHED', client);
 
   // 3) reference intents (need the item id + the referenced collection's display field).
   for (const ref of refIntents) {
