@@ -8,6 +8,7 @@
 
 import { getContact } from '../ghl/contacts';
 import { GhlClient, ghl } from '../ghl/client';
+import { writeRecordFields } from '../ghl/writeRecord';
 import type { Contact, CustomFieldCatalog, GhlFieldOption } from '../ghl/types';
 import type { WixMappingSet } from '../mapping/wixTypes';
 import { WixClient, wix } from '../wix/client';
@@ -78,6 +79,23 @@ function valuesEqual(a: unknown, b: unknown): boolean {
   return JSON.stringify(na) === JSON.stringify(nb);
 }
 
+/** upsert = create-or-update · update = update-only · hide = de-provision · skip = pass by. */
+type EngineAction = 'upsert' | 'update' | 'hide' | 'skip';
+
+/**
+ * The effective action for one record. If the set has a `gate`, the source status field maps to an
+ * action (unlisted values => skip); otherwise the set's create policy governs unconditionally
+ * (find_or_create => upsert, update_only => update) — i.e. no-gate sets behave exactly as before.
+ */
+function resolveAction(set: WixMappingSet, contact: Contact, catalog: CustomFieldCatalog): { action: EngineAction; gateValue?: unknown } {
+  if (set.gate) {
+    const gateValue = resolveContactField(contact, catalog, set.gate.field).value;
+    const key = gateValue == null ? '' : String(gateValue);
+    return { action: (set.gate.actions[key] ?? 'skip') as EngineAction, gateValue };
+  }
+  return { action: set.createPolicy === 'update_only' ? 'update' : 'upsert' };
+}
+
 /** Sync one GHL contact into the mapping set's Wix collection. */
 export async function syncContactToWix(
   contactId: string,
@@ -95,12 +113,38 @@ export async function syncContactToWix(
     return { sourceId: contactId, action: 'skip', written: [], unchanged: 0, skipped: [], dryRun: !opts.apply, note: 'source contact not found' };
   }
 
+  // Gate: decide what to do with this record (status state machine, or the set's create policy).
+  const { action: engineAction, gateValue } = resolveAction(set, contact, catalog);
+  if (engineAction === 'skip') {
+    return { sourceId: contactId, action: 'skip', written: [], unchanged: 0, skipped: [], dryRun: !opts.apply,
+      note: set.gate ? `gate: ${set.gate.field}="${gateValue ?? ''}" → skip` : 'update-only: nothing to do' };
+  }
+
   const matchValue = resolveContactField(contact, catalog, set.matchSourceField).value;
   if (matchValue == null || matchValue === '') {
     return { sourceId: contactId, action: 'skip', written: [], unchanged: 0, skipped: [], dryRun: !opts.apply, note: `match field "${set.matchSourceField}" is empty` };
   }
 
   const existing = await queryItemByMatch(set.wixCollectionId, set.matchTargetColumn, String(matchValue), client);
+
+  // HIDE (gate flipped to Hidden / blank with a linked row): set the visibility column, keep the row.
+  if (engineAction === 'hide') {
+    if (!existing) {
+      return { sourceId: contactId, action: 'noop', written: [], unchanged: 0, skipped: [], dryRun: !opts.apply, note: 'hide: no linked row to hide' };
+    }
+    const itemId = (existing as any)._id as string | undefined;
+    const vis = set.visibility;
+    if (!vis) {
+      return { sourceId: contactId, itemId, action: 'noop', written: [], unchanged: 0, skipped: [{ targetColumn: '(visibility)', reason: 'hide requested but no visibility column configured' }], dryRun: !opts.apply };
+    }
+    const cur = (existing as any)[vis.column];
+    if (valuesEqual(cur, vis.hiddenValue)) {
+      return { sourceId: contactId, itemId, action: 'noop', written: [], unchanged: 1, skipped: [], dryRun: !opts.apply, note: 'already hidden' };
+    }
+    const change: WixFieldChange = { targetColumn: vis.column, from: cur, to: vis.hiddenValue, via: 'value' };
+    if (opts.apply && itemId) await patchItem(set.wixCollectionId, itemId, [{ fieldPath: vis.column, value: vis.hiddenValue }], client);
+    return { sourceId: contactId, itemId, action: 'hide', written: [change], unchanged: 0, skipped: [], dryRun: !opts.apply };
+  }
 
   const written: WixFieldChange[] = [];
   const skipped: Array<{ targetColumn: string; reason: string }> = [];
@@ -133,6 +177,21 @@ export async function syncContactToWix(
     } else if (result.kind === 'reference') {
       refIntents.push({ col, labels: result.labels });
       written.push({ targetColumn: col.key, to: result.labels, via: 'reference' });
+    }
+  }
+
+  // Update-only (gate 'update' / create_policy update_only): never create — nothing to update.
+  if (!existing && engineAction === 'update') {
+    return { sourceId: contactId, action: 'skip', written: [], unchanged, skipped, dryRun: !opts.apply, note: 'update-only: no existing row to update' };
+  }
+
+  // Visibility: any live upsert/update makes the row visible (Approved/Published → Visible).
+  if (set.visibility) {
+    const vcur = existing ? (existing as any)[set.visibility.column] : undefined;
+    if (!(existing && valuesEqual(vcur, set.visibility.visibleValue))) {
+      written.push({ targetColumn: set.visibility.column, from: vcur, to: set.visibility.visibleValue, via: 'value' });
+      valueMods.push({ fieldPath: set.visibility.column, value: set.visibility.visibleValue });
+      insertBody[set.visibility.column] = set.visibility.visibleValue;
     }
   }
 
@@ -180,6 +239,17 @@ export async function syncContactToWix(
       if (ids.length) await replaceReferences(set.wixCollectionId, itemId, ref.col.key, ids, client);
     } catch (e: any) {
       skipped.push({ targetColumn: ref.col.key, reason: `reference write failed: ${e?.message ?? e}` });
+    }
+  }
+
+  // Status write-back: after an approval publish (engineAction 'upsert'), advance the gate field to
+  // its published value (e.g. Approved → Published). Loop-safe: 'Published' maps to 'update', which
+  // doesn't write back, so it converges. Only when it actually differs.
+  if (engineAction === 'upsert' && set.gate?.onPublishSetStatus && String(gateValue ?? '') !== set.gate.onPublishSetStatus) {
+    try {
+      await writeRecordFields('contact', contact.id, { [set.gate.field]: set.gate.onPublishSetStatus }, catalog, gclient);
+    } catch (e: any) {
+      skipped.push({ targetColumn: set.gate.field, reason: `status write-back failed: ${e?.message ?? e}` });
     }
   }
 

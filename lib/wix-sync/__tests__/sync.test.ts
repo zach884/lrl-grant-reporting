@@ -134,3 +134,71 @@ describe('syncContactToWix', () => {
     expect(calls.some((c) => c.method === 'POST' && c.path === '/wix-data/v2/items')).toBe(false);
   });
 });
+
+// --- status gate / visibility / write-back (P1) ---
+const gateCatalog = cat([
+  { id: 'bioId', name: 'Bio', fieldKey: 'contact.bio', dataType: 'LARGE_TEXT' },
+  { id: 'statusId', name: 'Status', fieldKey: 'contact.status', dataType: 'TEXT' },
+]);
+const gateSchema: WixCollectionSchema = {
+  id: 'Team', displayName: 'Team', displayField: 'title_fld',
+  columns: [
+    { key: 'title_fld', displayName: 'Name', type: 'TEXT' },
+    { key: 'bio', displayName: 'Bio', type: 'TEXT' },
+    { key: 'ghlContactId', displayName: 'GHL Contact ID', type: 'TEXT' },
+    { key: 'Status', displayName: 'Status', type: 'TEXT' },
+  ],
+};
+function mkContact(status: string): Contact {
+  return { id: 'c1', firstName: 'Zach', lastName: 'K', email: 'z@x.io', customFields: [{ id: 'bioId', value: 'Founder' }, { id: 'statusId', value: status }] };
+}
+function ghlRec(c: Contact) {
+  const calls: any[] = [];
+  const client = { request: async (o: any) => { calls.push(o); return { contact: c }; } } as any;
+  return { client, calls };
+}
+function gateSet(): WixMappingSet {
+  return {
+    ...baseSet([
+      { sourceFieldKey: 'fullName', targetColumnKey: 'title_fld' },
+      { sourceFieldKey: 'contact.bio', targetColumnKey: 'bio' },
+    ]),
+    gate: { field: 'contact.status', actions: { Approved: 'upsert', Published: 'update', Hidden: 'hide', Pending: 'skip', '': 'skip' }, onPublishSetStatus: 'Published' },
+    visibility: { column: 'Status', visibleValue: 'Visible', hiddenValue: 'Hidden' },
+  };
+}
+
+describe('syncContactToWix — status gate', () => {
+  it('Pending → skip (never create)', async () => {
+    const { client, calls } = wixStub(null);
+    const r = await syncContactToWix('c1', gateSet(), gateCatalog, gateSchema, { apply: true, client, ghlClient: ghlRec(mkContact('Pending')).client });
+    expect(r.action).toBe('skip');
+    expect(calls.some((c) => c.path === '/wix-data/v2/items')).toBe(false);
+  });
+
+  it('Approved + no row → insert, Status=Visible, writes status back to Published', async () => {
+    const { client, calls } = wixStub(null);
+    const g = ghlRec(mkContact('Approved'));
+    const r = await syncContactToWix('c1', gateSet(), gateCatalog, gateSchema, { apply: true, client, ghlClient: g.client });
+    expect(r.action).toBe('insert');
+    const insert = calls.find((c) => c.path === '/wix-data/v2/items');
+    expect(insert!.body.dataItem.data).toMatchObject({ ghlContactId: 'c1', Status: 'Visible' });
+    expect(g.calls.some((c) => c.method === 'PUT' && String(c.path).includes('/contacts/'))).toBe(true);
+  });
+
+  it('Hidden + existing → hides the row (Status=Hidden), no create', async () => {
+    const { client, calls } = wixStub({ _id: 'i1', title_fld: 'Zach K', bio: 'Founder', ghlContactId: 'c1', Status: 'Visible' });
+    const r = await syncContactToWix('c1', gateSet(), gateCatalog, gateSchema, { apply: true, client, ghlClient: ghlRec(mkContact('Hidden')).client });
+    expect(r.action).toBe('hide');
+    const patch = calls.find((c) => c.path === '/wix-data/v2/bulk/items/patch');
+    expect(patch!.body.patches[0].fieldModifications[0]).toMatchObject({ fieldPath: 'Status', setFieldOptions: { value: 'Hidden' } });
+    expect(calls.some((c) => c.path === '/wix-data/v2/items')).toBe(false);
+  });
+
+  it('Published + no row → update-only skip (does not create)', async () => {
+    const { client, calls } = wixStub(null);
+    const r = await syncContactToWix('c1', gateSet(), gateCatalog, gateSchema, { apply: true, client, ghlClient: ghlRec(mkContact('Published')).client });
+    expect(r.action).toBe('skip');
+    expect(calls.some((c) => c.path === '/wix-data/v2/items')).toBe(false);
+  });
+});

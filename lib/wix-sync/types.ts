@@ -13,7 +13,7 @@ export interface WixSyncResult {
   sourceId: string;
   /** The upserted Wix item id (undefined on dry-run insert or when source missing). */
   itemId?: string;
-  action: 'insert' | 'patch' | 'noop' | 'skip';
+  action: 'insert' | 'patch' | 'noop' | 'skip' | 'hide';
   /** Fields that changed (or would change on dry-run). */
   written: WixFieldChange[];
   /** Fields equal to the current Wix value (idempotent). */

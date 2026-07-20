@@ -91,7 +91,7 @@ async function runPool<T>(items: T[], limit: number, worker: (item: T, i: number
   if (limit) contactIds = contactIds.slice(0, limit);
   console.log(`Contacts to process: ${contactIds.length}`);
 
-  const stats = { insert: 0, patch: 0, noop: 0, skip: 0, error: 0, fields: 0 };
+  const stats = { insert: 0, patch: 0, noop: 0, skip: 0, hide: 0, error: 0, fields: 0 };
   const driftPath = join(reportsDir, `${tag}.jsonl`);
   let lastLog = Date.now();
   let processed = 0;
