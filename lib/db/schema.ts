@@ -6,6 +6,7 @@
 // engine already consumes — nothing in lib/sync/* changes.
 
 import { pgTable, uuid, text, integer, boolean, jsonb, timestamp, unique, index } from 'drizzle-orm/pg-core';
+import type { WixCreatePolicy, WixGate, WixSecondaryMatch, WixVisibility } from '../mapping/wixTypes';
 
 export const syncs = pgTable('syncs', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -83,6 +84,16 @@ export const wixMappingSets = pgTable('wix_mapping_sets', {
   matchTargetColumn: text('match_target_column').notNull(),
   /** Set-level apply policy default: 'overwrite' | 'fill-empty'. Rows may override. */
   policy: text('policy').notNull().default('overwrite'),
+  /** Create-when-missing vs update-only. */
+  createPolicy: text('create_policy').notNull().default('find_or_create').$type<WixCreatePolicy>(),
+  /** Status→action gate on the source record (JSON). NULL => always upsert. */
+  gate: jsonb('gate').$type<WixGate>(),
+  /** First-link dedup keys tried when the hard match key misses (JSON array). */
+  secondaryMatch: jsonb('secondary_match').$type<WixSecondaryMatch[]>(),
+  /** GHL field to write the created/linked target row id back to. */
+  writebackField: text('writeback_field'),
+  /** Engine-controlled visibility column on the target collection (JSON). */
+  visibility: jsonb('visibility').$type<WixVisibility>(),
   enabled: boolean('enabled').notNull().default(true),
   version: integer('version').notNull().default(1),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

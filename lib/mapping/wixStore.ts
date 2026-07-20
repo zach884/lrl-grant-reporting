@@ -15,6 +15,7 @@ import {
 } from '../db/schema';
 import type {
   WixApplyPolicy,
+  WixCreatePolicy,
   WixMappingRow,
   WixMappingSet,
   WixMappingSetInput,
@@ -32,7 +33,7 @@ function rowToMappingRow(r: WixMappingRowRow): WixMappingRow {
 }
 
 function toSet(set: WixMappingSetRow, rows: WixMappingRowRow[]): WixMappingSet {
-  return {
+  const out: WixMappingSet = {
     id: set.id,
     name: set.name,
     sourceObject: set.sourceObject,
@@ -41,11 +42,17 @@ function toSet(set: WixMappingSetRow, rows: WixMappingRowRow[]): WixMappingSet {
     matchSourceField: set.matchSourceField,
     matchTargetColumn: set.matchTargetColumn,
     policy: set.policy as WixApplyPolicy,
+    createPolicy: (set.createPolicy ?? 'find_or_create') as WixCreatePolicy,
     enabled: set.enabled,
     version: set.version,
     updatedAt: set.updatedAt instanceof Date ? set.updatedAt.toISOString() : String(set.updatedAt),
     rows: rows.map(rowToMappingRow),
   };
+  if (set.gate) out.gate = set.gate;
+  if (set.secondaryMatch) out.secondaryMatch = set.secondaryMatch;
+  if (set.writebackField) out.writebackField = set.writebackField;
+  if (set.visibility) out.visibility = set.visibility;
+  return out;
 }
 
 export class WixMappingStore {
@@ -117,6 +124,11 @@ export class WixMappingStore {
         matchSourceField: input.matchSourceField,
         matchTargetColumn: input.matchTargetColumn,
         policy: input.policy,
+        createPolicy: input.createPolicy ?? 'find_or_create',
+        gate: input.gate ?? null,
+        secondaryMatch: input.secondaryMatch ?? null,
+        writebackField: input.writebackField ?? null,
+        visibility: input.visibility ?? null,
         enabled: input.enabled,
         version: 1,
         updatedAt: now,
@@ -152,6 +164,11 @@ export class WixMappingStore {
           matchSourceField: input.matchSourceField,
           matchTargetColumn: input.matchTargetColumn,
           policy: input.policy,
+          createPolicy: input.createPolicy ?? 'find_or_create',
+          gate: input.gate ?? null,
+          secondaryMatch: input.secondaryMatch ?? null,
+          writebackField: input.writebackField ?? null,
+          visibility: input.visibility ?? null,
           enabled: input.enabled,
           version: nextVersion,
           updatedAt: now,
