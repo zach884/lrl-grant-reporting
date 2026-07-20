@@ -161,23 +161,44 @@ For one source record against one target connection:
   set the scalar FK that encodes the association (e.g. `contact.businessId = newCompanyId`), then run the
   normal field push. Seed fields from the existing connection's mapping rows. See §8.3.
 
-### 6.1 De-provision / hide — DECIDED: set the Wix `Status` column
-The Wix Team collection already has a **`Status` column with values `Visible` / `Hidden`** that the site
-uses to decide what renders across pages. So hiding is just a field write — no draft/publish needed.
+### 6.1a VERIFIED against the live Team collection (2026-07-20 probe)
+Publish state is `data._publishStatus` = `PUBLISHED` | `DRAFT` (a system field), plus `_publishDate` /
+`_draftDate`. Confirmed by a self-cleaning probe:
+- **A REST insert lands `DRAFT`** → a new approved member is hidden until we publish it.
+- **`_publishStatus` IS patchable both ways** via bulk patch with `publishPluginOptions.includeDraftItems:
+  true` (DRAFT→PUBLISHED to show, PUBLISHED→DRAFT to hide). No Velo needed.
+- **Every draft-row op needs `includeDraftItems: true`** — query (done in #3), **patch** (must add), and
+  delete (`?publishPluginOptions.includeDraftItems=true`).
+Engine flow (publishState visibility): write fields (with includeDraftItems) → then **ensure
+`_publishStatus=PUBLISHED`** for a live member (publishes a fresh insert / republishes a hidden one), or
+patch it to `DRAFT` to hide. Only patch `_publishStatus` when it actually needs to change (idempotent).
 
-**⚠️ Two different "status" fields — don't conflate:**
-- **GHL `contact.status`** — the *gate/lifecycle* (Pending/Approved/Published/Hidden). Drives engine action.
-- **Wix `Status` column** — *visibility only* (Visible/Hidden). An engine-controlled target column.
+### 6.1 De-provision / hide — CORRECTED: Wix native Publish/Draft state (not a column)
+The Team collection's "Status: Published/Draft" seen in the CMS is **Wix's built-in publish state**
+(the collection's Publish plugin), NOT a data column — which is why it never appears in the collection's
+field schema and has no key to pull. It's controlled by dedicated Data Items operations:
+- **hide** → **Unpublish** the item (`POST /data/v2/.../unpublish`, `UnpublishDataItem`).
+- **show / make live** → **Publish** the draft (`PublishDataItemDraft`). A freshly **inserted** item is a
+  **Draft**, so a new approved member = insert → publish.
 
-The engine bridges them:
-| Engine action (from GHL `contact.status`) | Wix `Status` column set to |
+**⚠️ Dedup-critical:** normal item queries return **published items only**. Every find/match lookup must
+pass **`publishPluginOptions.includeDraftItems: true`** (and patches likewise), or a *drafted* person is
+invisible to the sync → we create a **duplicate**. So the match query in §5 gets draft inclusion.
+
+**⚠️ Two different "status" concepts — don't conflate:**
+- **GHL `contact.status`** — the gate/lifecycle (Pending/Approved/Published/Hidden). Drives engine action.
+- **Wix publish state** — visibility only (Published/Draft). Engine-controlled via publish/unpublish.
+
+Engine bridge:
+| Engine action (from GHL `contact.status`) | Wix item publish state |
 |---|---|
-| upsert / update (Approved, Published) | `Visible` |
-| hide (Hidden, or blank/Pending with an existing linked row) | `Hidden` |
+| upsert / update (Approved, Published) | **Published** (publish the draft / ensure published) |
+| hide (Hidden, or blank/Pending with an existing linked row) | **Draft** (unpublish) |
 
-So `Status` on the Wix side is **not** a user-mapped row — it's set by the engine from the gate. Config
-gets a `visibilityColumn` ("Status") + the visible/hidden value names. Re-approval flips it back to
-`Visible`; the row + ids persist (no re-dedup).
+**Visibility config is a discriminated union** so it stays generic per "any CMS table, same setup":
+`{ mode: 'publishState' }` (Team, and any Publish-plugin collection) OR `{ mode: 'column', column,
+visibleValue, hiddenValue }` (a collection that instead filters on a real column). Re-approval republishes;
+the row + ids persist (no re-dedup).
 
 ## 7. Generalize the Wix source read (needed for P2 Resources)
 
