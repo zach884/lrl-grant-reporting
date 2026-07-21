@@ -5,7 +5,7 @@
 // policy (fill-empty vs overwrite, min-confidence) and records provenance for funder
 // audit traceability. Adding a new enricher = implement this interface; no engine change.
 
-import { BusinessRecord, CustomFieldCatalog } from '../ghl/types';
+import { BusinessRecord, Contact, CustomFieldCatalog } from '../ghl/types';
 
 export interface Provenance {
   /** Where the value came from, e.g. 'census-geocoder', 'arcgis-hubzone-oz', 'lara-cofs'. */
@@ -82,5 +82,47 @@ export interface EnrichmentResult {
   /** Fields actually written (or that would be written in dry-run). */
   applied: AppliedField[];
   skipped: Array<{ businessKey: string; reason: string }>;
+  didWrite: boolean;
+}
+
+// ── Contact-targeted enrichment ──────────────────────────────────────────────
+// Mirrors the company enricher contract above (same Provenance + ApplyPolicy), but the target
+// is a GHL CONTACT rather than a company. Added for the readiness-tagger, which classifies a
+// person's profile. Adding a new contact enricher = implement ContactEnricher; no engine change.
+
+export interface ContactEnricherInput {
+  contact: Contact;
+  contactCatalog: CustomFieldCatalog;
+  /** Read any source field (standard scalar or custom field) off the contact by key. */
+  field: (key: string) => unknown;
+}
+
+export interface ContactEnrichmentProposal {
+  /** Contact field to fill, e.g. 'contact.service_areas'. */
+  contactKey: string;
+  value: unknown;
+  provenance: Provenance;
+}
+
+export interface ContactEnricher {
+  name: string;
+  description?: string;
+  /** Contact field keys this enricher can fill. */
+  produces: string[];
+  /** Return [] to skip cleanly (e.g. a membership gate fails, or no API key). */
+  enrich(input: ContactEnricherInput): Promise<ContactEnrichmentProposal[]>;
+}
+
+export interface AppliedContactField {
+  contactKey: string;
+  value: unknown;
+  provenance: Provenance;
+}
+
+export interface ContactEnrichmentResult {
+  contactId: string;
+  proposals: ContactEnrichmentProposal[];
+  applied: AppliedContactField[];
+  skipped: Array<{ contactKey: string; reason: string }>;
   didWrite: boolean;
 }

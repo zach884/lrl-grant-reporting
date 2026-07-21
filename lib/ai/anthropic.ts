@@ -30,10 +30,13 @@ export async function classifyJson<T = any>(opts: {
   user: string;
   schema: Record<string, unknown>;
   maxTokens?: number;
+  /** Sampling temperature. Default 0 for reproducible classification (stable across re-runs). */
+  temperature?: number;
 }): Promise<T | null> {
   const res = await getAnthropic().messages.create({
     model: CLASSIFIER_MODEL,
     max_tokens: opts.maxTokens ?? 512,
+    temperature: opts.temperature ?? 0,
     system: opts.system,
     messages: [{ role: 'user', content: opts.user }],
     output_config: { format: { type: 'json_schema', schema: opts.schema } },

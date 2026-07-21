@@ -1,0 +1,46 @@
+name: Nightly readiness tagging
+
+# Runs the readiness-tagger over every Team/EIR contact: AI-classified service tags + code-derived
+# subway-map stops, written to the 7 GHL readiness fields. Overwrite policy; equality-guarded so a
+# clean night writes little (only profiles that changed re-classify). Runs here (not a Vercel cron)
+# because the sweep makes an AI call per contact and exceeds a serverless function's time budget.
+#
+# GHL_MAX_RPS=3 keeps contact writes at ≥0.3s spacing (the client also backs off on 429).
+
+on:
+  schedule:
+    # 08:30 UTC = 3:30am EST / 4:30am EDT (after enrich at 08:00). Cron is UTC; adjust as needed.
+    - cron: '30 8 * * *'
+  workflow_dispatch: {} # allow manual runs from the Actions tab
+
+jobs:
+  readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Readiness tag (apply, live) — backstop for missed Approved webhooks
+        # Default status filter = "Approved", so this only (re-)tags contacts still sitting in
+        # Approved (a webhook that didn't fire) — it does NOT re-tag every Published coach, so it
+        # spends ~no AI credits on a normal night. Real-time enrich happens in /api/wix-sync.
+        run: npx vite-node scripts-ts/readiness-tag-run.ts --apply --yes --resume
+        env:
+          GHL_TARGET: live
+          GHL_MAX_RPS: 3
+          GHL_API_KEY: ${{ secrets.GHL_API_KEY }}
+          GHL_LOCATION_ID: ${{ secrets.GHL_LOCATION_ID }}
+          GHL_CUSTOM_OBJECT_ID: ${{ secrets.GHL_CUSTOM_OBJECT_ID }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      - name: Upload readiness report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: readiness-report
+          path: reports/
+          if-no-files-found: ignore
+          retention-days: 14
