@@ -123,3 +123,31 @@ The mapping table now lives in **Postgres** (Vercel/Neon), edited via a visual b
   `npm run db:dump`. When `DATABASE_URL` is set, the file is NOT read at runtime.
 - **Note:** the webhook caches mappings for 10 min; a UI save invalidates that cache so
   changes go live immediately.
+
+---
+
+## Readiness Map + Contact→Team sync (live 2026-07-21)
+
+**App URL:** `https://lrl-grant-reporting.vercel.app` (repo default branch = Vercel prod).
+Note: `app.leanrocketlab.org` is a **Google Cloud Storage bucket**, NOT the app — don't point webhooks there.
+
+**One webhook does it all.** The existing GHL "Contact Changed" → `POST /api/sync/up` (secret
+`SYNC_WEBHOOK_SECRET`) now ALSO runs the contact→Team pipeline (`lib/wix-sync/pipeline.ts`): enrich the
+readiness tagger when `contact.status = Approved`, then sync every enabled contact Wix set. No separate
+webhook needed. `/api/wix-sync` (`WIX_SYNC_WEBHOOK_SECRET`) + `/api/readiness-tag` remain for manual runs.
+
+**Sync gate (Contact→Team set), config-as-data in Postgres:** `Pending→skip · Approved→upsert (+enrich,
+write back Published) · Published→update · Hidden→hide`; `visibility: publishState`; writeback →
+`contact.wix_team_row_id`. Set/repair with `npx vite-node scripts-ts/set-team-gate.ts --apply`.
+
+**⚠️ Guardrail:** the `/wix-sync` UI save does NOT manage the gate/visibility/writeback; `wixStore.saveSet`
+now PRESERVES them when omitted so a UI save can't null the gate (which once flooded the CMS with 1,391
+junk rows). If a gate ever goes missing, re-run `set-team-gate.ts --apply`. Junk cleanup:
+`scripts-ts/cleanup-junk-team-rows.ts --apply --yes` (deletes Team rows lacking an EIR/Team/Board tag).
+
+**Nightly:** `.github/workflows/nightly-readiness.yml` (08:30 UTC) runs the tagger backstop with default
+`--status Approved` (credit-safe). Needs `ANTHROPIC_API_KEY` GitHub secret (also set in Vercel + `.env.local`).
+
+**Wix embed:** paste `wix-embed/backend/http-functions.js` (Velo backend) + `wix-embed/readiness-subway-map.html`
+(HTML/Embed element). The map's `PROVIDERS_URL` must be the site's ABSOLUTE `/_functions/providers`
+(sandboxed iframe = cross-origin; the http-function sends `Access-Control-Allow-Origin`).

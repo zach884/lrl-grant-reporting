@@ -1,7 +1,7 @@
 # Readiness Tagger (AI enrichment) + Subway-Map Embed — Build Brief
 
 **Audience:** Claude Code (app work) + Zach (Wix embed).
-**Status:** design brief. GHL fields + Wix columns are **already created** (this session). Prototype validated on 40 EIRs (`LRL_Readiness_Tagging_Prototype.xlsx`).
+**Status:** ✅ **SHIPPED & LIVE (2026-07-21).** All three deliverables built, deployed to prod, and verified end-to-end. See the **Implementation log & open items** at the bottom for what actually shipped vs. this brief. (Original brief below is preserved for context.)
 
 ---
 
@@ -104,3 +104,58 @@ const shown = PROVIDERS.filter(p => p.stops[activeLine].map(String).includes(Str
 3. Add the 7 mapping rows to the Website Sync set → data flows to Team CMS.
 4. Zach: add the Velo http-function + drop the embed on the page.
 5. Later: Resources/TAP side (same tagger + a Resources embed branch), and a coverage/gap view (TRL 7 is the current hole).
+
+---
+
+## Implementation log & open items (2026-07-21) — what actually shipped
+
+**Live in production** (branch `claude/lrl-activity-logging-app-4ixdC` = Vercel prod; app at
+`https://lrl-grant-reporting.vercel.app`). 40 team-page contacts tagged + synced to the Wix **Team**
+CMS with the full field set (readiness tags/stops, plus photos, bio, company, website, collectives).
+
+### What was built
+- **Enricher** — `lib/enrichment/data/readiness.ts` (SERVICES + STOP_SERVICES + `deriveStops`),
+  `lib/enrichment/contactEngine.ts` (contact-targeted engine), `lib/enrichment/enrichers/readinessTagger.ts`
+  (Claude Haiku, **temperature 0** for determinism; membership gate = `website_team_tags` ∈ {Team,EIR};
+  "no coachable specialty" → empty). Dry-run matched **32/34** vs Brandon's prototype after prompt tuning.
+- **Config lift** — the 29-tag taxonomy + stop map live in `data/readiness.ts`, used by both prompt and derivation.
+- **Unified trigger** — `lib/wix-sync/pipeline.ts` `runContactTeamPipeline` (enrich-on-Approved → sync) is
+  folded into **`/api/sync/up`**, so the ONE existing GHL "Contact Changed" webhook drives everything.
+  Standalone `/api/wix-sync` + `/api/readiness-tag` kept for manual runs.
+- **CLI + nightly** — `scripts-ts/readiness-tag-run.ts` (`--status`/`--all-status`/`--rederive`),
+  `.github/workflows/nightly-readiness.yml` (default `--status Approved`, credit-safe backstop).
+- **Sync gate (Zach's state machine)** on the Contact→Team set: `Pending→skip · Approved→upsert (+enrich,
+  write back Published) · Published→update · Hidden→hide`, `visibility: publishState`, writeback →
+  `contact.wix_team_row_id`. Set via `scripts-ts/set-team-gate.ts`. Migrated the 40 from legacy
+  `status="On Website"` → `Published` (`scripts-ts/migrate-contact-status.ts`).
+- **Deliverable 2** — `scripts-ts/seed-readiness-mapping.ts` seeded the 8 readiness rows (+ Zach later
+  added photos/company/website/job_title/collectives/programs in the `/wix-sync` UI → 19 rows total).
+- **Deliverable 3** — `wix-embed/` (Velo `get_providers` + subway-map fetching live CMS). Pasted into Wix;
+  needs the map's `PROVIDERS_URL` = the site's absolute `/_functions/providers` (sandboxed iframe = cross-origin,
+  so the http-function sends `Access-Control-Allow-Origin`).
+
+### Decisions locked
+- **GHL bio (`contact.biowho_you_are`) is the source of truth.** Better bios → better tags automatically.
+  Divergence from the prototype = input-source gaps (GHL bio vs LinkedIn), not tagger bugs.
+- **Enrichers stay code; their GATES should become config** (see open items).
+
+### Incident (resolved) — UI save wiped the gate
+Editing mappings in the `/wix-sync` UI silently nulled the gate (`sanitizeWixSet` omits gate/visibility/
+writeback; `saveSet` did `?? null`) → `find_or_create` upserted **every** contact → **1,391 junk DRAFT rows**
+in the Team CMS. **Fixed:** `wixStore.saveSet` now **preserves** gate/visibility/writeback/secondaryMatch/
+createPolicy when the caller omits them (undefined = keep; explicit null still clears). Junk removed via
+`scripts-ts/cleanup-junk-team-rows.ts` (`bulkDeleteItems` needs `publishPluginOptions.includeDraftItems` for
+WDE0197). Re-run backfill confirmed `insert=0`. A later "board members show Brandon's bio" report turned out
+to be a **Wix front-end dynamic-binding bug**, not the data (CMS verified correct).
+
+### Open items (next sessions)
+1. **Configurable gating layer (priority).** Surface + edit enricher AND sync gates in the UI (enrichers
+   themselves stay code). The `/enrichment` page is currently a hardcoded, company-only brochure — the
+   readiness enricher isn't shown. Generalize toward a "how objects communicate" rules layer. The gate-wipe
+   incident is the motivating example (UI must *manage* the gate, not ignore it).
+2. **Alyssa Marken** — a Team-tagged Wix row that's DRAFT with no `ghlContactId` (pre-existing, unlinked).
+   Link a GHL contact or publish manually if she should appear.
+3. **`program` reference case-sensitivity** — resolver is case-sensitive (`Local` ≠ `LOCAL`); make it
+   case-insensitive so program refs resolve reliably (collectives already match).
+4. **Resources / TAP side** — same tagger + a Resources branch in `get_providers` (`type:'tap'`); plus a
+   coverage/gap view (TRL 7 is the current hole).
