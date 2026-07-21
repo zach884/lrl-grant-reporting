@@ -1,6 +1,7 @@
-// lib/enrich.ts — Address enrichment logic (Census Geocoder + ArcGIS)
+// lib/enrich.ts — Address enrichment logic (Census Geocoder + local MI zone polygons)
 
 import type { EnrichmentResult } from '@/types';
+import { classifyMiZones } from './enrichment/data/miGeoZones';
 
 interface GeocodeResult {
   lat: number;
@@ -18,9 +19,9 @@ export async function enrichAddress(
 
   if (geocodeResult) {
     const { lat, lng, county } = geocodeResult;
-    const { hubzone, opportunityZone } = await queryArcGIS(lat, lng);
-    const geoDisadvantaged =
-      hubzone == null && opportunityZone == null ? null : Boolean(hubzone) || Boolean(opportunityZone);
+    // Local point-in-polygon against the MI HUBZone + Opportunity Zone layers (no network).
+    const { hubzone, opportunityZone } = classifyMiZones(lat, lng);
+    const geoDisadvantaged = hubzone || opportunityZone;
     return { county, geoDisadvantaged, hubzone, opportunityZone };
   }
 
@@ -106,6 +107,17 @@ async function geocodeCensus(
   return null;
 }
 
+/** fetch with an abort timeout so a hung geocoder call can't stall a batch worker. */
+async function fetchWithTimeout(url: string, ms = 12000): Promise<Response> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { signal: ctrl.signal });
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 async function censusGeocode(params: {
   street: string;
   city: string;
@@ -121,7 +133,7 @@ async function censusGeocode(params: {
       format: 'json',
     });
 
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://geocoding.geo.census.gov/geocoder/geographies/address?${urlParams}`
     );
     if (!res.ok) return null;
@@ -147,7 +159,7 @@ async function censusGeocodeOneline(address: string): Promise<GeocodeResult | nu
       format: 'json',
     });
 
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://geocoding.geo.census.gov/geocoder/geographies/onelineaddress?${params}`
     );
     if (!res.ok) return null;
@@ -175,43 +187,3 @@ function extractGeocodeResult(match: any): GeocodeResult | null {
   return { lat, lng, county };
 }
 
-// Typed zone layers so we can report WHICH zone(s) a point falls in (not just a combined
-// boolean). Keyed by zone so the geo-zone enricher can emit HUBZone / Opportunity Zone /
-// both / N/A. These are the canonical SBA HUBZone + Opportunity Zone feature services.
-const ZONE_LAYERS: Array<{ key: 'hubzone' | 'opportunityZone'; url: string }> = [
-  { key: 'hubzone', url: 'https://services.arcgis.com/VTyQ9soqVukalItT/arcgis/rest/services/HUBZones_Redesignated_Areas/FeatureServer/0' },
-  { key: 'opportunityZone', url: 'https://services2.arcgis.com/FiaPA4ga0iQKduv3/arcgis/rest/services/Opportunity_Zones/FeatureServer/0' },
-];
-
-/** Point-in-polygon per zone. Each flag is true/false, or null if that layer query failed. */
-async function queryArcGIS(
-  lat: number,
-  lng: number,
-): Promise<{ hubzone: boolean | null; opportunityZone: boolean | null }> {
-  const out: { hubzone: boolean | null; opportunityZone: boolean | null } = {
-    hubzone: null,
-    opportunityZone: null,
-  };
-  for (const layer of ZONE_LAYERS) {
-    try {
-      const params = new URLSearchParams({
-        geometry: `${lng},${lat}`,
-        geometryType: 'esriGeometryPoint',
-        inSR: '4326',
-        spatialRel: 'esriSpatialRelIntersects',
-        returnCountOnly: 'true',
-        f: 'json',
-      });
-      const res = await fetch(`${layer.url}/query?${params}`);
-      if (!res.ok) {
-        console.warn(`ArcGIS ${layer.key} query returned ${res.status}`);
-        continue; // leave null (unknown for this layer)
-      }
-      const data = await res.json();
-      out[layer.key] = Number(data.count) > 0;
-    } catch (err) {
-      console.warn(`ArcGIS ${layer.key} query failed:`, err);
-    }
-  }
-  return out;
-}
