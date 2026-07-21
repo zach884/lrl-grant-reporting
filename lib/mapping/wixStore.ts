@@ -164,11 +164,15 @@ export class WixMappingStore {
           matchSourceField: input.matchSourceField,
           matchTargetColumn: input.matchTargetColumn,
           policy: input.policy,
-          createPolicy: input.createPolicy ?? 'find_or_create',
-          gate: input.gate ?? null,
-          secondaryMatch: input.secondaryMatch ?? null,
-          writebackField: input.writebackField ?? null,
-          visibility: input.visibility ?? null,
+          // PRESERVE engine-critical config the editor UI doesn't manage: only overwrite when the
+          // caller EXPLICITLY provides a value (undefined => keep existing). Without this, a UI save
+          // (sanitizeWixSet omits these) silently nulled the status gate → find_or_create upserted
+          // every contact and flooded the CMS. `null` still clears explicitly (a real gate editor).
+          createPolicy: input.createPolicy ?? existing.createPolicy ?? 'find_or_create',
+          gate: input.gate !== undefined ? input.gate : (existing.gate ?? null),
+          secondaryMatch: input.secondaryMatch !== undefined ? input.secondaryMatch : (existing.secondaryMatch ?? null),
+          writebackField: input.writebackField !== undefined ? input.writebackField : (existing.writebackField ?? null),
+          visibility: input.visibility !== undefined ? input.visibility : (existing.visibility ?? null),
           enabled: input.enabled,
           version: nextVersion,
           updatedAt: now,

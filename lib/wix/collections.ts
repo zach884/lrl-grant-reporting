@@ -239,3 +239,28 @@ export async function resolveReferenceIds(
   }
   return { ids, unmatched };
 }
+
+/**
+ * Bulk-delete items by id (Wix Data v2 `POST /bulk/items/delete`, batched at 100).
+ * Returns the number of ids sent for deletion. Destructive — callers must gate this behind
+ * explicit confirmation.
+ */
+export async function bulkDeleteItems(
+  collectionId: string,
+  itemIds: string[],
+  client: WixClient = wix(),
+): Promise<number> {
+  let removed = 0;
+  for (let i = 0; i < itemIds.length; i += 100) {
+    const batch = itemIds.slice(i, i + 100);
+    const res = await client.request<any>({
+      method: 'POST',
+      path: '/wix-data/v2/bulk/items/remove', // Wix Data v2 calls delete "remove"
+      // includeDraftItems is REQUIRED to modify draft rows (WDE0197), which is what the
+      // ungated inserts created.
+      body: { dataCollectionId: collectionId, dataItemIds: batch, publishPluginOptions: { includeDraftItems: true } },
+    });
+    removed += res?.bulkActionMetadata?.totalSuccesses ?? 0;
+  }
+  return removed;
+}
