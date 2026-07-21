@@ -14,6 +14,9 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { getCatalogs } from '@/lib/ghl/catalogCache';
 import { applyContactChange } from '@/lib/sync/orchestrate';
 import { enrichCompany, defaultEnrichers } from '@/lib/enrichment';
+import { hasDatabase } from '@/lib/db';
+import { hasWix } from '@/lib/wix/config';
+import { runContactTeamPipeline } from '@/lib/wix-sync/pipeline';
 
 function extractContactId(req: NextApiRequest): string | undefined {
   const b: any = req.body ?? {};
@@ -77,7 +80,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
-    return res.status(200).json({ ok: true, dryRun, contactId, companyId, up: upResp, down: downResp, enrich });
+    // Contact → Team pipeline: readiness enrich (on status=Approved) + Wix Team sync. This makes
+    // ONE "Contact Changed" webhook fan out to everything. Non-fatal + isolated: any failure here
+    // must never break the company up/down sync above, so it's wrapped and only runs when the DB +
+    // Wix are configured. (The same pipeline is also exposed standalone at /api/wix-sync.)
+    let readiness: unknown = null;
+    if (hasDatabase && hasWix) {
+      try {
+        readiness = await runContactTeamPipeline(String(contactId), catalogs.contact, { apply: !dryRun });
+      } catch (e: any) {
+        readiness = { error: e?.message ?? 'readiness/Wix pipeline failed' };
+      }
+    }
+
+    return res.status(200).json({ ok: true, dryRun, contactId, companyId, up: upResp, down: downResp, enrich, readiness });
   } catch (e: any) {
     console.error('sync/up error:', e);
     return res.status(500).json({ error: e?.message ?? 'sync failed' });
