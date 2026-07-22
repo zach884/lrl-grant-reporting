@@ -18,6 +18,18 @@ const ENRICHERS = [
   { name: 'LARA ID', produces: 'business.lara_id', source: '— not wired', method: '—', confidence: '—', desc: 'Michigan business registry lookup/verify. Coming later.', soon: true },
 ];
 
+// Contact-targeted enrichers (target the GHL contact, not the company).
+const CONTACT_ENRICHERS = [
+  {
+    name: 'Readiness tagger',
+    produces: 'contact.service_areas + mrl/trl/crl/investor_readiness_stops + readiness_confidence + readiness_rationale',
+    source: 'Claude (haiku, temp 0) · Brandon’s 29-service taxonomy',
+    method: 'ai',
+    desc: 'Classifies a coach’s profile (bio = source of truth) into the 29-service taxonomy, then derives the subway-map stops in code. Powers the Startup Readiness Map.',
+    gate: 'Runs when contact.status = Approved AND website_team_tags contains Team or EIR. Triggers: “Contact Changed” webhook (/api/sync/up) + nightly backstop.',
+  },
+];
+
 const methodBadge = (m: string) => {
   const map: Record<string, { bg: string; fg: string }> = {
     api: { bg: 'var(--accent-tint)', fg: 'var(--teal-700)' },
@@ -81,6 +93,32 @@ export default function EnrichmentPage() {
                   <span>→ <code style={{ fontFamily: 'var(--font-mono)', color: 'var(--teal-700)' }}>{e.produces}</code></span>
                   <span>Source: {e.source}</span>
                   <span>Confidence: {e.confidence}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Contact enrichers */}
+        <div style={{ marginBottom: 10 }}>
+          <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 11, letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--brand)' }}>Contact enrichment</span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 14, marginBottom: 26 }}>
+          {CONTACT_ENRICHERS.map((e) => {
+            const mb = methodBadge(e.method);
+            return (
+              <div key={e.name} style={{ ...card, padding: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 15, color: 'var(--text)' }}>{e.name}</span>
+                  <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: mb.fg, background: mb.bg, borderRadius: 999, padding: '3px 8px' }}>{e.method}</span>
+                </div>
+                <p style={{ margin: '0 0 10px', fontSize: 13, color: 'var(--gray-500)' }}>{e.desc}</p>
+                <div style={{ fontSize: 12, color: 'var(--gray-450)', display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <span>→ <code style={{ fontFamily: 'var(--font-mono)', color: 'var(--teal-700)' }}>{e.produces}</code></span>
+                  <span>Source: {e.source}</span>
+                </div>
+                <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)', fontSize: 12, color: 'var(--gray-500)' }}>
+                  <i className="fa-solid fa-filter" style={{ marginRight: 6, color: 'var(--gray-450)' }} />{e.gate}
                 </div>
               </div>
             );
