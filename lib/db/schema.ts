@@ -7,7 +7,7 @@
 
 import { pgTable, uuid, text, integer, boolean, jsonb, timestamp, unique, index } from 'drizzle-orm/pg-core';
 import type { WixCreatePolicy, WixGate, WixSecondaryMatch, WixVisibility } from '../mapping/wixTypes';
-import type { EnricherFilter, EnricherMembership, EnricherStatusGate, FilterCombine } from '../enrichment/configTypes';
+import type { EnricherFilter, EnricherGroup, EnricherMembership, EnricherStatusGate, FilterCombine } from '../enrichment/configTypes';
 
 export const syncs = pgTable('syncs', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -145,10 +145,13 @@ export const enricherConfigs = pgTable(
     /** Source object the enricher targets: 'contact' | 'business' | 'custom_objects.<key>'. */
     sourceObject: text('source_object').notNull().default('contact'),
     enabled: boolean('enabled').notNull().default(true),
-    /** Filters (current model): each {field, anyOf[]}, combined per `combine`. NULL/[] => always run. */
-    filters: jsonb('filters').$type<EnricherFilter[]>(),
-    /** How the filters combine: 'AND' | 'OR'. NULL => 'AND'. */
+    /** Groups (current model): each {combine, filters[]}; groups combine per `combine`. NULL/[] => always run. */
+    groups: jsonb('groups').$type<EnricherGroup[]>(),
+    /** How the GROUPS combine at the top level: 'AND' | 'OR'. NULL => 'AND'. (Under the pre-groups
+     *  model this held the across-filters combine; back-compat read handles that.) */
     combine: text('combine').$type<FilterCombine>(),
+    /** @deprecated pre-groups flat filter list — read for back-compat; new saves write NULL. */
+    filters: jsonb('filters').$type<EnricherFilter[]>(),
     /** @deprecated legacy status gate {field, runOn[]} — read for back-compat; new saves write NULL. */
     gate: jsonb('gate').$type<EnricherStatusGate>(),
     /** @deprecated legacy membership gate {field, anyOf[]} — read for back-compat; new saves write NULL. */

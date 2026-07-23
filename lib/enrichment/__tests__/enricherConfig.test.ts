@@ -1,7 +1,7 @@
-// Unit tests for the enricher-config READ path (code-default fallback + legacy back-compat) and the
-// input sanitizer. The engine calls resolveEnricherConfig, which returns the stored row's filters
-// when present, else synthesizes filters from the deprecated gate/membership columns, else the code
-// default — so a missing row / old row / missing DB all reproduce the intended behavior.
+// Unit tests for the enricher-config READ path (code default + back-compat) and the input sanitizer.
+// resolveEnricherConfig returns the stored row's groups when present, else wraps the pre-groups flat
+// `filters` column as one group, else folds the legacy gate/membership columns into one group, else
+// the code default — so every generation of row (and a missing DB) reproduces the intended behavior.
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -12,63 +12,81 @@ import {
 } from '../configStore';
 import type { EnricherConfigRow } from '../../db/schema';
 
+const row = (o: Record<string, unknown>) => o as unknown as EnricherConfigRow;
+
 describe('code defaults', () => {
-  it('seeds the readiness tagger as two ANDed filters (Approved + Team/EIR) — cutover no-op', () => {
+  it('seeds readiness as one ANDed group [Approved, Team/EIR] — cutover no-op', () => {
     const d = DEFAULT_ENRICHER_CONFIGS['readiness-tagger::contact'];
     expect(d.combine).toBe('AND');
-    expect(d.filters).toEqual([
+    expect(d.groups).toEqual([{ combine: 'AND', filters: [
       { field: 'contact.status', anyOf: ['Approved'] },
       { field: 'contact.website_team_tags', anyOf: ['Team', 'EIR'] },
-    ]);
+    ] }]);
   });
-
-  it('an unknown enricher falls back to a permissive always-run config (no filters)', () => {
-    expect(defaultEnricherConfig('mystery', 'contact')).toEqual({ enricher: 'mystery', sourceObject: 'contact', enabled: true, filters: [], combine: 'AND' });
+  it('unknown enricher => permissive always-run (no groups)', () => {
+    expect(defaultEnricherConfig('mystery', 'contact')).toEqual({ enricher: 'mystery', sourceObject: 'contact', enabled: true, groups: [], combine: 'AND' });
   });
 });
 
-describe('configFromRow (read fallback + back-compat)', () => {
-  it('returns the CODE DEFAULT when there is no row', () => {
+describe('configFromRow — read precedence', () => {
+  it('no row => code default', () => {
     expect(configFromRow(null, 'readiness-tagger', 'contact')).toEqual(DEFAULT_ENRICHER_CONFIGS['readiness-tagger::contact']);
   });
 
-  it('prefers the filters column when present', () => {
-    const row = { enricher: 'readiness-tagger', sourceObject: 'contact', enabled: true, combine: 'OR', filters: [{ field: 'contact.status', anyOf: ['Approved', 'Published'] }], gate: null, membership: null } as EnricherConfigRow;
-    const c = configFromRow(row, 'readiness-tagger', 'contact');
+  it('prefers the groups column (two-level, top-level OR)', () => {
+    const c = configFromRow(row({
+      enricher: 'x', sourceObject: 'contact', enabled: true, combine: 'OR',
+      groups: [
+        { combine: 'AND', filters: [{ field: 'contact.status', anyOf: ['Approved'] }] },
+        { combine: 'OR', filters: [{ field: 'contact.tag', anyOf: ['A', 'B'] }] },
+      ],
+      filters: null, gate: null, membership: null,
+    }), 'x', 'contact');
     expect(c.combine).toBe('OR');
-    expect(c.filters).toEqual([{ field: 'contact.status', anyOf: ['Approved', 'Published'] }]);
+    expect(c.groups).toHaveLength(2);
+    expect(c.groups[1].combine).toBe('OR');
   });
 
-  it('back-compat: synthesizes filters from legacy gate + membership columns (ANDed)', () => {
-    const row = { enricher: 'readiness-tagger', sourceObject: 'contact', enabled: true, combine: null, filters: null, gate: { field: 'contact.status', runOn: ['Approved'] }, membership: { field: 'contact.website_team_tags', anyOf: ['Team', 'EIR'] } } as unknown as EnricherConfigRow;
-    const c = configFromRow(row, 'readiness-tagger', 'contact');
-    expect(c.combine).toBe('AND');
-    expect(c.filters).toEqual([
+  it('back-compat: wraps the pre-groups flat filters column as ONE group (combine from the row)', () => {
+    const c = configFromRow(row({
+      enricher: 'x', sourceObject: 'contact', enabled: true, combine: 'OR',
+      groups: null,
+      filters: [{ field: 'contact.status', anyOf: ['Approved'] }, { field: 'contact.tag', anyOf: ['A'] }],
+      gate: null, membership: null,
+    }), 'x', 'contact');
+    expect(c.combine).toBe('AND'); // single group => top-level combine is pinned to AND
+    expect(c.groups).toEqual([{ combine: 'OR', filters: [{ field: 'contact.status', anyOf: ['Approved'] }, { field: 'contact.tag', anyOf: ['A'] }] }]);
+  });
+
+  it('back-compat: folds legacy gate + membership columns into one ANDed group', () => {
+    const c = configFromRow(row({
+      enricher: 'readiness-tagger', sourceObject: 'contact', enabled: true, combine: null, groups: null, filters: null,
+      gate: { field: 'contact.status', runOn: ['Approved'] },
+      membership: { field: 'contact.website_team_tags', anyOf: ['Team', 'EIR'] },
+    }), 'readiness-tagger', 'contact');
+    expect(c.groups).toEqual([{ combine: 'AND', filters: [
       { field: 'contact.status', anyOf: ['Approved'] },
       { field: 'contact.website_team_tags', anyOf: ['Team', 'EIR'] },
-    ]);
-  });
-
-  it('empty filters column => always-run', () => {
-    const row = { enricher: 'x', sourceObject: 'contact', enabled: true, combine: 'AND', filters: [] as unknown[], gate: null, membership: null } as unknown as EnricherConfigRow;
-    expect(configFromRow(row, 'x', 'contact').filters).toEqual([]);
+    ] }]);
   });
 });
 
 describe('sanitizeEnricherConfigInput', () => {
-  it('cleans filters (trims, drops empties/fieldless) and defaults combine to AND', () => {
+  it('cleans groups (trims, drops empty filters/groups) and defaults combine to AND', () => {
     const input = sanitizeEnricherConfigInput({
-      enabled: true,
-      combine: 'bogus',
-      filters: [{ field: ' contact.status ', anyOf: [' Approved ', ''] }, { field: '', anyOf: ['x'] }, { field: 'f', anyOf: [] }],
+      enabled: true, combine: 'bogus',
+      groups: [
+        { combine: 'OR', filters: [{ field: ' contact.status ', anyOf: [' Approved ', ''] }, { field: '', anyOf: ['x'] }] },
+        { combine: 'AND', filters: [{ field: '', anyOf: [] }] }, // fully empty group => dropped
+      ],
     }, 'readiness-tagger', 'contact');
     expect(input.combine).toBe('AND');
-    expect(input.filters).toEqual([{ field: 'contact.status', anyOf: ['Approved'] }, { field: 'f', anyOf: [] }]);
-    expect(input.enricher).toBe('readiness-tagger');
+    expect(input.groups).toEqual([{ combine: 'OR', filters: [{ field: 'contact.status', anyOf: ['Approved'] }] }]);
   });
 
-  it('honors combine=OR and enabled=false', () => {
-    const input = sanitizeEnricherConfigInput({ enabled: false, combine: 'OR', filters: [] }, 'x', 'contact');
-    expect(input).toEqual({ enricher: 'x', sourceObject: 'contact', enabled: false, filters: [], combine: 'OR' });
+  it('accepts a flat filters array and wraps it as one group', () => {
+    const input = sanitizeEnricherConfigInput({ enabled: false, combine: 'OR', filters: [{ field: 'f', anyOf: ['v'] }] }, 'x', 'contact');
+    expect(input.enabled).toBe(false);
+    expect(input.groups).toEqual([{ combine: 'OR', filters: [{ field: 'f', anyOf: ['v'] }] }]);
   });
 });

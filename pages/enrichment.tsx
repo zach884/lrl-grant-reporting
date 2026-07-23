@@ -27,13 +27,19 @@ const methodBadge = (m: string) => {
   return map[m] ?? { bg: 'var(--gray-100)', fg: 'var(--gray-450)' };
 };
 
-/** One-line summary of an enricher's filters, for the card. */
+/** One-line summary of an enricher's gate (groups of filters), for the card. */
 function gateSummary(config: EnricherListItem['config']): { text: string; tone: 'gated' | 'open' | 'off' } {
   if (config.enabled === false) return { text: 'Disabled', tone: 'off' };
-  const active = (config.filters ?? []).filter((f) => f?.field && f.anyOf?.length);
-  if (!active.length) return { text: 'No filters — runs on every change', tone: 'open' };
+  const groups = (config.groups ?? [])
+    .map((g) => ({ combine: g.combine, filters: (g.filters ?? []).filter((f) => f?.field && f.anyOf?.length) }))
+    .filter((g) => g.filters.length);
+  if (!groups.length) return { text: 'No filters — runs on every change', tone: 'open' };
+  const groupText = (g: (typeof groups)[number]) => {
+    const parts = g.filters.map((f) => `${f.field} ∈ {${f.anyOf.join(', ')}}`);
+    return parts.length > 1 ? `(${parts.join(g.combine === 'OR' ? ' OR ' : ' AND ')})` : parts.join('');
+  };
   const sep = config.combine === 'OR' ? '  OR  ' : '  AND  ';
-  return { text: active.map((f) => `${f.field} ∈ {${f.anyOf.join(', ')}}`).join(sep), tone: 'gated' };
+  return { text: groups.map(groupText).join(sep), tone: 'gated' };
 }
 
 function EnricherCard({ e }: { e: EnricherListItem }) {

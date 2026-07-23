@@ -44,6 +44,8 @@ function loadEnvLocal() {
   // Filters model (additive; legacy gate/membership columns kept for back-compat reads).
   await db.execute(sql`ALTER TABLE enricher_configs ADD COLUMN IF NOT EXISTS filters jsonb`);
   await db.execute(sql`ALTER TABLE enricher_configs ADD COLUMN IF NOT EXISTS combine text`);
+  // Groups model (additive; the `filters` column is now a legacy back-compat read).
+  await db.execute(sql`ALTER TABLE enricher_configs ADD COLUMN IF NOT EXISTS groups jsonb`);
 
   const rows = await db.execute(sql`SELECT count(*)::int AS n FROM enricher_configs`);
   console.log('✅ enricher_configs ready. Existing rows:', (rows as any).rows?.[0]?.n ?? (rows as any)[0]?.n ?? 0);

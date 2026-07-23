@@ -30,7 +30,8 @@ function loadEnvLocal() {
   const { evaluateGate } = await import('../lib/enrichment/gate');
   const store = getEnricherConfigStore();
 
-  const statusVals = (c: { filters: { field: string; anyOf: string[] }[] }) => c.filters.find((f) => f.field === 'contact.status')?.anyOf ?? [];
+  type Cfg = Awaited<ReturnType<typeof resolveEnricherConfig>>;
+  const statusVals = (c: Cfg) => { for (const g of c.groups) { const f = g.filters.find((x) => x.field === 'contact.status'); if (f) return f.anyOf; } return []; };
 
   // Synthetic contact: Published + Team. `read` is what the pipeline builds from a real contact.
   const read = (k: string) => ({ 'contact.status': 'Published', 'contact.website_team_tags': ['Team'] } as Record<string, unknown>)[k];
@@ -41,8 +42,8 @@ function loadEnvLocal() {
   console.log(`  → Published/Team contact: ${before.run ? 'RUN' : 'SKIP'}${before.reason ? ` (${before.reason})` : ''}`);
 
   // Simulate the UI edit: add 'Published' to the status filter (identical to a PUT from /enrichment).
-  const editedFilters = original.filters.map((f) => f.field === 'contact.status' ? { ...f, anyOf: [...f.anyOf, 'Published'] } : f);
-  await store.upsert({ enricher: 'readiness-tagger', sourceObject: 'contact', enabled: original.enabled, filters: editedFilters, combine: original.combine });
+  const editedGroups = original.groups.map((g) => ({ ...g, filters: g.filters.map((f) => (f.field === 'contact.status' ? { ...f, anyOf: [...f.anyOf, 'Published'] } : f)) }));
+  await store.upsert({ enricher: 'readiness-tagger', sourceObject: 'contact', enabled: original.enabled, groups: editedGroups, combine: original.combine });
 
   const edited = await resolveEnricherConfig('readiness-tagger', 'contact');
   const after = evaluateGate(read, edited);
@@ -50,7 +51,7 @@ function loadEnvLocal() {
   console.log(`  → Published/Team contact: ${after.run ? 'RUN' : 'SKIP'}${after.reason ? ` (${after.reason})` : ''}`);
 
   // Restore so live behavior is unchanged by this proof.
-  await store.upsert({ enricher: 'readiness-tagger', sourceObject: 'contact', enabled: original.enabled, filters: original.filters, combine: original.combine });
+  await store.upsert({ enricher: 'readiness-tagger', sourceObject: 'contact', enabled: original.enabled, groups: original.groups, combine: original.combine });
   const restored = await resolveEnricherConfig('readiness-tagger', 'contact');
   console.log('\nRestored status filter:', JSON.stringify(statusVals(restored)));
 

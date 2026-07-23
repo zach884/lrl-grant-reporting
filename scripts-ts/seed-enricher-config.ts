@@ -32,18 +32,18 @@ function flag(name: string): boolean { return process.argv.includes(`--${name}`)
   const current = await store.get(seed.enricher, seed.sourceObject);
   console.log(`Enricher: ${seed.enricher} (${seed.sourceObject})`);
   console.log('Current config:', JSON.stringify(current ?? '(none — code default applies)'));
-  console.log('Will seed     :', JSON.stringify({ enabled: seed.enabled, combine: seed.combine, filters: seed.filters }));
+  console.log('Will seed     :', JSON.stringify({ enabled: seed.enabled, combine: seed.combine, groups: seed.groups }));
 
   if (current
     && current.enabled === seed.enabled
     && current.combine === seed.combine
-    && JSON.stringify(current.filters) === JSON.stringify(seed.filters)) {
+    && JSON.stringify(current.groups) === JSON.stringify(seed.groups)) {
     console.log('\nAlready seeded — nothing to do. ✅');
     process.exit(0);
   }
   if (!apply) { console.log('\nDRY-RUN — re-run with --apply to write.'); process.exit(0); }
 
   const saved = await store.upsert(seed);
-  console.log(`\n✅ Seeded enricher config: combine=${saved.combine} filters=${JSON.stringify(saved.filters)}.`);
+  console.log(`\n✅ Seeded enricher config: combine=${saved.combine} groups=${JSON.stringify(saved.groups)}.`);
   process.exit(0);
 })().catch((e) => { console.error('SEED ENRICHER CONFIG FAILED:', e?.stack ?? e); process.exit(2); });

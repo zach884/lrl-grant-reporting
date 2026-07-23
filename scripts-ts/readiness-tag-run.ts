@@ -83,26 +83,31 @@ function csv(v: unknown): string {
   const only = arg('only')?.split(',').map((s) => s.trim()).filter(Boolean);
   const minConfidence = arg('min-confidence') ? Number(arg('min-confidence')) : 0;
 
-  // Build the effective filter set for this run from config + CLI overrides. The status field is
-  // the one dimension the CLI flags touch (the credit gate): --status a,b replaces its values,
-  // --all-status drops it, --only bypasses all filters. Other filters (e.g. membership) always apply.
+  // Build the effective gate for this run from config + CLI overrides. The status field is the one
+  // dimension the CLI flags touch (the credit gate): --status a,b replaces its values across groups,
+  // --all-status drops it, --only bypasses the whole gate. Other filters (e.g. membership) always apply.
   const STATUS_FIELD = 'contact.status';
   const allStatus = flag('all-status');
-  let filters = [...config.filters];
+  type Grp = { combine: 'AND' | 'OR'; filters: { field: string; anyOf: string[] }[] };
+  let groups: Grp[] = (config.groups as Grp[]).map((g) => ({ combine: g.combine, filters: g.filters.map((f) => ({ ...f })) }));
   if (allStatus) {
-    filters = filters.filter((f) => f.field !== STATUS_FIELD);
+    groups = groups.map((g) => ({ ...g, filters: g.filters.filter((f) => f.field !== STATUS_FIELD) })).filter((g) => g.filters.length);
   } else {
     // rederive is free (no LLM) so it defaults to a broader status set; tag defaults to config's.
     const statusOverride = arg('status') ?? (rederive ? 'Approved,Published' : undefined);
     if (statusOverride !== undefined) {
       const anyOf = statusOverride.split(',').map((s) => s.trim()).filter(Boolean);
-      filters = filters.filter((f) => f.field !== STATUS_FIELD);
-      if (anyOf.length) filters.push({ field: STATUS_FIELD, anyOf });
+      let found = false;
+      groups = groups.map((g) => ({ ...g, filters: g.filters.map((f) => (f.field === STATUS_FIELD ? ((found = true), { ...f, anyOf }) : f)) }));
+      if (!found && anyOf.length) {
+        if (!groups.length) groups = [{ combine: 'AND', filters: [] }];
+        groups[0] = { ...groups[0], filters: [...groups[0].filters, { field: STATUS_FIELD, anyOf }] };
+      }
     }
   }
-  const effectiveConfig = { ...config, filters };
-  const describeFilters = filters.length
-    ? filters.map((f) => `${f.field}∈{${f.anyOf.join(',')}}`).join(config.combine === 'OR' ? ' OR ' : ' AND ')
+  const effectiveConfig = { ...config, groups } as typeof config;
+  const describeFilters = groups.length
+    ? groups.map((g) => { const p = g.filters.map((f) => `${f.field}∈{${f.anyOf.join(',')}}`); return p.length > 1 ? `(${p.join(g.combine === 'OR' ? ' or ' : ' & ')})` : p.join(''); }).join(config.combine === 'OR' ? ' OR ' : ' AND ')
     : '(no filters — every contact)';
 
   const reportsDir = join(process.cwd(), 'reports');

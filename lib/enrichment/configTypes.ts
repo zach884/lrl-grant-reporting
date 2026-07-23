@@ -1,9 +1,10 @@
-// lib/enrichment/configTypes.ts — config-as-data contract for an enricher's GATE (a set of FILTERS).
+// lib/enrichment/configTypes.ts — config-as-data contract for an enricher's GATE (GROUPS of FILTERS).
 //
 // Enrichers themselves stay in CODE (the AI prompt/taxonomy, deriveStops, coercion). Only WHEN/WHERE
-// an enricher runs is config: a list of FILTERS, each "run only when <field> is one of <anyOf>",
-// combined with a top-level AND / OR. e.g. readiness = [contact.status ∈ {Approved}] AND
-// [contact.website_team_tags ∋ {Team,EIR}]. Add/remove filters freely; an empty list = always run.
+// an enricher runs is config: a two-level boolean of FILTERS. Each filter is "run only when <field>
+// is one of <anyOf>". Filters are combined inside a GROUP (AND/OR), and groups are combined at the
+// top level (AND/OR) — so you can express e.g. status ∈ {Approved} AND (tag ∋ {Team} OR {EIR}), or
+// (A AND B) OR (C AND D). Add/remove groups + filters freely; an empty gate = always run.
 // Kept in its own module (no db/enrichment imports) so lib/db/schema.ts can type the jsonb columns.
 
 /** One filter: passes when the record's `field` value is (or contains) one of `anyOf`. */
@@ -12,17 +13,23 @@ export interface EnricherFilter {
   anyOf: string[];
 }
 
-/** How multiple filters combine. AND = every filter must pass; OR = any one. */
+/** How things combine. AND = every child must pass; OR = any one. */
 export type FilterCombine = 'AND' | 'OR';
+
+/** A group of filters combined by `combine`. Groups are the unit the top-level combine joins. */
+export interface EnricherGroup {
+  combine: FilterCombine;
+  filters: EnricherFilter[];
+}
 
 /** The resolved gate config for one enricher (a DB row, or a code default when no row exists). */
 export interface EnricherConfig {
   enricher: string;
   sourceObject: string;
   enabled: boolean;
-  /** Ordered list of filters. Empty => no restriction (always run). */
-  filters: EnricherFilter[];
-  /** How the filters combine. Defaults to AND. */
+  /** Ordered list of groups. Empty (or all groups empty) => no restriction (always run). */
+  groups: EnricherGroup[];
+  /** How the GROUPS combine at the top level. Defaults to AND. */
   combine: FilterCombine;
 }
 
