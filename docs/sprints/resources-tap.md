@@ -85,7 +85,15 @@ reads Wix. GHL is the system of record; the transform stays in code; only when/w
   + a custom-object enrich path (generalize `contactEngine` to a record engine, or `recordEngine.ts`).
   Register in the registry; gate config via `/enrichment` (sourceObject `custom_objects.resources`),
   default filter `resource_status ∈ {Approved}`. Seed the config.
-- **C — Object-agnostic Wix sync:** generalize `syncContactToWix` → read a custom-object record
+- **C — Object-agnostic Wix sync — ✅ DONE (2026-07-23).** Refactored `lib/wix-sync/sync.ts` into a
+  shared `syncSourceToWix(source, set, schema, opts)` core over a `SyncSource` abstraction; `syncContactToWix`
+  is now a thin wrapper (12 sync tests still green — contact path unchanged) + new `syncRecordToWix`
+  (reads a custom-object record via records.ts, `resolveRecordField`, match `id`↔`ghlResourceId`).
+  `runResourcePipeline` in pipeline.ts (enrich resource-tagger config-gated → sync enabled resource
+  sets). Dispatch `pages/api/resource-sync.ts` (GHL "Resource Changed" webhook). Dry-run proof
+  `resource-sync-dryrun.ts`: read Endurance Law Group → matched its Wix row by ghlResourceId → noop,
+  0 errors. Original plan below:
+- **C — Object-agnostic Wix sync (orig):** generalize `syncContactToWix` → read a custom-object record
   (via `records.ts`) so a mapping set `custom_objects.resources → Import1` runs the gate / createPolicy
   / visibility / writeback / match-by-`ghlResourceId`. Dispatch on resource-change webhook.
 - **D — Mapping set:** seed Resource → Wix `Import1` (field rows + gate), like `set-team-gate.ts`.

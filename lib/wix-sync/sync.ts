@@ -9,6 +9,7 @@
 import { getContact } from '../ghl/contacts';
 import { GhlClient, ghl } from '../ghl/client';
 import { writeRecordFields } from '../ghl/writeRecord';
+import { readRecordFields } from '../ghl/records';
 import type { Contact, CustomFieldCatalog, GhlFieldOption } from '../ghl/types';
 import type { WixMappingSet } from '../mapping/wixTypes';
 import { WixClient, wix } from '../wix/client';
@@ -89,16 +90,37 @@ type EngineAction = 'upsert' | 'update' | 'hide' | 'skip';
  * action (unlisted values => skip); otherwise the set's create policy governs unconditionally
  * (find_or_create => upsert, update_only => update) — i.e. no-gate sets behave exactly as before.
  */
-function resolveAction(set: WixMappingSet, contact: Contact, catalog: CustomFieldCatalog): { action: EngineAction; gateValue?: unknown } {
+function resolveAction(set: WixMappingSet, resolve: (key: string) => SourceField): { action: EngineAction; gateValue?: unknown } {
   if (set.gate) {
-    const gateValue = resolveContactField(contact, catalog, set.gate.field).value;
+    const gateValue = resolve(set.gate.field).value;
     const key = gateValue == null ? '' : String(gateValue);
     return { action: (set.gate.actions[key] ?? 'skip') as EngineAction, gateValue };
   }
   return { action: set.createPolicy === 'update_only' ? 'update' : 'upsert' };
 }
 
-/** Sync one GHL contact into the mapping set's Wix collection. */
+/**
+ * A source-object abstraction so the sync engine is object-agnostic: contacts and custom-object
+ * records both provide a field resolver (value + GHL type + options) and a write-back. Everything
+ * else (gate, match, coercion, upsert, visibility, dedup, write-back) is identical across objects.
+ */
+export interface SyncSource {
+  objectKey: string;
+  recordId: string;
+  resolve(key: string): SourceField;
+  /** Write field changes back to the source record (id/status write-back). */
+  writeFields(changes: Record<string, unknown>): Promise<void>;
+}
+
+/** Read a source field off a GHL objects-API record (business/custom_objects.*). 'id' => the record id. */
+function resolveRecordField(objectKey: string, fields: { get(k: string): unknown; recordId: string }, catalog: CustomFieldCatalog, key: string): SourceField {
+  if (key === 'id' || key === '_id') return { value: fields.recordId, ghlType: 'scalar' };
+  const bare = key.replace(new RegExp(`^${objectKey.replace('.', '\\.')}\\.`), '');
+  const def = catalog.byKey[key] ?? catalog.byKey[`${objectKey}.${bare}`];
+  return { value: fields.get(key), ghlType: (def?.dataType as GhlSourceType) ?? 'scalar', options: def?.options };
+}
+
+/** Sync one GHL CONTACT into the mapping set's Wix collection (thin wrapper over the shared core). */
 export async function syncContactToWix(
   contactId: string,
   set: WixMappingSet,
@@ -106,23 +128,64 @@ export async function syncContactToWix(
   wixSchema: WixCollectionSchema,
   opts: { apply: boolean; client?: WixClient; ghlClient?: GhlClient },
 ): Promise<WixSyncResult> {
-  const client = opts.client ?? wix();
   const gclient = opts.ghlClient ?? ghl();
-  const colById = new Map(wixSchema.columns.map((c) => [c.key, c] as const));
-
   const contact = await getContact(contactId, gclient);
   if (!contact) {
     return { sourceId: contactId, action: 'skip', written: [], unchanged: 0, skipped: [], dryRun: !opts.apply, note: 'source contact not found' };
   }
+  const source: SyncSource = {
+    objectKey: 'contact',
+    recordId: contact.id,
+    resolve: (key) => resolveContactField(contact, catalog, key),
+    writeFields: async (changes) => { await writeRecordFields('contact', contact.id, changes, catalog, gclient); },
+  };
+  return syncSourceToWix(source, set, wixSchema, { apply: opts.apply, client: opts.client });
+}
+
+/** Sync one GHL OBJECT RECORD (custom_objects.*, business) into the mapping set's Wix collection. */
+export async function syncRecordToWix(
+  objectKey: string,
+  recordId: string,
+  set: WixMappingSet,
+  catalog: CustomFieldCatalog,
+  wixSchema: WixCollectionSchema,
+  opts: { apply: boolean; client?: WixClient; ghlClient?: GhlClient },
+): Promise<WixSyncResult> {
+  const gclient = opts.ghlClient ?? ghl();
+  let fields: Awaited<ReturnType<typeof readRecordFields>>;
+  try {
+    fields = await readRecordFields(objectKey, recordId, gclient);
+  } catch {
+    return { sourceId: recordId, action: 'skip', written: [], unchanged: 0, skipped: [], dryRun: !opts.apply, note: 'source record not found' };
+  }
+  const source: SyncSource = {
+    objectKey,
+    recordId,
+    resolve: (key) => resolveRecordField(objectKey, fields, catalog, key),
+    writeFields: async (changes) => { await writeRecordFields(objectKey, recordId, changes, catalog, gclient); },
+  };
+  return syncSourceToWix(source, set, wixSchema, { apply: opts.apply, client: opts.client });
+}
+
+/** The shared, object-agnostic core: sync one source record into the mapping set's Wix collection. */
+export async function syncSourceToWix(
+  source: SyncSource,
+  set: WixMappingSet,
+  wixSchema: WixCollectionSchema,
+  opts: { apply: boolean; client?: WixClient },
+): Promise<WixSyncResult> {
+  const client = opts.client ?? wix();
+  const contactId = source.recordId;
+  const colById = new Map(wixSchema.columns.map((c) => [c.key, c] as const));
 
   // Gate: decide what to do with this record (status state machine, or the set's create policy).
-  const { action: engineAction, gateValue } = resolveAction(set, contact, catalog);
+  const { action: engineAction, gateValue } = resolveAction(set, source.resolve);
   if (engineAction === 'skip') {
     return { sourceId: contactId, action: 'skip', written: [], unchanged: 0, skipped: [], dryRun: !opts.apply,
       note: set.gate ? `gate: ${set.gate.field}="${gateValue ?? ''}" → skip` : 'update-only: nothing to do' };
   }
 
-  const matchValue = resolveContactField(contact, catalog, set.matchSourceField).value;
+  const matchValue = source.resolve(set.matchSourceField).value;
   if (matchValue == null || matchValue === '') {
     return { sourceId: contactId, action: 'skip', written: [], unchanged: 0, skipped: [], dryRun: !opts.apply, note: `match field "${set.matchSourceField}" is empty` };
   }
@@ -162,7 +225,7 @@ export async function syncContactToWix(
   // Exactly-one match adopts; >1 is ambiguous and defers to review (never auto-creates/merges).
   if (!existing && engineAction === 'upsert' && set.secondaryMatch?.length) {
     for (const sm of set.secondaryMatch) {
-      const sv = resolveContactField(contact, catalog, sm.sourceField).value;
+      const sv = source.resolve(sm.sourceField).value;
       if (sv == null || sv === '') continue;
       const hits = await queryItemsByColumn(set.wixCollectionId, sm.targetColumn, String(sv), 2, client);
       if (hits.length > 1) {
@@ -187,7 +250,7 @@ export async function syncContactToWix(
     if (!col) { skipped.push({ targetColumn: row.targetColumnKey, reason: 'column not on collection' }); continue; }
     if (isUnwritableWixType(String(col.type), col.systemField)) { skipped.push({ targetColumn: col.key, reason: `unwritable Wix type ${col.type}` }); continue; }
 
-    const src = resolveContactField(contact, catalog, row.sourceFieldKey);
+    const src = source.resolve(row.sourceFieldKey);
     const result = coerceToWix(src.value, src.ghlType, String(col.type), row.transform, src.options);
 
     if (result.kind === 'skip') { if (result.reason !== 'empty') skipped.push({ targetColumn: col.key, reason: result.reason }); continue; }
@@ -287,10 +350,10 @@ export async function syncContactToWix(
   // ID write-back: stamp the Wix row id onto the GHL contact (e.g. contact.wix_team_row_id) — audit
   // trail + fast dedup guard + the hook a future Wix→GHL direction uses. Only when it differs.
   if (set.writebackField && itemId) {
-    const current = resolveContactField(contact, catalog, set.writebackField).value;
+    const current = source.resolve(set.writebackField).value;
     if (String(current ?? '') !== String(itemId)) {
       try {
-        await writeRecordFields('contact', contact.id, { [set.writebackField]: itemId }, catalog, gclient);
+        await source.writeFields({ [set.writebackField]: itemId });
       } catch (e: any) {
         skipped.push({ targetColumn: set.writebackField, reason: `id write-back failed: ${e?.message ?? e}` });
       }
@@ -302,7 +365,7 @@ export async function syncContactToWix(
   // doesn't write back, so it converges. Only when it actually differs.
   if (engineAction === 'upsert' && set.gate?.onPublishSetStatus && String(gateValue ?? '') !== set.gate.onPublishSetStatus) {
     try {
-      await writeRecordFields('contact', contact.id, { [set.gate.field]: set.gate.onPublishSetStatus }, catalog, gclient);
+      await source.writeFields({ [set.gate.field]: set.gate.onPublishSetStatus });
     } catch (e: any) {
       skipped.push({ targetColumn: set.gate.field, reason: `status write-back failed: ${e?.message ?? e}` });
     }
