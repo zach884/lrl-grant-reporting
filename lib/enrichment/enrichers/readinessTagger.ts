@@ -6,8 +6,11 @@
 // every contact's stops for free (no LLM calls — see rederiveProposals / the CLI --rederive), and
 // the LLM never has to reason about the 4 readiness ladders — just "what is this person good at".
 //
-// Membership gate (REQUIRED): runs ONLY when contact.website_team_tags contains Team or EIR.
-// Board-only contacts are skipped entirely (no tags/stops written). Mirrored in the embed query.
+// Gating (status + membership) is CONFIG, not code: it lives in enricher_configs and is evaluated by
+// the callers (the /api/sync/up pipeline, /api/readiness-tag, and the CLI) via lib/enrichment/gate.ts.
+// The default config reproduces the original behavior — run only for contact.status=Approved and
+// website_team_tags ∈ {Team,EIR} — so cutover changed nothing. This enricher is now a pure transform;
+// it does NOT re-check membership. `passesMembershipGate` stays exported as a helper for the CLI/tests.
 //
 // Writes 7 GHL contact fields: service_areas (labels), mrl/trl/crl/investor_readiness_stops
 // (number strings), readiness_confidence (High/Medium/Low), readiness_rationale (one line).
@@ -32,9 +35,7 @@ import {
 } from '../data/readiness';
 import type { Contact, CustomFieldCatalog } from '../../ghl/types';
 import { readContactField } from '../contactEngine';
-
-/** Membership-gate values that mean "run the tagger". Board-only is excluded. */
-const ALLOWED_MEMBERSHIP = new Set(['team', 'eir']);
+import { membershipMatches } from '../gate';
 
 /** Contact fields (in order) that describe who the person is / what they do. */
 const PROFILE_KEYS: Array<[key: string, label: string]> = [
@@ -132,12 +133,10 @@ export function deriveProfileText(contact: Contact, catalog: CustomFieldCatalog)
   return parts.join('\n');
 }
 
-/** True when the membership gate passes (website_team_tags contains Team or EIR). */
-export function passesMembershipGate(membership: unknown): boolean {
-  const values = Array.isArray(membership)
-    ? membership
-    : String(membership ?? '').split(/[,;]/);
-  return values.some((v) => ALLOWED_MEMBERSHIP.has(String(v).trim().toLowerCase()));
+/** True when the membership value contains Team or EIR (the default coach set). Kept for the CLI's
+ *  worklist filter and tests; the live gate's `anyOf` comes from config (see lib/enrichment/gate.ts). */
+export function passesMembershipGate(membership: unknown, anyOf: string[] = ['Team', 'EIR']): boolean {
+  return membershipMatches(membership, anyOf);
 }
 
 /** Confidence label → provenance 0..1 (for dedupe/policy). */
@@ -180,10 +179,9 @@ export function buildProposals(
 /**
  * Re-derive stops from the contact's EXISTING service_areas, with no LLM call. Used when
  * STOP_SERVICES changes: reads the already-classified tags off the contact and rewrites the 4
- * stop fields. Returns [] when the gate fails or no service_areas are set.
+ * stop fields. Returns [] when no service_areas are set. Gating is the caller's job (config).
  */
 export function rederiveProposals(input: ContactEnricherInput): ContactEnrichmentProposal[] {
-  if (!passesMembershipGate(input.field('contact.website_team_tags'))) return [];
   const labels = input.field('contact.service_areas');
   const tags = labelsToTags(Array.isArray(labels) ? labels : []);
   if (tags.length === 0) return [];
@@ -206,7 +204,7 @@ export const readinessTagger: ContactEnricher = {
   name: 'readiness-tagger',
   description:
     'Classify a team member’s profile into the 29-service taxonomy (Claude) and derive subway-map ' +
-    'stops. Runs only for Team/EIR contacts (membership gate).',
+    'stops. Status + membership gates are configurable (default: status=Approved, Team/EIR only).',
   produces: [
     'contact.service_areas',
     'contact.mrl_stops',
@@ -218,8 +216,8 @@ export const readinessTagger: ContactEnricher = {
   ],
 
   async enrich(input: ContactEnricherInput): Promise<ContactEnrichmentProposal[]> {
-    // Membership gate — Board-only contacts get nothing.
-    if (!passesMembershipGate(input.field('contact.website_team_tags'))) return [];
+    // Gating (status + membership) is enforced by the caller from config (lib/enrichment/gate.ts).
+    // This enricher is a pure transform: classify → derive. It only bails when it literally can't run.
     if (!hasAnthropic) return []; // no API key → skip cleanly
 
     const text = deriveProfileText(input.contact, input.contactCatalog);

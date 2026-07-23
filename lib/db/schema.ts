@@ -7,6 +7,7 @@
 
 import { pgTable, uuid, text, integer, boolean, jsonb, timestamp, unique, index } from 'drizzle-orm/pg-core';
 import type { WixCreatePolicy, WixGate, WixSecondaryMatch, WixVisibility } from '../mapping/wixTypes';
+import type { EnricherMembership, EnricherStatusGate } from '../enrichment/configTypes';
 
 export const syncs = pgTable('syncs', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -127,3 +128,35 @@ export type WixMappingSetRow = typeof wixMappingSets.$inferSelect;
 export type NewWixMappingSetRow = typeof wixMappingSets.$inferInsert;
 export type WixMappingRowRow = typeof wixMappingRows.$inferSelect;
 export type NewWixMappingRowRow = typeof wixMappingRows.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Enricher gate config (additive). One row per (enricher, sourceObject): the WHEN/WHERE an
+// enricher runs, editable in /enrichment. The enricher TRANSFORM stays in code — this only holds
+// the status gate (runOn) + membership gate (anyOf). A missing row => the code default applies
+// (today's hardcoded behavior), so seeding is optional for correctness and only pins it visibly.
+// ---------------------------------------------------------------------------
+
+export const enricherConfigs = pgTable(
+  'enricher_configs',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    /** Enricher registry name, e.g. 'readiness-tagger'. */
+    enricher: text('enricher').notNull(),
+    /** Source object the enricher targets: 'contact' | 'business' | 'custom_objects.<key>'. */
+    sourceObject: text('source_object').notNull().default('contact'),
+    enabled: boolean('enabled').notNull().default(true),
+    /** Status gate {field, runOn[]} — run only when the record's status is in runOn. NULL => always. */
+    gate: jsonb('gate').$type<EnricherStatusGate>(),
+    /** Membership gate {field, anyOf[]} — run only when the field contains one of anyOf. NULL => always. */
+    membership: jsonb('membership').$type<EnricherMembership>(),
+    version: integer('version').notNull().default(1),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    // One config per enricher per source object (upsert target).
+    uniqEnricher: unique('enricher_configs_enricher_source_uq').on(t.enricher, t.sourceObject),
+  }),
+);
+
+export type EnricherConfigRow = typeof enricherConfigs.$inferSelect;
+export type NewEnricherConfigRow = typeof enricherConfigs.$inferInsert;

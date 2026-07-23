@@ -62,13 +62,17 @@ describe('passesMembershipGate', () => {
 });
 
 describe('readinessTagger.enrich', () => {
-  it('skips Board-only contacts (membership gate) — no AI call', async () => {
+  it('no longer self-gates on membership — classifies regardless (gating moved to config)', async () => {
+    // The membership/status gates now live in enricher_configs and are enforced by the CALLERS
+    // (pipeline / webhook / CLI), so the enricher is a pure transform. A Board contact reaching
+    // enrich() still classifies — it just never reaches here in practice because the caller gates.
+    mockClassify.mockResolvedValue({ serviceTags: ['gtm'], confidence: 'High', verify: false, rationale: 'x' });
     const out = await readinessTagger.enrich(makeInput({
       'contact.website_team_tags': ['Board'],
       'contact.job_title': 'Advisor',
     }));
-    expect(out).toEqual([]);
-    expect(mockClassify).not.toHaveBeenCalled();
+    expect(mockClassify).toHaveBeenCalled();
+    expect(out.find((p) => p.contactKey === 'contact.service_areas')).toBeDefined();
   });
 
   it('classifies a Team/EIR contact and derives the 7 fields', async () => {
@@ -134,9 +138,11 @@ describe('rederiveProposals (no LLM)', () => {
     expect(byKey['contact.service_areas']).toBeUndefined();
   });
 
-  it('returns [] when the gate fails or no service_areas', () => {
-    expect(rederiveProposals(makeInput({ 'contact.website_team_tags': ['Board'], 'contact.service_areas': ['Go-to-Market Strategy'] }))).toEqual([]);
+  it('returns [] when there are no service_areas; does NOT re-check membership (caller gates)', () => {
     expect(rederiveProposals(makeInput({ 'contact.website_team_tags': ['Team'] }))).toEqual([]);
+    // A Board contact WITH service_areas still re-derives — gating is the caller's job now.
+    const out = rederiveProposals(makeInput({ 'contact.website_team_tags': ['Board'], 'contact.service_areas': ['Go-to-Market Strategy'] }));
+    expect(out.length).toBeGreaterThan(0);
   });
 });
 

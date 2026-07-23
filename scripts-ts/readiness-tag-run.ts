@@ -66,9 +66,17 @@ function csv(v: unknown): string {
   const { getContactFieldCatalog } = await import('../lib/ghl/customFields');
   const { enumerateAllContacts } = await import('../lib/ghl/contacts');
   const { enrichContact, readContactField } = await import('../lib/enrichment/contactEngine');
-  const { readinessTagger, rederiveProposals, passesMembershipGate } = await import('../lib/enrichment/enrichers/readinessTagger');
+  const { readinessTagger, rederiveProposals } = await import('../lib/enrichment/enrichers/readinessTagger');
+  const { resolveEnricherConfig } = await import('../lib/enrichment/configStore');
+  const { membershipMatches } = await import('../lib/enrichment/gate');
   const { LINE_STOP_FIELD, LINE_KEYS } = await import('../lib/enrichment/data/readiness');
   const { hasAnthropic } = await import('../lib/ai/anthropic');
+
+  // Gate config (status runOn + membership anyOf), read from enricher_configs with a code-default
+  // fallback — same source the real-time pipeline uses, so the backstop honors UI edits too.
+  const config = await resolveEnricherConfig('readiness-tagger', 'contact');
+  const membershipField = config.membership?.field ?? 'contact.website_team_tags';
+  const membershipAnyOf = config.membership?.anyOf ?? ['Team', 'EIR'];
 
   const concurrency = Number(arg('concurrency') ?? 2);
   const limit = arg('limit') ? Number(arg('limit')) : undefined;
@@ -79,9 +87,12 @@ function csv(v: unknown): string {
   // rederive is free (no LLM), so it defaults to all live coaches. Override with --status a,b or
   // --all-status; --only bypasses the status filter entirely.
   const allStatus = flag('all-status');
+  // Non-rederive default status comes from the gate config's runOn (fallback 'Approved'); rederive is
+  // free (no LLM) so it defaults to all live coaches. --status overrides; --all-status/--only bypass.
+  const defaultStatus = rederive ? 'Approved,Published' : (config.gate?.runOn?.join(',') || 'Approved');
   const statusFilter = allStatus || only
     ? null
-    : (arg('status') ?? (rederive ? 'Approved,Published' : 'Approved')).split(',').map((s) => s.trim()).filter(Boolean);
+    : (arg('status') ?? defaultStatus).split(',').map((s) => s.trim()).filter(Boolean);
 
   const reportsDir = join(process.cwd(), 'reports');
   mkdirSync(reportsDir, { recursive: true });
@@ -108,7 +119,7 @@ function csv(v: unknown): string {
   // credit-gate (unless --only / --all-status).
   let contacts = await enumerateAllContacts();
   if (only) contacts = contacts.filter((c) => only.includes(c.id));
-  let inScope = contacts.filter((c) => passesMembershipGate(readContactField(c, catalog, 'contact.website_team_tags')));
+  let inScope = contacts.filter((c) => membershipMatches(readContactField(c, catalog, membershipField), membershipAnyOf));
   const beforeStatus = inScope.length;
   if (statusFilter) {
     const set = new Set(statusFilter);
@@ -116,7 +127,7 @@ function csv(v: unknown): string {
   }
   let todo = inScope.filter((c) => !done.has(c.id));
   if (limit) todo = todo.slice(0, limit);
-  console.log(`Contacts: ${contacts.length} total, ${beforeStatus} Team/EIR` +
+  console.log(`Contacts: ${contacts.length} total, ${beforeStatus} in membership {${membershipAnyOf.join('/')}}` +
     (statusFilter ? `, ${inScope.length} in status {${statusFilter.join(',')}}` : ' (all statuses)') +
     `, ${todo.length} to process (${done.size} via checkpoint).`);
 

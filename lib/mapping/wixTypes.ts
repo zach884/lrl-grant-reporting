@@ -74,14 +74,16 @@ export interface WixMappingSet {
   policy: WixApplyPolicy;
   /** Create when no target found, or update-only. Defaults to 'find_or_create' when unset. */
   createPolicy?: WixCreatePolicy;
-  /** Status→action gate on the source record. undefined => always upsert. */
-  gate?: WixGate;
-  /** First-link dedup keys tried when the hard match key misses. */
-  secondaryMatch?: WixSecondaryMatch[];
-  /** GHL field to write the created/linked target row id back to (e.g. 'contact.wix_team_row_id'). */
-  writebackField?: string;
-  /** Engine-controlled visibility column on the target collection. */
-  visibility?: WixVisibility;
+  /** Status→action gate on the source record. undefined => always upsert; `null` clears it. On a
+   *  save, `undefined` means "keep the stored value" (the preserve guardrail); `null` clears. */
+  gate?: WixGate | null;
+  /** First-link dedup keys tried when the hard match key misses. `null` clears (see gate). */
+  secondaryMatch?: WixSecondaryMatch[] | null;
+  /** GHL field to write the created/linked target row id back to (e.g. 'contact.wix_team_row_id').
+   *  `null` explicitly clears it (a real editor); `undefined` on a save means "keep existing". */
+  writebackField?: string | null;
+  /** Engine-controlled visibility column on the target collection. `null` clears (see gate). */
+  visibility?: WixVisibility | null;
   enabled: boolean;
   version: number;
   updatedAt: string;

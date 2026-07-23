@@ -8,6 +8,8 @@ import { useRouter } from 'next/router';
 import ToolObjectBand, { type SideRef } from './ToolObjectBand';
 import ConnectionTable, { type ConnRow, type ConnStatusFilter, type FieldOptions } from './ConnectionTable';
 import SearchableFieldSelect, { type CatalogFieldOpt } from './SearchableFieldSelect';
+import GateEditor, { type GateFieldOpt } from './GateEditor';
+import type { GateAction, WixCreatePolicy } from '@/lib/mapping/wixTypes';
 
 const SECRET_KEY = 'mapping_admin_secret';
 const FILTERS: { id: ConnStatusFilter; label: string }[] = [
@@ -16,6 +18,8 @@ const FILTERS: { id: ConnStatusFilter; label: string }[] = [
 const primaryBtn: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 7, padding: '9px 16px', borderRadius: 8, border: 'none', background: 'var(--brand)', color: 'var(--ink-900)', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, cursor: 'pointer', boxShadow: 'var(--shadow-brand)' };
 const secondaryBtn: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 7, padding: '9px 15px', borderRadius: 8, border: '1px solid var(--border-strong)', background: 'var(--surface)', color: 'var(--text-secondary)', fontFamily: 'var(--font-body)', fontWeight: 600, fontSize: 13, cursor: 'pointer' };
 const inputBase: React.CSSProperties = { border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', padding: '9px 12px', fontSize: 13, color: 'var(--text)', fontFamily: 'var(--font-body)' };
+const panelLabel: React.CSSProperties = { fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 10.5, letterSpacing: '.09em', textTransform: 'uppercase', color: 'var(--gray-450)' };
+const pill: React.CSSProperties = { fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 9.5, letterSpacing: '.06em', textTransform: 'uppercase', borderRadius: 999, padding: '3px 8px' };
 
 interface WixCol { key: string; displayName: string; type: string; systemField?: boolean }
 
@@ -30,6 +34,20 @@ export default function WixConnectionEditor({ id }: { id: string }) {
   const [enabled, setEnabled] = useState(true);
   const [rows, setRows] = useState<ConnRow[]>([{ sourceKey: '', targetKey: '', direction: 'up' }]);
 
+  // Gate & visibility (engine-critical — see the CMS-flood incident). Managed here so a save no
+  // longer risks nulling them; sent explicitly on save (undefined would preserve, but the panel
+  // shows the true current value, so we round-trip the real state).
+  const [gateOpen, setGateOpen] = useState(false);
+  const [gateField, setGateField] = useState('');
+  const [gateActions, setGateActions] = useState<Record<string, GateAction>>({});
+  const [onPublishSetStatus, setOnPublishSetStatus] = useState('');
+  const [visMode, setVisMode] = useState<'none' | 'publishState' | 'column'>('none');
+  const [visColumn, setVisColumn] = useState('');
+  const [visVisible, setVisVisible] = useState('');
+  const [visHidden, setVisHidden] = useState('');
+  const [writebackField, setWritebackField] = useState('');
+  const [createPolicy, setCreatePolicy] = useState<WixCreatePolicy>('find_or_create');
+
   const [collections, setCollections] = useState<{ id: string; displayName: string }[]>([]);
   const [cols, setCols] = useState<WixCol[]>([]);
   const [contact, setContact] = useState<FieldOptions>({ scalars: [], fields: [] });
@@ -39,6 +57,7 @@ export default function WixConnectionEditor({ id }: { id: string }) {
   const [query, setQuery] = useState(''); const [status, setStatus] = useState<ConnStatusFilter>('all');
   const [saving, setSaving] = useState(false); const [msg, setMsg] = useState(''); const [err, setErr] = useState('');
   const [dryContactId, setDryContactId] = useState(''); const [dryResult, setDryResult] = useState<any>(null); const [dirty, setDirty] = useState(false);
+  const touch = useCallback(() => { setDirty(true); setMsg(''); setErr(''); }, []);
 
   useEffect(() => { setAdminSecret(sessionStorage.getItem(SECRET_KEY) ?? ''); }, []);
 
@@ -63,6 +82,13 @@ export default function WixConnectionEditor({ id }: { id: string }) {
           const s = (await r.json()).set;
           setName(s.name); setCollectionId(s.wixCollectionId); setMatchSourceField(s.matchSourceField); setMatchTargetColumn(s.matchTargetColumn); setEnabled(s.enabled);
           setRows(s.rows.length ? s.rows.map((x: any) => ({ sourceKey: x.sourceFieldKey, targetKey: x.targetColumnKey, transform: x.transform, direction: 'up' as const, enabled: true })) : [{ sourceKey: '', targetKey: '', direction: 'up' }]);
+          // Gate & visibility (read the true current values so the panel round-trips them on save).
+          if (s.gate) { setGateField(s.gate.field ?? ''); setGateActions(s.gate.actions ?? {}); setOnPublishSetStatus(s.gate.onPublishSetStatus ?? ''); }
+          if (s.visibility?.mode === 'publishState') setVisMode('publishState');
+          else if (s.visibility?.mode === 'column') { setVisMode('column'); setVisColumn(s.visibility.column ?? ''); setVisVisible(s.visibility.visibleValue ?? ''); setVisHidden(s.visibility.hiddenValue ?? ''); }
+          setWritebackField(s.writebackField ?? '');
+          setCreatePolicy((s.createPolicy as WixCreatePolicy) ?? 'find_or_create');
+          setGateOpen(Boolean(s.gate || s.visibility || s.writebackField));
           loadSchema(s.wixCollectionId);
         } catch { setErr('Failed to load mapping.'); }
       })();
@@ -79,9 +105,19 @@ export default function WixConnectionEditor({ id }: { id: string }) {
     setSaving(true); setMsg(''); setErr('');
     try {
       sessionStorage.setItem(SECRET_KEY, adminSecret);
+      // The panel manages the gate now, so send its true state (null clears). This is exactly what
+      // fixes the incident: the UI no longer omits the gate and lets a rows-only save wipe it.
+      const gate = gateField
+        ? { field: gateField, actions: gateActions, ...(onPublishSetStatus ? { onPublishSetStatus } : {}) }
+        : null;
+      const visibility =
+        visMode === 'publishState' ? { mode: 'publishState' }
+          : visMode === 'column' && visColumn ? { mode: 'column', column: visColumn, visibleValue: visVisible, hiddenValue: visHidden }
+            : null;
       const body = JSON.stringify({
         name: name || 'Contact → ' + collectionId, sourceObject: 'contact', wixCollectionId: collectionId,
         matchSourceField, matchTargetColumn, policy: 'overwrite', enabled,
+        gate, visibility, writebackField: writebackField.trim() || null, createPolicy,
         rows: rows.filter((r) => r.sourceKey && r.targetKey).map((r) => ({ sourceFieldKey: r.sourceKey, targetColumnKey: r.targetKey, transform: r.transform })),
       });
       const url = savedId ? `/api/wix/sets/${savedId}` : '/api/wix/sets';
@@ -147,6 +183,77 @@ export default function WixConnectionEditor({ id }: { id: string }) {
           <option value={matchTargetColumn}>{matchTargetColumn}</option>
           {target.fields.filter((c) => c.fieldKey !== matchTargetColumn).map((c) => <option key={c.fieldKey} value={c.fieldKey}>{c.name} — {c.fieldKey}</option>)}
         </select>
+      </div>
+
+      {/* Gate & visibility — engine-critical config the UI now manages (see the CMS-flood incident). */}
+      <div style={{ border: '1px solid var(--border)', borderRadius: 12, marginBottom: 14, background: 'var(--surface)', overflow: 'hidden' }}>
+        <button type="button" onClick={() => setGateOpen((o) => !o)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '12px 14px', border: 'none', background: 'transparent', cursor: 'pointer' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
+            <i className="fa-solid fa-shield-halved" style={{ color: 'var(--violet-700)', fontSize: 13 }} />
+            <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14, color: 'var(--text)' }}>Gate &amp; visibility</span>
+            {gateField
+              ? <span style={{ ...pill, color: 'var(--teal-700)', background: 'var(--accent-tint)' }}>gated on {gateField}</span>
+              : <span style={{ ...pill, color: 'var(--yellow-700)', background: 'var(--brand-tint)' }}>no gate — every match upserts</span>}
+          </span>
+          <i className={`fa-solid fa-chevron-${gateOpen ? 'up' : 'down'}`} style={{ fontSize: 11, color: 'var(--gray-400)' }} />
+        </button>
+        {gateOpen && (
+          <div style={{ padding: '0 16px 18px', display: 'flex', flexDirection: 'column', gap: 18, borderTop: '1px solid var(--border)' }}>
+            <p style={{ margin: '12px 0 0', fontSize: 12.5, color: 'var(--gray-500)', maxWidth: '74ch' }}>
+              The gate reads a source field and decides, per value, whether to create/update/hide/skip the Wix row. Leave the gate field empty only for small, trusted sets — an ungated wide run once flooded the CMS.
+            </p>
+
+            <GateEditor
+              mode="action" fields={contact.fields as unknown as GateFieldOpt[]} scalars={contact.scalars}
+              field={gateField} onField={(k) => { setGateField(k); touch(); }} fieldLabel="Gate field (source)"
+              actions={gateActions} onActions={(a) => { setGateActions(a); touch(); }} disabled={saving}
+            />
+
+            {gateField && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span style={panelLabel}>On create/publish, set the gate field to</span>
+                <select value={onPublishSetStatus} onChange={(e) => { setOnPublishSetStatus(e.target.value); touch(); }} style={{ ...inputBase, maxWidth: 280, cursor: 'pointer' }}>
+                  <option value="">— don&apos;t write back —</option>
+                  {Object.keys(gateActions).map((v) => <option key={v} value={v}>{v}</option>)}
+                </select>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span style={panelLabel}>When no matching row is found</span>
+              <select value={createPolicy} onChange={(e) => { setCreatePolicy(e.target.value as WixCreatePolicy); touch(); }} style={{ ...inputBase, maxWidth: 280, cursor: 'pointer' }}>
+                <option value="find_or_create">Create a new row</option>
+                <option value="update_only">Update only (never create)</option>
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span style={panelLabel}>Visibility (how the engine shows/hides a row)</span>
+              <select value={visMode} onChange={(e) => { setVisMode(e.target.value as 'none' | 'publishState' | 'column'); touch(); }} style={{ ...inputBase, maxWidth: 320, cursor: 'pointer' }}>
+                <option value="none">None</option>
+                <option value="publishState">Wix publish state (publish / draft)</option>
+                <option value="column">A column on the collection</option>
+              </select>
+              {visMode === 'column' && (
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+                  <select value={visColumn} onChange={(e) => { setVisColumn(e.target.value); touch(); }} style={{ ...inputBase, cursor: 'pointer' }}>
+                    <option value="">— column —</option>
+                    {target.fields.map((c) => <option key={c.fieldKey} value={c.fieldKey}>{c.name} — {c.fieldKey}</option>)}
+                  </select>
+                  <input value={visVisible} onChange={(e) => { setVisVisible(e.target.value); touch(); }} placeholder="visible value" style={{ ...inputBase, width: 150 }} />
+                  <input value={visHidden} onChange={(e) => { setVisHidden(e.target.value); touch(); }} placeholder="hidden value" style={{ ...inputBase, width: 150 }} />
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span style={panelLabel}>Write the created Wix row id back to (source field)</span>
+              <div style={{ maxWidth: 380 }}>
+                <SearchableFieldSelect scalars={contact.scalars} fields={contact.fields} value={writebackField} onChange={(v) => { setWritebackField(v); touch(); }} placeholder="— none —" />
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>

@@ -2,9 +2,10 @@
 //
 // One function both the unified webhook (/api/sync/up) and the standalone /api/wix-sync call, so
 // a single GHL "Contact Changed" webhook can fan out to everything with no duplicated logic:
-//   1. ENRICH — run the readiness-tagger, but ONLY when contact.status === "Approved" (credit gate).
-//      The tagger itself self-limits to Team/EIR coaches, so Board/others no-op. Runs first, so
-//      fresh service_areas + stops are on the GHL contact BEFORE we push to Wix.
+//   1. ENRICH — run the readiness-tagger when its CONFIG gate passes (default: contact.status=Approved
+//      + website_team_tags ∈ {Team,EIR}). The gate is editable in /enrichment; a missing config row
+//      falls back to that default. Runs first, so fresh service_areas + stops are on the GHL contact
+//      BEFORE we push to Wix.
 //   2. SYNC — run every enabled contact Wix mapping set; each set's contact.status gate decides
 //      upsert / update / hide / skip and does the Published write-back. Equality-guarded (idempotent).
 
@@ -12,13 +13,16 @@ import { getContact } from '../ghl/contacts';
 import { GhlClient, ghl } from '../ghl/client';
 import { enrichContact, readContactField } from '../enrichment/contactEngine';
 import { readinessTagger } from '../enrichment/enrichers/readinessTagger';
+import { resolveEnricherConfig } from '../enrichment/configStore';
+import { evaluateContactGate } from '../enrichment/gate';
 import { hasAnthropic } from '../ai/anthropic';
 import { getWixStore } from '../mapping/wixStore';
 import { getWixCollectionSchema } from '../wix/catalogCache';
 import { syncContactToWix } from './sync';
 import type { CustomFieldCatalog } from '../ghl/types';
 
-/** contact.status values that (re-)trigger enrichment. Matches the set gate's `upsert` value. */
+/** contact.status value that (re-)triggers enrichment in the DEFAULT config (no row seeded). Kept
+ *  exported for reference; the live gate is read from enricher_configs via resolveEnricherConfig. */
 export const ENRICH_ON_STATUS = new Set(['Approved']);
 
 export interface ContactTeamPipelineResult {
@@ -42,16 +46,23 @@ export async function runContactTeamPipeline(
   const contact = await getContact(contactId, gclient);
   const status = String(contact ? readContactField(contact, contactCatalog, 'contact.status') ?? '' : '');
 
-  // 1) Enrich (credit-gated on status).
+  // 1) Enrich — gated by the enricher's CONFIG (status runOn + membership anyOf), read live from
+  //    enricher_configs with a code-default fallback. Editing the gate in /enrichment changes this.
   const enrich: ContactTeamPipelineResult['enrich'] = { ran: false };
   if (!contact) {
     enrich.note = 'contact not found';
-  } else if (ENRICH_ON_STATUS.has(status) && hasAnthropic) {
-    const er = await enrichContact(contactId, [readinessTagger], contactCatalog, { mode: 'overwrite' }, { apply: opts.apply, client: gclient });
-    enrich.ran = true;
-    enrich.applied = er.applied.map((a) => a.contactKey);
+  } else if (!hasAnthropic) {
+    enrich.note = 'ANTHROPIC_API_KEY not set';
   } else {
-    enrich.note = !hasAnthropic ? 'ANTHROPIC_API_KEY not set' : `status "${status}" not in {${Array.from(ENRICH_ON_STATUS).join(',')}}`;
+    const config = await resolveEnricherConfig('readiness-tagger', 'contact');
+    const decision = evaluateContactGate((k) => readContactField(contact, contactCatalog, k), config);
+    if (decision.run) {
+      const er = await enrichContact(contactId, [readinessTagger], contactCatalog, { mode: 'overwrite' }, { apply: opts.apply, client: gclient });
+      enrich.ran = true;
+      enrich.applied = er.applied.map((a) => a.contactKey);
+    } else {
+      enrich.note = decision.reason;
+    }
   }
 
   // 2) Sync every enabled contact set (the set gate decides the action per contact).

@@ -16,14 +16,45 @@ import {
 import type {
   WixApplyPolicy,
   WixCreatePolicy,
+  WixGate,
   WixMappingRow,
   WixMappingSet,
   WixMappingSetInput,
   WixMappingSetSummary,
+  WixSecondaryMatch,
   WixTransform,
+  WixVisibility,
 } from './wixTypes';
 
 const TTL_MS = 10 * 60 * 1000;
+
+/** The engine-critical fields a rows-only save must NOT touch (the gate-wipe guardrail). */
+export interface WixPreservable {
+  createPolicy: WixCreatePolicy;
+  gate: WixGate | null;
+  secondaryMatch: WixSecondaryMatch[] | null;
+  writebackField: string | null;
+  visibility: WixVisibility | null;
+}
+
+/**
+ * Merge the engine-critical config on a save: `undefined` on the input means "the caller doesn't
+ * manage this field — keep what's stored" (so a rows-only UI save can't null the gate); an explicit
+ * `null` clears it (a real gate editor); a value overwrites. Pure + exported so the preserve
+ * guardrail is unit-tested without a live DB. See the 2026-07-21 CMS-flood incident.
+ */
+export function resolveWixPreservable(
+  existing: Pick<WixMappingSetRow, 'createPolicy' | 'gate' | 'secondaryMatch' | 'writebackField' | 'visibility'>,
+  input: Pick<WixMappingSetInput, 'createPolicy' | 'gate' | 'secondaryMatch' | 'writebackField' | 'visibility'>,
+): WixPreservable {
+  return {
+    createPolicy: input.createPolicy ?? (existing.createPolicy as WixCreatePolicy) ?? 'find_or_create',
+    gate: input.gate !== undefined ? input.gate ?? null : existing.gate ?? null,
+    secondaryMatch: input.secondaryMatch !== undefined ? input.secondaryMatch ?? null : existing.secondaryMatch ?? null,
+    writebackField: input.writebackField !== undefined ? input.writebackField ?? null : existing.writebackField ?? null,
+    visibility: input.visibility !== undefined ? input.visibility ?? null : existing.visibility ?? null,
+  };
+}
 
 function rowToMappingRow(r: WixMappingRowRow): WixMappingRow {
   const m: WixMappingRow = { sourceFieldKey: r.sourceFieldKey, targetColumnKey: r.targetColumnKey };
@@ -151,6 +182,11 @@ export class WixMappingStore {
     const nextVersion = existing.version + 1;
     const newRows: NewWixMappingRowRow[] = input.rows.map((r, i) => this.toRow(id, r, i));
 
+    // PRESERVE engine-critical config the caller may not manage (undefined => keep stored; null =>
+    // clear). Without this, a rows-only UI save silently nulled the status gate → find_or_create
+    // upserted every contact and flooded the CMS (2026-07-21). See resolveWixPreservable.
+    const preserved = resolveWixPreservable(existing, input);
+
     const ops: any[] = [db.delete(wixMappingRows).where(eq(wixMappingRows.setId, id))];
     if (newRows.length) ops.push(db.insert(wixMappingRows).values(newRows));
     ops.push(
@@ -164,15 +200,7 @@ export class WixMappingStore {
           matchSourceField: input.matchSourceField,
           matchTargetColumn: input.matchTargetColumn,
           policy: input.policy,
-          // PRESERVE engine-critical config the editor UI doesn't manage: only overwrite when the
-          // caller EXPLICITLY provides a value (undefined => keep existing). Without this, a UI save
-          // (sanitizeWixSet omits these) silently nulled the status gate → find_or_create upserted
-          // every contact and flooded the CMS. `null` still clears explicitly (a real gate editor).
-          createPolicy: input.createPolicy ?? existing.createPolicy ?? 'find_or_create',
-          gate: input.gate !== undefined ? input.gate : (existing.gate ?? null),
-          secondaryMatch: input.secondaryMatch !== undefined ? input.secondaryMatch : (existing.secondaryMatch ?? null),
-          writebackField: input.writebackField !== undefined ? input.writebackField : (existing.writebackField ?? null),
-          visibility: input.visibility !== undefined ? input.visibility : (existing.visibility ?? null),
+          ...preserved,
           enabled: input.enabled,
           version: nextVersion,
           updatedAt: now,

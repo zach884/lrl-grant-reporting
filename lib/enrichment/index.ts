@@ -1,8 +1,11 @@
 // lib/enrichment/index.ts — public surface of the enrichment engine.
 
 export * from './types';
+export * from './configTypes';
+export * from './gate';
 export * from './engine';
 export * from './contactEngine';
+export * from './configStore';
 export * from './data/readiness';
 export { countyEnricher, countyRawToLabel } from './enrichers/county';
 export { geoZoneEnricher } from './enrichers/geoZone';
