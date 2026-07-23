@@ -4,6 +4,22 @@ These two files replace Brandon's static prototype (`providers-db.js` + `readine
 with a version that pulls coaches **live from the Team CMS**. Claude Code can't deploy to Wix, so
 paste these in yourself. (Both are fleshed out from the starter snippets in `READINESS_TAGGER_SPEC.md`.)
 
+## Redesign (2026-07-23) — "Milestone Maps" UI
+
+`readiness-subway-map.html` is now the redesigned embed (from the claude.ai/design "Milestone Maps UI
+redesign" handoff): LRL brand standards, one plain-language sentence per stop, and a fixed-height,
+**no-inner-scroll** layout. It's a single self-contained document — same data layer (`/_functions/providers`
++ `stops[line].includes(String(stop))` filter), **unchanged `http-functions.js`**. Behavior:
+- **Responsive:** horizontal line (dir *2b*) at ≥640px, focus stepper (dir *2a*) below — one component.
+- **Per-line accent** recolors the whole map: MRL yellow, TRL teal, CRL green, IRL violet.
+- **People section** renders coaches (`type:'coach'`) + resources (`type:'tap'`) placed at the current
+  stop, with photos (falls back to initials), org, and up to 3 service tags; empty-state per group.
+- **Theme:** light by default. Set `MM_THEME='dark'` at the top of the file (or add `?theme=dark` to
+  the embed URL, or `'auto'` to follow the visitor's OS) for the ink-surface variant (dirs *3a/3b*).
+- **Config knobs** at the top of the `<script>`: `PROVIDERS_URL`, `MM_THEME`, `INTAKE_URL`, `MOBILE_MAX`.
+
+Verified in-browser across all variants; per-stop copy for all four lines lives inline in `LINES`.
+
 ## What changed vs. the prototype
 
 - `PROVIDERS` is no longer a static file. The map `fetch()`es `/_functions/providers` (a Velo

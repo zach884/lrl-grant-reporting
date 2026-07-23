@@ -1,567 +1,374 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Startup Readiness Map | Lean Rocket Lab</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Milestone Maps — Startup Readiness</title>
+<!--
+  Milestone Maps — Startup Readiness Map (redesign).
+  Self-contained Wix HTML/Embed document. Paste into a Wix "Embed HTML" element and publish.
+
+  Design: claude.ai/design "Milestone Maps UI redesign" (dirs 2b desktop / 2a mobile, dark = 3a/3b).
+  Data: unchanged — fetches GET /_functions/providers (Velo backend/http-functions.js). Coaches
+  (type:'coach') + resources (type:'tap') are placed at a stop when
+  provider.stops[activeLine].includes(String(currentStop)) (CMS stores stop numbers as strings).
+
+  Responsive: horizontal line (2b) at >=640px, focus stepper (2a) below. No inner scroll.
+  Theme: light by default. To use the dark (ink) variant, set MM_THEME='dark' below, or add
+  ?theme=dark to the embed's URL. It also follows the visitor's OS dark mode when MM_THEME='auto'.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;800&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 <style>
+  /* ---------- Lean Rocket Lab design tokens (light) ---------- */
   :root{
-    /* LRL brand */
-    --lrl-black:#171717; --lrl-panel:#212121; --lrl-panel-2:#2a2a2a;
-    --lrl-border:#3a3a3a; --lrl-gold:#F8B932; --lrl-white:#f5f5f3; --muted:#9ca3af;
-    /* Line colors (kept distinct per readiness scale, tuned for dark bg) */
-    --mrl:#F97316; --trl:#5B8DEF; --crl:#2FBF71; --irl:#A78BFA;
-    --line-thickness:10px;
+    --yellow-500:#f8b932; --yellow-600:#e0a41e;
+    --teal-500:#05998c; --teal-600:#047c72;
+    --green-500:#3fae6b; --violet-500:#7c6cf0;
+    --ink-900:#171717; --brand:#f8b932;
+    --surface:#ffffff; --surface-sunken:#efeff2;
+    --text:#171717; --text-secondary:#6b6b73; --text-muted:#7c7c84;
+    --border:#e6e6ea; --border-strong:#d8d8dd;
+    --accent-tint:#dbf1ef;
+    --shadow-sm:0 1px 3px rgba(0,0,0,.06);
+    --font-display:'Montserrat',system-ui,sans-serif;
+    --font-body:'Hanken Grotesk',system-ui,sans-serif;
+    --font-mono:'JetBrains Mono',ui-monospace,monospace;
   }
-  *{box-sizing:border-box; margin:0; padding:0;}
-  body{
-    font-family:"Helvetica Neue", Helvetica, Arial, sans-serif;
-    font-weight:300;
-    background:var(--lrl-black); color:var(--lrl-white);
-    background-image:radial-gradient(#242424 1px, transparent 1px);
-    background-size:26px 26px;
-  }
-  a{color:var(--lrl-gold);}
-  header{
-    padding:26px 30px; display:flex; align-items:center; gap:22px; flex-wrap:wrap;
-    border-bottom:1px solid var(--lrl-border);
-  }
-  header img.logo{height:42px; width:auto;}
-  header .titleblock h1{
-    font-size:1.05rem; font-weight:400; letter-spacing:.35em; text-transform:uppercase;
-    color:var(--lrl-gold);
-  }
-  header .titleblock small{color:var(--muted); letter-spacing:.1em; text-transform:uppercase; font-size:.68rem;}
-  header p.lede{font-size:.85rem; color:var(--muted); width:100%; max-width:640px; line-height:1.5;}
-  @media(min-width:980px){ header p.lede{width:auto; margin-left:auto; text-align:right; max-width:380px;} }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:transparent;font-family:var(--font-body);color:var(--text);-webkit-font-smoothing:antialiased}
 
-  /* Tabs */
-  .tabs{display:flex; gap:8px; padding:20px 24px 0; flex-wrap:wrap; max-width:1200px; margin:0 auto;}
-  .tab{
-    border:1px solid var(--lrl-border); cursor:pointer; font-weight:500; font-size:.82rem;
-    letter-spacing:.12em; text-transform:uppercase;
-    padding:12px 18px; border-radius:10px 10px 0 0; background:var(--lrl-panel); color:var(--muted);
-    border-bottom:4px solid transparent; transition:all .15s; display:flex; align-items:center; gap:9px;
-    font-family:inherit;
-  }
-  .tab .dot{width:11px;height:11px;border-radius:50%;}
-  .tab:hover{color:var(--lrl-white); border-color:#4a4a4a;}
-  .tab.active{background:var(--lrl-panel-2); color:var(--lrl-white); border-bottom-color:var(--tabcolor);}
+  /* card frame around the map (mirrors the design's dv-card) */
+  .mm-wrap{max-width:860px;margin:0 auto;padding:8px}
+  .mm-wrap.narrow{max-width:520px}
+  .mm{font-family:var(--font-body);background:var(--surface);color:var(--text);
+      --lc:var(--yellow-500);--lct:var(--ink-900);
+      border:1px solid var(--border);border-radius:18px;box-shadow:0 6px 24px rgba(0,0,0,.08);overflow:hidden}
 
-  .board{
-    background:var(--lrl-panel-2); max-width:1200px; margin:0 auto 24px;
-    border:1px solid var(--lrl-border); border-radius:0 12px 12px 12px;
-    padding:30px 30px 40px;
-  }
-  .line-title{display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; margin-bottom:8px;}
-  .line-title h2{font-size:1.15rem; font-weight:400; letter-spacing:.25em; text-transform:uppercase;}
-  .line-title .badge{
-    font-size:.68rem; font-weight:700; color:#171717; padding:3px 12px; border-radius:999px;
-    letter-spacing:.08em; text-transform:uppercase;
-  }
-  .line-sub{color:var(--muted); font-size:.9rem; margin-bottom:34px; max-width:780px; line-height:1.55;}
+  .mm-hd{padding:22px 26px 0}
+  .mm-eye{font-family:var(--font-display);font-weight:700;text-transform:uppercase;letter-spacing:.16em;font-size:10.5px;color:var(--lc)}
+  .mm-title{font-family:var(--font-display);font-weight:800;letter-spacing:-.02em;font-size:23px;line-height:1.1;margin:7px 0 5px}
+  .mm-sub{font-size:12.5px;line-height:1.5;color:var(--text-secondary);max-width:56ch}
+  .mm-tabs{display:flex;gap:7px;padding:16px 26px 0;flex-wrap:wrap}
+  .mm-tab{font-family:var(--font-body);font-weight:700;font-size:12px;letter-spacing:.03em;padding:7px 13px;border-radius:999px;border:1.5px solid var(--border-strong);background:var(--surface);color:var(--text-secondary);cursor:pointer;display:flex;align-items:center;gap:7px;transition:all .14s}
+  .mm-tab .d{width:9px;height:9px;border-radius:50%}
+  .mm-tab:hover{border-color:var(--tc);color:var(--text)}
+  .mm-tab.on{background:var(--surface-sunken);color:var(--text);border-color:var(--tc);box-shadow:inset 0 -2px 0 var(--tc)}
+  .mm-block .k{font-family:var(--font-display);font-weight:700;text-transform:uppercase;letter-spacing:.13em;font-size:10px;color:var(--text-muted);margin-bottom:5px}
+  .mm-block.next .k{color:var(--lc)}
+  .mm-block .v{font-size:13.5px;line-height:1.5;color:var(--text)}
+  .mm-btn{font-family:var(--font-body);font-weight:700;font-size:12px;letter-spacing:.03em;padding:9px 15px;border-radius:8px;border:1.5px solid var(--border-strong);background:var(--surface);color:var(--text);cursor:pointer;transition:background .14s}
+  .mm-btn:hover:not(:disabled){background:var(--surface-sunken)}
+  .mm-btn:active:not(:disabled){transform:translateY(1px)}
+  .mm-btn:disabled{opacity:.32;cursor:default}
 
-  /* Subway track — extra bottom space so rotated labels never collide with content below */
-  .track-wrap{overflow-x:auto; padding:10px 4px 0;}
-  .track{
-    position:relative; display:flex; justify-content:space-between;
-    min-width:760px; padding:0 26px; margin-bottom:148px;
-  }
-  .track::before{
-    content:""; position:absolute; left:26px; right:26px; top:50%;
-    height:var(--line-thickness); transform:translateY(-50%);
-    background:var(--linecolor); border-radius:6px;
-  }
-  .station{
-    position:relative; cursor:pointer;
-    width:44px; height:44px; border-radius:50%;
-    background:var(--lrl-black); border:5px solid var(--linecolor);
-    font-weight:700; font-size:1rem; color:var(--lrl-white); font-family:inherit;
-    transition:transform .12s, background .12s, color .12s; z-index:1;
-  }
-  .station:hover{transform:scale(1.18);}
-  .station.selected{
-    background:var(--linecolor); color:#171717; transform:scale(1.22);
-    box-shadow:0 0 0 6px color-mix(in srgb, var(--linecolor) 22%, transparent);
-  }
-  .station .label{
-    position:absolute; top:54px; left:50%;
-    transform:translateX(-12%) rotate(42deg); transform-origin:top left;
-    font-size:.7rem; font-weight:400; color:var(--muted); white-space:nowrap;
-    pointer-events:none; letter-spacing:.02em;
-  }
-  .station.selected .label{color:var(--linecolor); font-weight:700;}
+  /* ---------- A: horizontal line (2b) ---------- */
+  .mmA-track{position:relative;padding:30px 34px 6px}
+  .mmA-rail{position:absolute;left:50px;right:50px;top:44px;height:7px;border-radius:5px;background:var(--surface-sunken)}
+  .mmA-fill{position:absolute;left:50px;top:44px;height:7px;border-radius:5px;background:var(--lc);transition:width .3s cubic-bezier(.2,0,.1,1)}
+  .mmA-stops{position:relative;display:flex;justify-content:space-between}
+  .mmA-stop{position:relative;z-index:1;width:32px;height:32px;border-radius:50%;border:3px solid var(--lc);background:var(--surface);color:var(--text-secondary);font-family:var(--font-mono);font-weight:700;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform .12s}
+  .mmA-stop:hover{transform:scale(1.14)}
+  .mmA-stop.on{background:var(--lc);color:var(--lct);transform:scale(1.2);box-shadow:0 0 0 5px color-mix(in srgb,var(--lc) 20%,transparent)}
+  .mmA-detail{margin:8px 26px 20px;border:1px solid var(--border);border-radius:14px;overflow:hidden}
+  .mmA-dhead{background:var(--lc);color:var(--lct);padding:15px 20px;display:flex;align-items:center;gap:14px}
+  .mmA-dnum{width:42px;height:42px;border-radius:50%;background:color-mix(in srgb,var(--lct) 15%,transparent);font-family:var(--font-mono);font-weight:700;font-size:19px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .mmA-dtitle{font-family:var(--font-display);font-weight:800;font-size:17px;letter-spacing:-.01em;line-height:1.15}
+  .mmA-dstage{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;opacity:.72;text-transform:uppercase}
+  .mmA-dbody{padding:18px 20px;display:grid;gap:18px;grid-template-columns:1fr 1fr}
+  .mmA-nav{display:flex;justify-content:space-between;gap:10px;padding:0 20px 18px}
 
-  /* Detail panel */
-  .detail{border:1px solid var(--linecolor); border-radius:14px; overflow:hidden; animation:slideup .25s ease; background:var(--lrl-panel);}
-  @keyframes slideup{from{opacity:0; transform:translateY(10px);} to{opacity:1; transform:none;}}
-  .detail-head{
-    background:var(--linecolor); color:#171717; padding:18px 24px;
-    display:flex; align-items:center; gap:16px; flex-wrap:wrap;
-  }
-  .detail-head .stopnum{
-    width:52px;height:52px;border-radius:50%; background:#171717; color:var(--linecolor);
-    display:flex;align-items:center;justify-content:center; font-size:1.35rem; font-weight:700; flex-shrink:0;
-  }
-  .detail-head h3{font-size:1.1rem; font-weight:700; letter-spacing:.02em;}
-  .detail-head .tagline{font-size:.85rem; opacity:.85; width:100%; font-weight:500;}
-  @media(min-width:700px){ .detail-head .tagline{width:auto; margin-left:auto; max-width:360px; text-align:right;} }
+  /* ---------- C: stepper focus card (2a) ---------- */
+  .mmC{padding:12px 26px 24px}
+  .mmC-rail{display:flex;gap:5px;margin:8px 0 18px}
+  .mmC-tick{flex:1;height:7px;border-radius:4px;background:var(--surface-sunken);cursor:pointer;transition:background .18s}
+  .mmC-tick:hover{background:var(--border-strong)}
+  .mmC-tick.done{background:color-mix(in srgb,var(--lc) 45%,var(--surface-sunken))}
+  .mmC-tick.on{background:var(--lc)}
+  .mmC-card{border:1px solid var(--border);border-top:3px solid var(--lc);border-radius:14px;padding:22px;box-shadow:var(--shadow-sm)}
+  .mmC-meta{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted)}
+  .mmC-big{display:flex;align-items:center;gap:16px;margin:9px 0 16px}
+  .mmC-num{width:56px;height:56px;border-radius:14px;background:var(--lc);color:var(--lct);font-family:var(--font-mono);font-weight:700;font-size:25px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .mmC-t{font-family:var(--font-display);font-weight:800;font-size:21px;letter-spacing:-.02em;line-height:1.12}
+  .mmC-blocks{display:grid;gap:16px;margin-bottom:18px}
+  .mmC-nav{display:flex;align-items:center;gap:10px}
+  .mmC-nav .sp{flex:1}
 
-  .detail-body{display:grid; gap:22px; padding:26px; grid-template-columns:1fr;}
-  @media(min-width:860px){ .detail-body{grid-template-columns:1fr 1fr;} }
-  .panel h4{
-    font-size:.72rem; text-transform:uppercase; letter-spacing:.18em;
-    color:var(--linecolor); margin-bottom:12px;
-  }
-  .panel ul{list-style:none;}
-  .panel li{font-size:.88rem; line-height:1.5; padding:6px 0 6px 22px; position:relative; color:#d4d4d4;}
-  .panel li::before{
-    content:""; position:absolute; left:4px; top:13px; width:9px; height:9px;
-    border-radius:50%; background:var(--linecolor);
-  }
-  .panel.exit li::before{border-radius:2px; transform:rotate(45deg);}
+  /* ---------- people: coaches + resources ---------- */
+  .mm-people{padding:2px 26px 20px}
+  .mm-people-hd{font-family:var(--font-display);font-weight:700;text-transform:uppercase;letter-spacing:.13em;font-size:10.5px;color:var(--text-muted);margin:10px 0 12px}
+  .mm-grp{margin-bottom:16px}
+  .mm-grp-t{font-size:11.5px;font-weight:700;letter-spacing:.03em;color:var(--text);margin:0 0 10px;display:flex;align-items:center;gap:8px}
+  .mm-grp-t .gi{width:20px;height:20px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10px;background:var(--lc);color:var(--lct)}
+  .mm-grp-t .cnt{font-family:var(--font-mono);font-weight:700;font-size:10px;color:var(--text-secondary);background:var(--surface-sunken);border-radius:999px;padding:2px 8px}
+  .mm-cards{display:grid;gap:10px;grid-template-columns:1fr 1fr}
+  .mm-cards.three{grid-template-columns:1fr 1fr 1fr}
+  .mm-pcard{display:flex;gap:11px;padding:12px;border:1px solid var(--border);border-radius:12px;background:var(--surface);text-decoration:none;transition:border-color .14s,box-shadow .14s,transform .14s}
+  .mm-pcard:hover{border-color:var(--lc);box-shadow:var(--shadow-sm);transform:translateY(-2px)}
+  .mm-av{width:40px;height:40px;border-radius:10px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-weight:700;font-size:13px;background:var(--brand);color:var(--ink-900);overflow:hidden}
+  .mm-av img{width:100%;height:100%;object-fit:cover}
+  .mm-av.res{background:var(--accent-tint);color:var(--teal-600);border:1.5px solid var(--teal-500)}
+  .mm-pc-body{min-width:0}
+  .mm-pc-nm{font-weight:700;font-size:12.5px;color:var(--text);line-height:1.2}
+  .mm-pc-org{font-size:10.5px;color:var(--text-secondary);margin:1px 0 7px}
+  .mm-tags{display:flex;flex-wrap:wrap;gap:4px}
+  .mm-tag{font-size:9.5px;font-weight:600;letter-spacing:.02em;padding:2px 7px;border-radius:999px;background:var(--surface-sunken);color:var(--text-secondary)}
+  .mm-empty{font-size:11.5px;color:var(--text-muted);font-style:italic;padding:2px 0 6px}
+  .mm-loading{padding:26px;font-size:12.5px;color:var(--text-muted)}
 
-  /* Services chips */
-  .services{grid-column:1/-1; border-top:1px solid var(--lrl-border); padding-top:20px;}
-  .services .chips{display:flex; flex-wrap:wrap; gap:8px;}
-  .chip{
-    font-family:inherit; cursor:pointer; font-size:.78rem; font-weight:500;
-    padding:7px 14px; border-radius:999px; letter-spacing:.03em;
-    background:var(--lrl-black); color:var(--lrl-white);
-    border:1px solid var(--lrl-border); transition:all .12s;
-  }
-  .chip:hover{border-color:var(--linecolor);}
-  .chip.on{background:var(--linecolor); color:#171717; border-color:var(--linecolor); font-weight:700;}
-  .services .hint{font-size:.74rem; color:var(--muted); margin-top:10px;}
-
-  /* Recommendations */
-  .recs{grid-column:1/-1; border-top:1px solid var(--lrl-border); padding-top:20px;}
-  .recs h4{font-size:.72rem; text-transform:uppercase; letter-spacing:.18em; color:var(--lrl-gold); margin-bottom:4px;}
-  .recs .sample-note{font-size:.72rem; color:var(--muted); margin-bottom:16px;}
-  .rec-group{margin-bottom:22px;}
-  .rec-group h5{
-    font-size:.8rem; letter-spacing:.14em; text-transform:uppercase; font-weight:500;
-    color:var(--lrl-white); margin-bottom:12px; display:flex; align-items:center; gap:8px;
-  }
-  .rec-group h5 .count{
-    background:var(--lrl-black); border:1px solid var(--lrl-border); color:var(--muted);
-    font-size:.68rem; padding:1px 8px; border-radius:999px;
-  }
-  .cards{display:grid; gap:14px; grid-template-columns:1fr;}
-  @media(min-width:720px){ .cards{grid-template-columns:1fr 1fr;} }
-  @media(min-width:1040px){ .cards{grid-template-columns:1fr 1fr 1fr;} }
-  .card{
-    background:var(--lrl-black); border:1px solid var(--lrl-border); border-radius:12px;
-    padding:16px; display:flex; flex-direction:column; gap:10px; transition:border-color .15s;
-  }
-  .card:hover{border-color:var(--lrl-gold);}
-  .card-top{display:flex; gap:12px; align-items:center;}
-  .avatar{
-    width:48px; height:48px; border-radius:50%; flex-shrink:0; object-fit:cover;
-    background:var(--lrl-gold); color:#171717; display:flex; align-items:center; justify-content:center;
-    font-weight:700; font-size:1rem; letter-spacing:.02em;
-  }
-  .avatar.tap{background:var(--lrl-panel-2); color:var(--lrl-gold); border:1px solid var(--lrl-gold);}
-  .card-top .who{min-width:0;}
-  .card-top .who .nm{font-weight:700; font-size:.92rem; color:var(--lrl-white);}
-  .card-top .who .org{font-size:.74rem; color:var(--muted);}
-  .type-badge{
-    margin-left:auto; flex-shrink:0; font-size:.6rem; font-weight:700; letter-spacing:.1em;
-    text-transform:uppercase; padding:3px 9px; border-radius:999px;
-  }
-  .type-badge.coach{background:var(--lrl-gold); color:#171717;}
-  .type-badge.tap{background:none; border:1px solid var(--lrl-gold); color:var(--lrl-gold);}
-  .card .bio{font-size:.8rem; color:#c8c8c4; line-height:1.5;}
-  .card .tags{display:flex; flex-wrap:wrap; gap:6px;}
-  .card .tags .t{
-    font-size:.66rem; padding:3px 9px; border-radius:999px; letter-spacing:.03em;
-    background:var(--lrl-panel-2); color:var(--muted); border:1px solid var(--lrl-border);
-  }
-  .card .tags .t.match{border-color:var(--linecolor); color:var(--linecolor); font-weight:700;}
-  .card .site{font-size:.76rem; font-weight:500; text-decoration:none; margin-top:auto;}
-  .card .site:hover{text-decoration:underline;}
-  .empty{font-size:.82rem; color:var(--muted); font-style:italic; padding:6px 0;}
-
-  .nav-btns{display:flex; justify-content:space-between; padding:0 26px 22px;}
-  .nav-btns button{
-    background:none; border:1px solid var(--linecolor); color:var(--linecolor); font-family:inherit;
-    font-weight:700; letter-spacing:.08em; padding:9px 18px; border-radius:999px; cursor:pointer; font-size:.78rem;
-  }
-  .nav-btns button:hover{background:var(--linecolor); color:#171717;}
-  .nav-btns button:disabled{opacity:.25; pointer-events:none;}
-
-  footer{
-    max-width:1200px; margin:0 auto 44px; padding:0 30px; font-size:.74rem; color:var(--muted); line-height:1.6;
-  }
-  footer .cta{
-    display:inline-block; margin-top:14px; background:var(--lrl-gold); color:#171717; text-decoration:none;
-    font-weight:700; font-size:.76rem; letter-spacing:.12em; text-transform:uppercase;
-    padding:11px 22px; border-radius:4px;
-  }
+  /* ---------- dark surface variant (3a/3b) ---------- */
+  .mm.dark{
+    --surface:#171717;--surface-sunken:#212124;--text:#f4f3ef;--text-secondary:#b7b5ae;
+    --text-muted:#86847d;--border:rgba(255,255,255,.10);--border-strong:rgba(255,255,255,.22);
+    --accent-tint:color-mix(in srgb,var(--teal-500) 20%,#171717);
+    background:var(--surface);color:var(--text);border-color:rgba(255,255,255,.12);box-shadow:0 8px 30px rgba(0,0,0,.5)}
+  .mm.dark .mmA-detail,.mm.dark .mmC-card,.mm.dark .mm-pcard{background:#1c1c1f}
+  .mm.dark .mmA-stop{background:#1c1c1f}
+  .mm.dark .mm-pc-org{color:var(--text-secondary)}
 </style>
 </head>
 <body>
-
-<header>
-  <img class="logo" alt="Lean Rocket Lab"
-       src="https://static.wixstatic.com/media/9af0e7_10b8c99385b34e3c89ec1dbae2a0547d~mv2.png/v1/fill/w_472,h_96,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/horizontal-white%20Large.png">
-  <div class="titleblock">
-    <h1>Startup Readiness Map</h1>
-    <small>Manufacturing · Technology · Commercial · Investment</small>
-  </div>
-  <p class="lede">Find your stop on each line. Click a station to see where you are, what gets you to the next stop, and the coaches and technical assistance providers who can help you get there.</p>
-</header>
-
-<div class="tabs" id="tabs"></div>
-<div class="board" id="board"></div>
-
-<footer>
-  Frameworks: MRL — DoD Manufacturing Readiness Levels (1–10) · TRL — NASA/DoD Technology Readiness Levels (1–9) · CRL — NASA/DOE-style Commercial Readiness Levels (1–9) · IRL — Investment Readiness Levels, Steve Blank (1–9).
-  Coaches are loaded live from the Lean Rocket Lab Team directory. To change who appears, update a person’s profile in the CRM — the map refreshes automatically.
-  <br><a class="cta" href="https://www.leanrocketlab.org/new-client-intake-form">Start Your Intake</a>
-</footer>
+<div class="mm-wrap" id="wrap"><div class="mm" id="root"><div class="mm-loading">Loading…</div></div></div>
 
 <script>
-/* ============================ STATIC TAXONOMY ============================
-   SERVICES + STOP_SERVICES were the static half of providers-db.js. PROVIDERS is no longer
-   static — it is loaded live from the Team CMS via the Velo http-function /_functions/providers
-   (see boot() at the bottom). Keep SERVICES + STOP_SERVICES in sync with the app config at
-   lib/enrichment/data/readiness.ts (the same taxonomy powers the tagger + stop derivation).
-   ------------------------------------------------------------------------ */
-const SERVICES = {
-  ip:"IP & Patents", legal:"Legal & Contracts", grants:"SBIR/STTR & Grants", research:"R&D Partnerships",
-  proto:"Prototyping", dfm:"Design for Manufacturing", cm:"Contract Manufacturing", supply:"Supply Chain",
-  quality:"Quality Systems (ISO/AS)", lean:"Lean & Continuous Improvement", test:"Test & Certification",
-  syseng:"Systems Engineering", tooling:"Tooling & Automation", facility:"Factory Layout & Industrial Eng.",
-  workforce:"Workforce Training", erp:"ERP / MES & Ops Software", regulatory:"Regulatory & Compliance",
-  market:"Market Research", discovery:"Customer Discovery", gtm:"Go-to-Market Strategy", pricing:"Pricing Strategy",
-  sales:"Sales & Business Development", marketing:"Marketing & Brand", finmodel:"Financial Modeling",
-  fundraise:"Fundraising & Investor Readiness", bizmodel:"Business Model Design", product:"Product Management",
-  capital:"Capital Equipment & Financing", exit:"M&A / Exit Planning"
-};
-const STOP_SERVICES = {
-  MRL: { 1:["research","grants","ip"], 2:["dfm","proto","grants"], 3:["proto","ip","dfm"], 4:["dfm","quality","supply"],
-    5:["cm","supply","tooling"], 6:["cm","lean","tooling","workforce"], 7:["facility","quality","workforce"],
-    8:["capital","erp","regulatory","quality"], 9:["lean","supply","capital"], 10:["lean","tooling","workforce"] },
-  TRL: { 1:["research","grants"], 2:["ip","grants","research"], 3:["proto","test","research"], 4:["proto","test","syseng"],
-    5:["syseng","test","supply"], 6:["test","regulatory","syseng"], 7:["regulatory","quality","test"],
-    8:["quality","regulatory","product"], 9:["product","syseng","market"] },
-  CRL: { 1:["market","discovery"], 2:["market","discovery","gtm"], 3:["discovery","gtm","marketing"],
-    4:["pricing","sales","legal"], 5:["pricing","sales","finmodel","grants"], 6:["sales","marketing","product"],
-    7:["marketing","sales","gtm"], 8:["sales","marketing","finmodel","workforce"], 9:["exit","gtm","finmodel"] },
-  IRL: { 1:["bizmodel","discovery"], 2:["market","bizmodel"], 3:["discovery","product","fundraise"],
-    4:["proto","product","discovery"], 5:["gtm","pricing","fundraise"], 6:["sales","pricing","finmodel"],
-    7:["product","finmodel","fundraise"], 8:["supply","finmodel","legal"], 9:["fundraise","exit","finmodel"] }
-};
-/* Live provider list, filled by boot() from /_functions/providers. Each provider's `stops` are
-   PRECOMPUTED per person by the readiness-tagger — no runtime overlap math needed for placement. */
-let PROVIDERS = [];
-/* SERVICES value labels ↔ ids. The CMS stores service AREAS as labels ("Go-to-Market Strategy"),
-   so we compare in label-space; this reverse map lets the service chips (ids) filter label lists. */
-const SERVICE_LABELS = Object.fromEntries(Object.entries(SERVICES).map(([id,label])=>[id,label]));
+(function(){
+  "use strict";
 
-/* ============================ READINESS CONTENT ============================ */
-const LINES = {
-  MRL: {
-    name:"Manufacturing Line", raw:"#F97316",
-    sub:"How ready are you to actually make this thing — repeatably, at cost, at volume? Based on the DoD Manufacturing Readiness Level scale (1–10).",
-    stops:[
-      {n:1, title:"Basic Manufacturing Implications Identified", tag:"You know making it will matter someday.",
-       here:["Research is still at the basic science stage — no thought yet to how it would be produced","Materials and processes are only discussed in general, theoretical terms","No producibility assessment of any kind has been done","Manufacturing cost is a complete unknown"],
-       exit:["Identify candidate materials and fabrication processes on paper","Name the top manufacturing risks or 'we don't know how to make this' gaps"]},
-      {n:2, title:"Manufacturing Concepts Identified", tag:"You can describe how it might be made.",
-       here:["Candidate materials, processes, and equipment have been identified","Producibility needs are part of design conversations, but nothing is proven","Rough, order-of-magnitude cost projections exist","Ideas rely on studies and analogies to similar products, not experiments"],
-       exit:["Demonstrate key manufacturing processes in a lab experiment","Produce first analytical models of production cost drivers"]},
-      {n:3, title:"Manufacturing Proof of Concept", tag:"You've made a piece of it, once, in a lab.",
-       here:["Key materials and processes demonstrated experimentally at bench scale","Parts produced are one-offs — no repeatability expected or achieved","Cost models are top-down and full of assumptions","Producibility assessments of design concepts have begun"],
-       exit:["Produce the critical technology elements in a lab environment","Establish a preliminary manufacturing risk list with mitigation ideas"]},
-      {n:4, title:"Lab-Level Production Capability", tag:"You can make the technology in a lab, on purpose.",
-       here:["Required investments in process development are identified","Parts made in the lab demonstrate the technology works when built","Design is still changing fast; tolerances and specs are loose","Production cost drivers are identified but not validated"],
-       exit:["Produce prototype components in a production-relevant environment","Begin design trade studies balancing performance vs. producibility"]},
-      {n:5, title:"Prototype Components, Production-Relevant Environment", tag:"Real components off realistic processes.",
-       here:["Critical components built using processes similar to production ones","Manufacturing risks identified for prototype system builds","Cost models updated with real process data from component builds","Supply chain conversations underway for key parts"],
-       exit:["Build prototype systems or subsystems on production-relevant processes","Complete initial make/buy analysis for major elements"]},
-      {n:6, title:"Prototype System, Production-Relevant Environment", tag:"A whole system, built the way you'd build it for real.",
-       here:["A full prototype system built using production-relevant processes","Most manufacturing processes defined and characterized","Preliminary design of critical tooling exists","Cost, yield, and rate targets set — not yet demonstrated"],
-       exit:["Build systems in a production-representative environment (real line, real workers, real tooling for most steps)","Freeze the design enough to plan a pilot line"]},
-      {n:7, title:"Production-Representative Environment", tag:"Your line is starting to look like a factory.",
-       here:["Systems built in a production-representative environment","Material specs stable; long-lead procurement understood","Manufacturing processes maturing toward pilot line demonstration","Detailed cost analysis exists, tracked against targets"],
-       exit:["Demonstrate a pilot line producing units that meet requirements","Put supplier quality agreements and incoming inspection in place"]},
-      {n:8, title:"Pilot Line Demonstrated", tag:"The pilot line works. LRIP is next.",
-       here:["Pilot line built and producing conforming units","Ready to begin low-rate initial production (LRIP)","Manufacturing and quality processes proven on the pilot line","Unit cost meets targets at pilot volumes; yield understood"],
-       exit:["Begin and stabilize low-rate production","Demonstrate the workforce, supply chain, and equipment scale to rate"]},
-      {n:9, title:"Low Rate Production", tag:"You're producing. Now prove full rate.",
-       here:["Low-rate production is running and stable","Products meet all requirements coming off the line","Supply chain performing; risks actively managed","Cost model validated against actuals at low rate"],
-       exit:["Demonstrate full-rate production with lean practices in place","Hit cost, yield, and takt targets at full volume"]},
-      {n:10, title:"Full Rate Production", tag:"End of the line — you're a manufacturer.",
-       here:["Full-rate production demonstrated; lean practices in place","Meeting engineering, performance, quality, and reliability requirements at volume","Continuous improvement driving cost down over time","Supply chain mature with managed redundancy"],
-       exit:["This is the terminus — focus shifts to continuous improvement, cost reduction, and next-product introduction"]}
-    ]
-  },
-  TRL: {
-    name:"Technology Line", raw:"#5B8DEF",
-    sub:"Does the technology itself actually work — from an idea on a whiteboard to a system proven in the real world? Based on the NASA/DoD Technology Readiness Level scale (1–9).",
-    stops:[
-      {n:1, title:"Basic Principles Observed", tag:"Science says it should be possible.",
-       here:["Scientific research is beginning to be translated toward application","Paper studies of basic properties only — no experiments toward a product","No concept of a specific application has been defined","Work looks like academic research, not product development"],
-       exit:["Formulate a specific technology concept or application","Document how the science could translate into something useful"]},
-      {n:2, title:"Technology Concept Formulated", tag:"You've named the invention and its use.",
-       here:["A practical application has been invented — on paper","Concept is speculative; no experimental proof exists","Analysis is limited to analytic studies and projections","Key assumptions have not been tested"],
-       exit:["Run experiments or analysis that prove the critical function or concept works","Identify the technical showstoppers to attack first"]},
-      {n:3, title:"Analytical & Experimental Proof of Concept", tag:"The critical function works in the lab.",
-       here:["Active R&D underway with lab experiments","Analytical and experimental proof of critical function/characteristic achieved","Components are not yet integrated — pieces proven separately","Performance predictions exist but are only validated at bench scale"],
-       exit:["Integrate components into a breadboard and validate it in a lab environment","Define measurable performance targets for the integrated system"]},
-      {n:4, title:"Component Validation in Lab", tag:"The pieces work together — on a bench.",
-       here:["Basic components integrated into a low-fidelity breadboard","System works in a controlled laboratory environment","Fidelity is low compared to the eventual real system","Reliability, ruggedness, and environment tolerance untested"],
-       exit:["Validate the integrated components in a relevant (realistic) environment","Increase fidelity of the breadboard toward the real configuration"]},
-      {n:5, title:"Component Validation in Relevant Environment", tag:"It survives conditions like the real world.",
-       here:["Breadboard fidelity increased significantly","Components validated in a relevant environment (simulated real conditions)","Integration with realistic supporting elements demonstrated","Gaps to a true prototype are identified and scoped"],
-       exit:["Demonstrate a system/subsystem model or prototype in a relevant environment","Lock the architecture for the prototype build"]},
-      {n:6, title:"System Prototype Demo, Relevant Environment", tag:"A real prototype, tested hard.",
-       here:["Representative model or prototype system — well beyond breadboard","Tested in a relevant environment (lab or simulated operational)","A major step up in demonstrated fidelity","Remaining risk is about the true operational environment"],
-       exit:["Demonstrate the prototype in an actual operational environment","Resolve integration issues with real-world interfaces and users"]},
-      {n:7, title:"System Prototype Demo, Operational Environment", tag:"It works where it will actually be used.",
-       here:["Prototype near or at planned operational configuration","Demonstrated in an actual operational environment (field, vehicle, plant, space…)","Real users/operators have interacted with it","Remaining work is qualification, not invention"],
-       exit:["Complete the actual system and qualify it through test and demonstration","Close out all requirement verifications"]},
-      {n:8, title:"System Complete & Qualified", tag:"Built, tested, qualified. Ready to fly.",
-       here:["Technology proven to work in its final form under expected conditions","Development is essentially complete","Qualification testing passed against requirements","Manufacturing handoff underway (watch the MRL line!)"],
-       exit:["Prove the system in successful mission/commercial operations","Transition fully to production and deployment"]},
-      {n:9, title:"Actual System Proven in Operations", tag:"Terminus — flight proven.",
-       here:["System operating successfully in real missions/commercial use","Performance validated by actual operational data","Technology risk retired; focus is product evolution","Lessons learned feeding the next generation"],
-       exit:["Terminus — invest in product iteration, reliability growth, and the next platform"]}
-    ]
-  },
-  CRL: {
-    name:"Commercial Line", raw:"#2FBF71",
-    sub:"Will anyone buy it — and can you sell it profitably, repeatedly, at scale? Based on the NASA/DOE-style Commercial Readiness Level scale (1–9).",
-    stops:[
-      {n:1, title:"Commercial Hypothesis", tag:"You believe there's a market. That's it.",
-       here:["An unproven hypothesis that the technology meets a commercial need","No market analysis performed yet","Target customer is described in generic terms ('manufacturers', 'the DoD')","No one outside the team has validated the need"],
-       exit:["Complete a first-pass market and competitive analysis","Define the specific problem and who has it worst"]},
-      {n:2, title:"Market & Competitive Analysis", tag:"You've mapped the market on paper.",
-       here:["TAM/SAM/SOM estimated from secondary research","Competitors and incumbent alternatives identified","Target segments hypothesized but not tested with real customers","Regulatory and market entry barriers listed"],
-       exit:["Articulate a testable value proposition","Start structured customer discovery interviews"]},
-      {n:3, title:"Value Proposition Defined", tag:"You can pitch the 'why buy' — now test it.",
-       here:["A clear value proposition written for a specific customer segment","Customer discovery interviews underway (aim for 20–50+)","Early evidence the problem is real and painful","No customer commitments yet — interest is verbal"],
-       exit:["Validate problem/solution fit with early adopters","Get non-binding signals: waitlists, LOIs, design partner interest"]},
-      {n:4, title:"Customer Validation", tag:"Early adopters agree you're solving their problem.",
-       here:["Named early adopters engaged and giving structured feedback","Problem/solution fit demonstrated with evidence, not enthusiasm","Letters of intent or design partnerships in hand","Pricing hypotheses formed but untested"],
-       exit:["Validate the business model: pricing, channel, unit economics on paper","Convert at least one early adopter toward a paid pilot"]},
-      {n:5, title:"Business Model Validated", tag:"The math works — on a small scale.",
-       here:["Pricing tested with real buying conversations","Sales channel identified and being exercised","Unit economics modeled with real cost and price inputs","Pilot agreements moving toward revenue"],
-       exit:["Close first paying customers or funded pilots","Prove the sales motion is repeatable by someone other than the founder"]},
-      {n:6, title:"First Sales & Funded Pilots", tag:"Money is changing hands.",
-       here:["Paying customers or funded pilots in progress","Feedback loop from real usage informing the roadmap","Early revenue, but sales are hand-crafted and founder-led","References and case studies being built"],
-       exit:["Launch commercially with a repeatable, documented sales process","Demonstrate customers renew, reorder, or expand"]},
-      {n:7, title:"Commercial Launch", tag:"Open for business, repeatably.",
-       here:["Product generally available to the target market","Repeatable sales process with a real pipeline","Multiple customers; early renewals/reorders happening","Operations can fulfill demand without heroics"],
-       exit:["Scale: grow share, expand segments or geographies, harden the supply chain","Hit growth and retention metrics that support scaling capital"]},
-      {n:8, title:"Scaling", tag:"Growth mode — don't break the machine.",
-       here:["Rapid expansion of customers, market share, or geography","Sales team beyond founders hitting quota","Supply chain and operations scaling with demand","Competitive responses emerging and being managed"],
-       exit:["Reach sustained, profitable, widespread deployment","Establish durable market position and operating discipline"]},
-      {n:9, title:"Sustained Commercial Operation", tag:"Terminus — a real, durable business.",
-       here:["Widespread deployment in the target market","Sustained profitable operations (or clear path at scale)","Brand and market position established","Portfolio/roadmap thinking replaces single-product survival"],
-       exit:["Terminus — expand the portfolio, enter new markets, or exit"]}
-    ]
-  },
-  IRL: {
-    name:"Investment Line", raw:"#A78BFA",
-    sub:"How fundable are you? Steve Blank's Investment Readiness Levels (1–9) measure validated learning — evidence, not opinion — across your whole business model.",
-    stops:[
-      {n:1, title:"Business Model Canvas Complete", tag:"First full sketch of the business.",
-       here:["A complete first-pass Business Model Canvas exists","Every box is a hypothesis — nothing validated yet","Team can articulate all nine building blocks","No evidence gathered outside the building"],
-       exit:["Size the market and map the competition with data","Rank hypotheses by risk to decide what to test first"]},
-      {n:2, title:"Market Size & Competitive Analysis", tag:"The opportunity is quantified.",
-       here:["TAM/SAM/SOM sized with defensible sources","Competitive landscape mapped with positioning","Market entry strategy hypothesized","Still zero customer contact"],
-       exit:["Get out of the building: validate the problem and proposed solution with customers","Document interview evidence systematically"]},
-      {n:3, title:"Problem/Solution Validation", tag:"Customers confirm the pain is real.",
-       here:["Dozens of customer discovery interviews completed and documented","Evidence the problem is urgent and widespread","Solution concept resonates with a specific segment","Canvas updated with validated learning (pivots welcome)"],
-       exit:["Build a low-fidelity MVP to test the solution with real users","Define what evidence would prove/disprove product hypotheses"]},
-      {n:4, title:"Low-Fidelity MVP", tag:"Something testable is in users' hands.",
-       here:["A low-fidelity prototype/MVP is testing key product assumptions","Real users interacting with it and giving behavioral data","Early metrics defined (activation, engagement, willingness to pay)","Product hypotheses being confirmed or killed weekly"],
-       exit:["Demonstrate product/market fit signals with the MVP","Identify which features actually drive customer pull"]},
-      {n:5, title:"Product/Market Fit Validated", tag:"Customers pull the product from you.",
-       here:["Clear evidence a defined segment urgently wants the product","Usage/retention data supports fit — not just interviews","Early adopters would be 'very disappointed' without it","Demand exceeds what the current product delivers"],
-       exit:["Validate the right side of the canvas: channels, customer relationships, revenue streams","Test real pricing with real transactions"]},
-      {n:6, title:"Revenue Model Validated (Right Side of Canvas)", tag:"You know how money flows in.",
-       here:["Sales channel tested with real transactions","Pricing validated by actual purchases, not surveys","Customer acquisition process documented with early CAC data","Revenue model (subscription, unit sale, licensing…) proven in miniature"],
-       exit:["Build and test a high-fidelity MVP / production-representative product","Show the sales motion works beyond the founding team"]},
-      {n:7, title:"High-Fidelity MVP", tag:"The near-final product proves the model.",
-       here:["High-fidelity product validating the full customer experience","Metrics that matter (CAC, LTV, conversion, churn) being tracked","Repeat purchases or renewals occurring","Operational processes forming around the product"],
-       exit:["Validate the left side of the canvas: costs, key partners, activities, resources","Prove unit economics at a meaningful scale"]},
-      {n:8, title:"Cost Side Validated (Left Side of Canvas)", tag:"You know what it truly costs to deliver.",
-       here:["Key partners, resources, activities, and cost structure validated","COGS and delivery costs known from actuals","Gross margin at scale credibly modeled","Full business model has evidence behind every box"],
-       exit:["Demonstrate the complete set of metrics that matter to investors","Show a repeatable, scalable growth engine"]},
-      {n:9, title:"Metrics That Matter — Ready to Scale", tag:"Terminus — a validated, fundable machine.",
-       here:["Dashboard of validated metrics: CAC, LTV, payback, churn, margin, pipeline","Evidence-backed answers to every investor diligence question","Business model proven end-to-end; capital accelerates a working engine","Team, product, and market motion all demonstrably repeatable"],
-       exit:["Terminus — raise scaling capital on your terms, or grow on revenue"]}
-    ]
-  }
-};
+  /* ===== config ===== */
+  // Absolute site URL: the Wix Embed runs in a sandboxed iframe on a different origin, so a relative
+  // path would miss the site. The backend sends Access-Control-Allow-Origin to permit this call.
+  var PROVIDERS_URL = 'https://leanrocketlab.org/_functions/providers';
+  // 'light' | 'dark' | 'auto' (auto follows the visitor's OS setting). ?theme= overrides.
+  var MM_THEME = 'light';
+  var INTAKE_URL = 'https://www.leanrocketlab.org/new-client-intake-form';
+  var MOBILE_MAX = 640; // < this width => stepper (2a); otherwise horizontal (2b)
 
-/* ============================ APP STATE & RENDER ============================ */
-let activeLine = "MRL";
-let activeStop = 1;
-let activeService = null;   // when set, provider list filters to this one service
-
-const tabsEl = document.getElementById("tabs");
-const boardEl = document.getElementById("board");
-
-function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
-function shorten(t){ return t.length>30 ? t.slice(0,28)+"…" : t; }
-function initials(name){
-  return name.replace(/—.*/,"").trim().split(/\s+/).map(w=>w[0]).filter((c,i,a)=>i===0||i===a.length-1).join("").toUpperCase();
-}
-
-/* Recommendation engine: providers are placed at a stop by their PRECOMPUTED stops arrays
-   (set per person by the readiness-tagger) — no tag-overlap math for placement. Among the
-   people at this stop we still rank by how many of the stop's needed services they cover, and
-   let a clicked service chip narrow the list. serviceAreas arrive from the CMS as LABELS, so
-   comparisons happen in label-space. */
-function recommend(lineKey, stopN){
-  const needed = (STOP_SERVICES[lineKey] && STOP_SERVICES[lineKey][stopN]) || [];   // service IDs
-  const neededLabels = needed.map(id=>SERVICES[id]||id);
-  const wantLabel = activeService ? (SERVICES[activeService]||activeService) : null;
-  const atStop = PROVIDERS.filter(p=>((p.stops && p.stops[lineKey]) || []).map(String).includes(String(stopN)));
-  const scored = atStop.map(p=>{
-    const svc = p.services || [];                                   // labels from the CMS
-    const matches = svc.filter(s=>neededLabels.includes(s));
-    return {p, matches, score:matches.length};
-  }).filter(x=>!wantLabel || (x.p.services||[]).includes(wantLabel))
-    .sort((a,b)=>b.score-a.score || a.p.name.localeCompare(b.p.name));
-  return {
-    needed,
-    coaches: scored.filter(x=>x.p.type==="coach"),
-    taps:    scored.filter(x=>x.p.type==="tap")
+  /* ===== per-line content (from the design's logic class) ===== */
+  // Each stop = [title, "you're here" sentence, "to reach next" sentence].
+  var LINES = {
+    MRL: { name:'Manufacturing Line',
+      sub:'Can you make it — repeatably, at cost, at volume? Based on the DoD Manufacturing Readiness Levels (1–10).',
+      stops:[
+        ['Basic implications identified',"You know making it will matter someday, but haven't studied how.",'Name candidate materials and your biggest manufacturing unknowns.'],
+        ['Manufacturing concepts identified','You can describe how it might be made — on paper.','Prove a key manufacturing process in a lab experiment.'],
+        ['Proof of concept',"You've made a piece of it once, by hand, in a lab.",'Produce the critical elements repeatably in a lab environment.'],
+        ['Lab-level capability','You can make the technology in a lab, on purpose.','Build prototype parts on production-relevant processes.'],
+        ['Prototype components','Real components come off realistic processes.','Build prototype systems and complete a make/buy analysis.'],
+        ['Prototype system',"A whole system, built the way you'd build it for real.",'Run it on a production-representative line.'],
+        ['Production-representative line','Your line is starting to look like a factory.','Demonstrate a pilot line that hits requirements.'],
+        ['Pilot line demonstrated','The pilot line is making conforming units.','Start and stabilize low-rate production.'],
+        ['Low-rate production',"You're producing steadily at low volume.",'Prove full-rate production with lean practices in place.'],
+        ['Full-rate production',"You're a manufacturer, at volume.",'Terminus — drive continuous improvement and cost down.'],
+      ] },
+    TRL: { name:'Technology Line',
+      sub:'Does the technology actually work in the real world? Based on the NASA/DoD Technology Readiness Levels (1–9).',
+      stops:[
+        ['Basic principles observed','Science says it should be possible.','Formulate a specific technology concept or application.'],
+        ['Concept formulated',"You've named the invention and its use, on paper.",'Prove the critical function experimentally.'],
+        ['Proof of concept','The critical function works in the lab.','Integrate the pieces into a validated breadboard.'],
+        ['Component validation in lab','The pieces work together on a bench.','Validate the integration in a realistic environment.'],
+        ['Validation in relevant environment','It survives conditions like the real world.','Demonstrate a prototype in a relevant environment.'],
+        ['Prototype in relevant environment','A real prototype, tested hard.','Demonstrate it in an actual operational environment.'],
+        ['Prototype in operational environment','It works where it will actually be used.','Complete and qualify the full system.'],
+        ['System complete & qualified','Built, tested, qualified — ready to fly.','Prove it in real missions or commercial use.'],
+        ['Proven in operations','Flight-proven in real-world use.','Terminus — invest in the next generation.'],
+      ] },
+    CRL: { name:'Commercial Line',
+      sub:'Will anyone buy it — profitably, repeatedly, at scale? Based on the Commercial Readiness Levels (1–9).',
+      stops:[
+        ['Commercial hypothesis',"You believe there's a market — that's it.",'Run a first-pass market and competitive analysis.'],
+        ['Market & competitive analysis',"You've mapped the market on paper.",'Write a testable value proposition.'],
+        ['Value proposition defined',"You can pitch the 'why buy' — now test it.",'Validate problem/solution fit with early adopters.'],
+        ['Customer validation','Early adopters agree you solve their problem.','Validate pricing, channel, and unit economics.'],
+        ['Business model validated','The math works on a small scale.','Close your first paying customers or funded pilots.'],
+        ['First sales & funded pilots','Money is changing hands.','Launch with a repeatable, documented sales process.'],
+        ['Commercial launch','Open for business, repeatably.','Scale share, segments, and the supply chain.'],
+        ['Scaling',"Growth mode — don't break the machine.",'Reach sustained, profitable, widespread deployment.'],
+        ['Sustained commercial operation','A real, durable business.','Terminus — expand the portfolio or exit.'],
+      ] },
+    IRL: { name:'Investment Line',
+      sub:'How fundable are you — evidence, not opinion? Steve Blank’s Investment Readiness Levels (1–9).',
+      stops:[
+        ['Business model canvas complete','A first full sketch of the business — every box a hypothesis.','Size the market and rank your riskiest assumptions.'],
+        ['Market size & competition','The opportunity is quantified.','Get out of the building and validate the problem.'],
+        ['Problem/solution validation','Customers confirm the pain is real.','Build a low-fidelity MVP to test the solution.'],
+        ['Low-fidelity MVP',"Something testable is in users' hands.",'Show real product/market-fit signals.'],
+        ['Product/market fit','Customers pull the product from you.','Validate channels and revenue streams.'],
+        ['Revenue model validated','You know how money flows in.','Build a high-fidelity MVP and prove the sales motion.'],
+        ['High-fidelity MVP','The near-final product proves the model.','Validate costs, key partners, and resources.'],
+        ['Cost side validated','You know what it truly costs to deliver.','Assemble the metrics investors will diligence.'],
+        ['Metrics that matter','A validated, fundable machine.','Terminus — raise scaling capital on your terms.'],
+      ] },
   };
-}
+  var LINE_ORDER = ['MRL','TRL','CRL','IRL'];
+  var COLORS = { MRL:'var(--yellow-500)', TRL:'var(--teal-500)', CRL:'var(--green-500)', IRL:'var(--violet-500)' };
+  var LCT    = { MRL:'var(--ink-900)', TRL:'#fff', CRL:'#fff', IRL:'#fff' };
 
-function cardHtml(x){
-  const p = x.p;
-  const av = p.photo
-    ? `<img class="avatar" src="${esc(p.photo)}" alt="${esc(p.name)}">`
-    : `<div class="avatar ${p.type}">${esc(initials(p.name))}</div>`;
-  const tags = p.services.map(s=>
-    `<span class="t ${x.matches.includes(s)?'match':''}">${esc(SERVICES[s]||s)}</span>`).join("");
-  return `<div class="card">
-    <div class="card-top">${av}
-      <div class="who"><div class="nm">${esc(p.name)}</div><div class="org">${esc(p.org)}</div></div>
-      <span class="type-badge ${p.type}">${p.type==="coach"?"Coach":"TA Provider"}</span>
-    </div>
-    <div class="bio">${esc(p.bio)}</div>
-    <div class="tags">${tags}</div>
-    <a class="site" href="${esc(p.website)}" target="_blank" rel="noopener">Visit website →</a>
-  </div>`;
-}
+  /* ===== state ===== */
+  var state = { line:'MRL', stop:1, providers:[] };
+  var root = document.getElementById('root');
+  var wrap = document.getElementById('wrap');
 
-function renderTabs(){
-  tabsEl.innerHTML = "";
-  Object.entries(LINES).forEach(([key, line])=>{
-    const b = document.createElement("button");
-    b.className = "tab" + (key===activeLine ? " active":"");
-    b.style.setProperty("--tabcolor", line.raw);
-    b.innerHTML = `<span class="dot" style="background:${line.raw}"></span>${key} · ${line.name}`;
-    b.onclick = ()=>{ activeLine=key; activeStop=1; activeService=null; render(); };
-    tabsEl.appendChild(b);
-  });
-}
-
-function renderBoard(){
-  const line = LINES[activeLine];
-  const stop = line.stops.find(s=>s.n===activeStop) || line.stops[0];
-  const rec = recommend(activeLine, stop.n);
-
-  const stationsHtml = line.stops.map(s=>`
-    <button class="station ${s.n===activeStop?'selected':''}" onclick="selectStop(${s.n})" aria-label="${activeLine} ${s.n}: ${esc(s.title)}">
-      ${s.n}<span class="label">${s.n}. ${esc(shorten(s.title))}</span>
-    </button>`).join("");
-
-  const chipsHtml = rec.needed.map(sid=>`
-    <button class="chip ${activeService===sid?'on':''}" onclick="toggleService('${sid}')">${esc(SERVICES[sid]||sid)}</button>`).join("");
-
-  const coachCards = rec.coaches.length ? rec.coaches.map(cardHtml).join("")
-    : `<div class="empty">No coach matched this filter — ask your LRL advisor for an introduction.</div>`;
-  const tapCards = rec.taps.length ? rec.taps.map(cardHtml).join("")
-    : `<div class="empty">No technical assistance provider matched this filter — ask your LRL advisor.</div>`;
-
-  boardEl.style.setProperty("--linecolor", line.raw);
-  boardEl.innerHTML = `
-    <div class="line-title">
-      <h2>${line.name}</h2>
-      <span class="badge" style="background:${line.raw}">${activeLine} 1–${line.stops.length}</span>
-    </div>
-    <p class="line-sub">${line.sub}</p>
-    <div class="track-wrap"><div class="track">${stationsHtml}</div></div>
-
-    <div class="detail">
-      <div class="detail-head">
-        <div class="stopnum">${stop.n}</div>
-        <h3>${activeLine} ${stop.n} — ${esc(stop.title)}</h3>
-        <div class="tagline">${esc(stop.tag)}</div>
-      </div>
-      <div class="detail-body">
-        <div class="panel">
-          <h4>You're at this stop if…</h4>
-          <ul>${stop.here.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>
-        </div>
-        <div class="panel exit">
-          <h4>Next stop: ${stop.n < line.stops.length ? activeLine+" "+(stop.n+1) : "Terminus"}</h4>
-          <ul>${stop.exit.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>
-        </div>
-
-        <div class="services">
-          <h4 class="panel-h" style="font-size:.72rem;text-transform:uppercase;letter-spacing:.18em;color:var(--linecolor);margin-bottom:12px;">Services you may need at this stop</h4>
-          <div class="chips">${chipsHtml}</div>
-          <div class="hint">Tap a service to filter the recommendations below. Tap again to clear.</div>
-        </div>
-
-        <div class="recs">
-          <h4>Recommended at this stop</h4>
-          <div class="sample-note">Coaches are Lean Rocket Lab EIRs and team members, placed at each stop by their assessed areas of expertise.</div>
-          <div class="rec-group">
-            <h5>Coaches — Lab EIRs <span class="count">${rec.coaches.length}</span></h5>
-            <div class="cards">${coachCards}</div>
-          </div>
-          <div class="rec-group">
-            <h5>Technical Assistance Providers <span class="count">${rec.taps.length}</span></h5>
-            <div class="cards">${tapCards}</div>
-          </div>
-        </div>
-      </div>
-      <div class="nav-btns">
-        <button ${stop.n===1?'disabled':''} onclick="selectStop(${stop.n-1})">← ${activeLine} ${stop.n-1||''}</button>
-        <button ${stop.n===line.stops.length?'disabled':''} onclick="selectStop(${stop.n+1})">${activeLine} ${stop.n+1} →</button>
-      </div>
-    </div>`;
-}
-
-function selectStop(n){ activeStop=n; activeService=null; render(); }
-function toggleService(sid){ activeService = (activeService===sid) ? null : sid; render(); }
-function render(){ renderTabs(); renderBoard(); }
-
-/* Load providers live from the Team CMS (Velo http-function), then render. The function already
-   filters to coaches (hasSome('arraystring', ['EIR','Team'])) and returns precomputed stops. */
-// The map is pasted into a Wix "Embed HTML" element, which runs in a sandboxed iframe on a
-// DIFFERENT origin than the site — so this must be the ABSOLUTE site URL (a relative path would
-// hit the sandbox domain and return nothing). The backend sends Access-Control-Allow-Origin to
-// permit this cross-origin call. If the site is served from www, use the www host here.
-const PROVIDERS_URL = 'https://leanrocketlab.org/_functions/providers';
-async function boot(){
-  renderTabs();
-  boardEl.innerHTML = `<div class="empty">Loading providers…</div>`;
-  try {
-    const res = await fetch(PROVIDERS_URL, { headers:{ 'Accept':'application/json' } });
-    if (!res.ok) throw new Error('HTTP '+res.status);
-    const data = await res.json();
-    PROVIDERS = Array.isArray(data && data.providers) ? data.providers : [];
-  } catch (e) {
-    PROVIDERS = [];
-    boardEl.innerHTML = `<div class="empty">Couldn’t load providers right now. Please refresh the page.</div>`;
-    return;
+  /* ===== helpers ===== */
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+  function initials(nm){ return String(nm||'').replace(/[^A-Za-z ]/g,'').trim().split(/\s+/).filter(Boolean).map(function(w){return w[0];}).slice(0,2).join('').toUpperCase() || '·'; }
+  function isMobile(){ return window.matchMedia('(max-width:'+(MOBILE_MAX-1)+'px)').matches; }
+  function resolveTheme(){
+    var q = (new URLSearchParams(location.search)).get('theme');
+    var t = (q==='dark'||q==='light'||q==='auto') ? q : MM_THEME;
+    if (t==='auto') return window.matchMedia('(prefers-color-scheme:dark)').matches ? 'dark' : 'light';
+    return t==='dark' ? 'dark' : 'light';
   }
-  render();
-}
-boot();
+
+  /* ===== view model (ported from the design's buildView) ===== */
+  function buildView(){
+    var lk = state.line, line = LINES[lk], total = line.stops.length, cur = clamp(state.stop,1,total);
+    state.stop = cur;
+    var isLast = cur >= total;
+    var stopRow = line.stops[cur-1];
+    var nextLabel = isLast ? 'the terminus' : (lk+' '+(cur+1)+' · '+line.stops[cur][0]);
+
+    var stops = line.stops.map(function(row,i){
+      var n = i+1;
+      return { n:n, title:row[0], active:n===cur,
+        cls: n===cur?'on':'', tickCls: n===cur?'on':(n<cur?'done':'') };
+    });
+
+    // providers at this stop — CMS stores stop numbers as strings, so compare as strings.
+    var at = state.providers.filter(function(p){
+      var arr = (p.stops && p.stops[lk]) || [];
+      return arr.map(String).indexOf(String(cur)) !== -1;
+    });
+    function toCard(p){
+      return { name:p.name||'', org:p.org||'', photo:p.photo||null, initials:initials(p.name),
+        url: p.website || INTAKE_URL,
+        tags: (p.services||[]).slice(0,3) };
+    }
+    var coaches = at.filter(function(p){return p.type==='coach';}).map(toCard);
+    var resources = at.filter(function(p){return p.type==='tap'||p.type==='resource';}).map(toCard);
+
+    return {
+      lk:lk, total:total, cur:cur, isLast:isLast,
+      color:COLORS[lk], lct:LCT[lk], lineName:line.name, sub:line.sub, stops:stops,
+      fillW: total>1 ? 'calc((100% - 100px) * '+((cur-1)/(total-1))+')' : '0px',
+      stop:{ n:cur, title:stopRow[0], here:stopRow[1], next:stopRow[2], nextLabel:nextLabel,
+             stageLabel: lk+' · Stage '+cur+' of '+total },
+      coaches:coaches, resources:resources,
+    };
+  }
+  function clamp(n,a,b){ n=Number(n)||1; return n<a?a:(n>b?b:n); }
+
+  /* ===== render pieces ===== */
+  function tabsHtml(v){
+    return '<div class="mm-tabs">' + LINE_ORDER.map(function(k){
+      return '<button class="mm-tab '+(k===v.lk?'on':'')+'" style="--tc:'+COLORS[k]+'" data-act="line" data-k="'+k+'">'
+        + '<span class="d" style="background:'+COLORS[k]+'"></span>'+k+'</button>';
+    }).join('') + '</div>';
+  }
+  function headerHtml(v){
+    return '<div class="mm-hd"><div class="mm-eye">Milestone Map</div>'
+      + '<div class="mm-title">'+esc(v.lineName)+'</div>'
+      + '<div class="mm-sub">'+esc(v.sub)+'</div></div>';
+  }
+  function avatarHtml(p,res){
+    var inner = p.photo ? '<img src="'+esc(p.photo)+'" alt="">' : esc(p.initials);
+    return '<div class="mm-av'+(res?' res':'')+'">'+inner+'</div>';
+  }
+  function cardHtml(p,res){
+    var tags = p.tags.map(function(t){return '<span class="mm-tag">'+esc(t)+'</span>';}).join('');
+    return '<a class="mm-pcard" href="'+esc(p.url)+'" target="_blank" rel="noopener">'
+      + avatarHtml(p,res)
+      + '<div class="mm-pc-body"><div class="mm-pc-nm">'+esc(p.name)+'</div>'
+      + '<div class="mm-pc-org">'+esc(p.org)+'</div>'
+      + '<div class="mm-tags">'+tags+'</div></div></a>';
+  }
+  function groupHtml(v, title, icon, list, res, three){
+    var body;
+    if (list.length){
+      body = '<div class="mm-cards'+(three?' three':'')+'">'+list.map(function(p){return cardHtml(p,res);}).join('')+'</div>';
+    } else {
+      body = '<div class="mm-empty">No '+(res?'resource':'coach')+' tagged here yet — ask your LRL advisor'+(res?'.':' for an intro.')+'</div>';
+    }
+    return '<div class="mm-grp"><div class="mm-grp-t"><span class="gi"><i class="fa-solid '+icon+'"></i></span>'
+      + title+' <span class="cnt">'+list.length+'</span></div>'+body+'</div>';
+  }
+  function peopleHtml(v, three){
+    return '<div class="mm-people"><div class="mm-people-hd">Who can help at this stop</div>'
+      + groupHtml(v,'Coaches','fa-user-group',v.coaches,false,three)
+      + groupHtml(v,'Resources','fa-toolbox',v.resources,true,three)
+      + '</div>';
+  }
+  function blocksHtml(v){
+    return '<div class="mm-block"><div class="k">You’re here</div><div class="v">'+esc(v.stop.here)+'</div></div>'
+      + '<div class="mm-block next"><div class="k">To reach '+esc(v.stop.nextLabel)+'</div><div class="v">'+esc(v.stop.next)+'</div></div>';
+  }
+
+  function horizontalHtml(v){ // 2b
+    var stops = v.stops.map(function(s){
+      return '<button class="mmA-stop '+s.cls+'" data-act="pick" data-n="'+s.n+'" title="'+esc(s.title)+'">'+s.n+'</button>';
+    }).join('');
+    return '<div class="mmA-track"><div class="mmA-rail"></div>'
+      + '<div class="mmA-fill" style="width:'+v.fillW+'"></div>'
+      + '<div class="mmA-stops">'+stops+'</div></div>'
+      + '<div class="mmA-detail"><div class="mmA-dhead"><div class="mmA-dnum">'+v.stop.n+'</div>'
+      + '<div><div class="mmA-dstage">'+esc(v.stop.stageLabel)+'</div>'
+      + '<div class="mmA-dtitle">'+esc(v.stop.title)+'</div></div></div>'
+      + '<div class="mmA-dbody">'+blocksHtml(v)+'</div>'
+      + '<div class="mmA-nav"><button class="mm-btn" data-act="prev"'+(v.cur<=1?' disabled':'')+'>← Previous stop</button>'
+      + '<button class="mm-btn" data-act="next"'+(v.isLast?' disabled':'')+'>Next stop →</button></div></div>'
+      + peopleHtml(v,true);
+  }
+  function stepperHtml(v){ // 2a
+    var ticks = v.stops.map(function(s){
+      return '<div class="mmC-tick '+s.tickCls+'" data-act="pick" data-n="'+s.n+'" title="'+esc(s.title)+'"></div>';
+    }).join('');
+    return '<div class="mmC"><div class="mmC-rail">'+ticks+'</div>'
+      + '<div class="mmC-card"><div class="mmC-meta">'+esc(v.stop.stageLabel)+'</div>'
+      + '<div class="mmC-big"><div class="mmC-num">'+v.stop.n+'</div><div class="mmC-t">'+esc(v.stop.title)+'</div></div>'
+      + '<div class="mmC-blocks">'+blocksHtml(v)+'</div>'
+      + '<div class="mmC-nav"><button class="mm-btn" data-act="prev"'+(v.cur<=1?' disabled':'')+'>← Back</button>'
+      + '<div class="sp"></div><button class="mm-btn" data-act="next"'+(v.isLast?' disabled':'')+'>Next stop →</button></div></div></div>'
+      + peopleHtml(v,false);
+  }
+
+  function render(){
+    var v = buildView();
+    var mobile = isMobile();
+    wrap.className = 'mm-wrap' + (mobile?' narrow':'');
+    root.className = 'mm' + (resolveTheme()==='dark'?' dark':'');
+    root.style.setProperty('--lc', v.color);
+    root.style.setProperty('--lct', v.lct);
+    root.innerHTML = headerHtml(v) + tabsHtml(v) + (mobile ? stepperHtml(v) : horizontalHtml(v));
+  }
+
+  /* ===== interactions (event delegation) ===== */
+  root.addEventListener('click', function(e){
+    var el = e.target.closest && e.target.closest('[data-act]');
+    if (!el || !root.contains(el)) return;
+    var act = el.getAttribute('data-act');
+    if (act === 'line'){ var k = el.getAttribute('data-k'); if (LINES[k]){ state.line = k; state.stop = 1; render(); } return; }
+    if (el.tagName === 'A') return; // people cards: let the link open
+    if (act === 'pick'){ state.stop = clamp(el.getAttribute('data-n'),1,LINES[state.line].stops.length); render(); return; }
+    if (act === 'prev'){ state.stop = clamp(state.stop-1,1,LINES[state.line].stops.length); render(); return; }
+    if (act === 'next'){ state.stop = clamp(state.stop+1,1,LINES[state.line].stops.length); render(); return; }
+  });
+
+  // Re-render when crossing the mobile/desktop breakpoint (layout switch) or OS theme (auto).
+  var mq = window.matchMedia('(max-width:'+(MOBILE_MAX-1)+'px)');
+  (mq.addEventListener ? mq.addEventListener('change', render) : mq.addListener(render));
+  var dmq = window.matchMedia('(prefers-color-scheme:dark)');
+  (dmq.addEventListener ? dmq.addEventListener('change', render) : dmq.addListener(render));
+
+  /* ===== boot: load providers, then render ===== */
+  render(); // paint the map immediately (people fill in once providers load)
+  fetch(PROVIDERS_URL, { headers:{ 'Accept':'application/json' } })
+    .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+    .then(function(d){ state.providers = (d && Array.isArray(d.providers)) ? d.providers : []; render(); })
+    .catch(function(){ state.providers = []; render(); /* map still works; people show empty states */ });
+})();
 </script>
 </body>
 </html>
