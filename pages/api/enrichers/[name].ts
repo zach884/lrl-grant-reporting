@@ -4,17 +4,29 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { hasDatabase } from '@/lib/db';
 import { isAdmin } from '@/lib/auth/admin';
+import { defaultEnrichers, defaultContactEnrichers } from '@/lib/enrichment';
 import { getEnricherConfigStore, resolveEnricherConfig, sanitizeEnricherConfigInput } from '@/lib/enrichment/configStore';
+
+/** Look up an enricher's meta (description/produces/target) from the live registry. */
+function findMeta(name: string) {
+  const c = defaultContactEnrichers.find((e) => e.name === name);
+  if (c) return { name: c.name, description: c.description, produces: c.produces, target: 'contact' as const, sourceObject: 'contact', gateWired: true };
+  const b = defaultEnrichers.find((e) => e.name === name);
+  if (b) return { name: b.name, description: b.description, produces: b.produces, target: 'company' as const, sourceObject: 'business', gateWired: true };
+  return null;
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const name = typeof req.query.name === 'string' ? req.query.name : '';
   if (!name) return res.status(400).json({ error: 'enricher name required' });
-  const sourceObject = (typeof req.query.sourceObject === 'string' && req.query.sourceObject) || 'contact';
+  const meta = findMeta(name);
+  // Default the source object from the registry so a bare ?name= link resolves the right side.
+  const sourceObject = (typeof req.query.sourceObject === 'string' && req.query.sourceObject) || meta?.sourceObject || 'contact';
 
   if (req.method === 'GET') {
     // Always resolvable (falls back to the code default), even with no DB or no row.
     const config = await resolveEnricherConfig(name, sourceObject);
-    return res.status(200).json({ config });
+    return res.status(200).json({ enricher: meta, config });
   }
 
   if (req.method === 'PUT') {

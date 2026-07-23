@@ -16,6 +16,8 @@ import {
   DerivedAddress,
   GeocodeResult,
 } from './types';
+import { resolveEnricherConfig } from './configStore';
+import { evaluateGate } from './gate';
 
 const bare = (k: string) => k.replace(/^business\./, '');
 
@@ -74,8 +76,19 @@ export async function runEnrichers(
   };
   const input: EnricherInput = { company, businessCatalog, address, geocode };
 
+  // Read a company field for the gate (custom field in properties, else a top-level scalar).
+  const readField = (key: string): unknown => {
+    const k = bare(key);
+    const p = company.properties?.[k];
+    return p != null && p !== '' ? p : (company as unknown as Record<string, unknown>)[k];
+  };
+
   const all: EnrichmentProposal[] = [];
   for (const e of enrichers) {
+    // Config gate (default = no gate => always runs, so unconfigured behavior is unchanged).
+    // resolveEnricherConfig never throws (falls back to the code default), so this is fail-open.
+    const config = await resolveEnricherConfig(e.name, 'business');
+    if (!evaluateGate(readField, config).run) continue;
     try {
       all.push(...(await e.enrich(input)));
     } catch {

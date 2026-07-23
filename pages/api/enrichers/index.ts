@@ -25,7 +25,7 @@ export default async function handler(_req: NextApiRequest, res: NextApiResponse
     for (const e of defaultEnrichers) {
       items.push({
         name: e.name, description: e.description, produces: e.produces,
-        target: 'company', sourceObject: 'business', gateWired: false,
+        target: 'company', sourceObject: 'business', gateWired: true,
         config: await resolveEnricherConfig(e.name, 'business'),
       });
     }

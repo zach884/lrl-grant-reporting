@@ -64,3 +64,6 @@ export function evaluateContactGate(read: (key: string) => unknown, config: Enri
 
   return { run: true };
 }
+
+/** Generic alias — the same evaluation works for any object (company or contact). */
+export const evaluateGate = evaluateContactGate;
