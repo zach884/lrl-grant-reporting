@@ -423,7 +423,8 @@
 
   /* ===== boot: load providers, then render ===== */
   render(); // paint the map immediately (people fill in once providers load)
-  fetch(PROVIDERS_URL, { headers:{ 'Accept':'application/json' } })
+  // Cache-bust so edits in GHL/CMS show promptly (Wix caches http-function GET responses).
+  fetch(PROVIDERS_URL + (PROVIDERS_URL.indexOf('?') === -1 ? '?' : '&') + 'cb=' + Date.now(), { cache: 'no-store', headers:{ 'Accept':'application/json' } })
     .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
     .then(function(d){ state.providers = (d && Array.isArray(d.providers)) ? d.providers : []; render(); })
     .catch(function(){ state.providers = []; render(); /* map still works; people show empty states */ });

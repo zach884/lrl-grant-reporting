@@ -15,7 +15,7 @@
 export const SERVICES = {
   ip: 'IP & Patents',
   legal: 'Legal & Contracts',
-  grants: 'SBIR/STTR & Grants',
+  grants: 'Non-dilutive Funding',
   research: 'R&D Partnerships',
   proto: 'Prototyping',
   dfm: 'Design for Manufacturing',
