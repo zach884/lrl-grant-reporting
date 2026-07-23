@@ -1,16 +1,16 @@
 // pages/enrichment/[name].tsx — configure ONE enricher's gate (the detail screen).
 //
 // Mirrors the Field Mappings module: /enrichment lists enricher cards; clicking one lands here to
-// edit WHEN it runs. The enricher TRANSFORM stays in code — this page only edits the status gate
-// (runOn) + membership gate (anyOf), reusing the shared GateEditor with field pickers sourced from
-// the live catalog (contact fields for contact enrichers, business fields for company ones). Every
-// enricher is configurable, including ones that ship with no gate (pick a field → add values).
+// edit WHEN it runs. The enricher TRANSFORM stays in code — this page only edits FILTERS: each filter
+// is "field is one of [values]", and the filters combine with a top-level AND / OR. Add/remove filters
+// freely; an empty list = always run. Field pickers read the live catalog (contact fields for contact
+// enrichers, business fields for company ones), reusing the shared GateEditor per filter row.
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import Shell from '@/components/shell/Shell';
 import GateEditor, { type GateFieldOpt } from '@/components/mapping/GateEditor';
-import type { EnricherConfig } from '@/lib/enrichment/configTypes';
+import type { EnricherConfig, EnricherFilter, FilterCombine } from '@/lib/enrichment/configTypes';
 
 const SECRET_KEY = 'mapping_admin_secret';
 
@@ -18,9 +18,8 @@ interface EnricherMeta { name: string; description?: string; produces: string[];
 
 const inputBase: React.CSSProperties = { border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', padding: '9px 12px', fontSize: 13, color: 'var(--text)', fontFamily: 'var(--font-body)' };
 const primaryBtn: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 7, padding: '9px 16px', borderRadius: 8, border: 'none', background: 'var(--brand)', color: 'var(--ink-900)', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, cursor: 'pointer', boxShadow: 'var(--shadow-brand)' };
+const ghostBtn: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 13px', borderRadius: 8, border: '1px solid var(--border-strong)', background: 'var(--surface)', color: 'var(--text-secondary)', fontFamily: 'var(--font-body)', fontWeight: 600, fontSize: 13, cursor: 'pointer' };
 const card: React.CSSProperties = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, boxShadow: 'var(--shadow-sm)' };
-const subhead: React.CSSProperties = { fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 12.5, color: 'var(--text)' };
-const hint: React.CSSProperties = { fontSize: 11.5, color: 'var(--gray-450)' };
 
 function EnricherDetail() {
   const router = useRouter();
@@ -33,10 +32,8 @@ function EnricherDetail() {
   const [adminSecret, setAdminSecret] = useState('');
 
   const [enabled, setEnabled] = useState(true);
-  const [statusField, setStatusField] = useState('');
-  const [runOn, setRunOn] = useState<string[]>([]);
-  const [memberField, setMemberField] = useState('');
-  const [anyOf, setAnyOf] = useState<string[]>([]);
+  const [combine, setCombine] = useState<FilterCombine>('AND');
+  const [filters, setFilters] = useState<EnricherFilter[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -56,21 +53,17 @@ function EnricherDetail() {
         const d = await r.json();
         if (cancelled) return;
         if (!r.ok) { setErr(d.error ?? 'failed to load enricher'); return; }
-        const m: EnricherMeta | null = d.enricher ?? null;
-        setMeta(m);
+        setMeta(d.enricher ?? null);
         const config: EnricherConfig = d.config;
         setEnabled(config.enabled);
-        setStatusField(config.gate?.field ?? '');
-        setRunOn(config.gate?.runOn ?? []);
-        setMemberField(config.membership?.field ?? '');
-        setAnyOf(config.membership?.anyOf ?? []);
+        setCombine(config.combine === 'OR' ? 'OR' : 'AND');
+        setFilters(config.filters?.length ? config.filters : []);
       } catch (e: any) { if (!cancelled) setErr(e?.message ?? 'failed to load enricher'); }
       finally { if (!cancelled) setLoading(false); }
     })();
     return () => { cancelled = true; };
   }, [name, sourceObjectQ]);
 
-  // Load the field catalog for the enricher's side once we know its target.
   useEffect(() => {
     if (!meta) return;
     let cancelled = false;
@@ -89,26 +82,26 @@ function EnricherDetail() {
 
   const sourceObject = meta?.sourceObject ?? sourceObjectQ ?? 'contact';
 
+  function setFilterAt(i: number, patch: Partial<EnricherFilter>) { setFilters((fs) => fs.map((f, j) => (j === i ? { ...f, ...patch } : f))); touch(); }
+  function addFilter() { setFilters((fs) => [...fs, { field: '', anyOf: [] }]); touch(); }
+  function removeFilter(i: number) { setFilters((fs) => fs.filter((_, j) => j !== i)); touch(); }
+
   async function save() {
     if (!adminSecret) { setErr('Enter the admin secret to save.'); return; }
     setSaving(true); setErr(''); setMsg('');
     try {
       try { sessionStorage.setItem(SECRET_KEY, adminSecret); } catch { /* ignore */ }
-      const body = {
-        enabled,
-        gate: statusField ? { field: statusField, runOn } : null,
-        membership: memberField ? { field: memberField, anyOf } : null,
-      };
+      const body = { enabled, combine, filters: filters.filter((f) => f.field && f.anyOf.length) };
       const r = await fetch(`/api/enrichers/${encodeURIComponent(name)}?sourceObject=${encodeURIComponent(sourceObject)}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-admin-secret': adminSecret }, body: JSON.stringify(body),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? `save failed (${r.status})`);
-      setDirty(false); setMsg('Gate saved — the next run honors it.');
+      setDirty(false); setMsg('Filters saved — the next run honors them.');
     } catch (e: any) { setErr(e?.message ?? 'save failed'); } finally { setSaving(false); }
   }
 
-  const hasGate = Boolean(statusField || memberField);
+  const activeCount = filters.filter((f) => f.field && f.anyOf.length).length;
 
   return (
     <Shell active="enrichment" breadcrumb="Data Enrichment" env="live">
@@ -138,45 +131,68 @@ function EnricherDetail() {
                 <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 13, color: 'var(--gray-600)' }}>
                   <input type="checkbox" checked={enabled} onChange={(e) => { setEnabled(e.target.checked); touch(); }} /> Enabled
                 </label>
-                <button type="button" style={{ ...primaryBtn, opacity: saving ? 0.6 : 1 }} disabled={saving} onClick={save}><i className="fa-solid fa-floppy-disk" />{saving ? 'Saving…' : 'Save gate'}</button>
+                <button type="button" style={{ ...primaryBtn, opacity: saving ? 0.6 : 1 }} disabled={saving} onClick={save}><i className="fa-solid fa-floppy-disk" />{saving ? 'Saving…' : 'Save filters'}</button>
               </div>
             </div>
 
             <div style={{ ...card, padding: 20 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-                <i className="fa-solid fa-shield-halved" style={{ color: 'var(--violet-700)', fontSize: 14 }} />
-                <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 16, color: 'var(--text)' }}>Gate — when this enricher runs</span>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 4, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <i className="fa-solid fa-filter" style={{ color: 'var(--violet-700)', fontSize: 14 }} />
+                  <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 16, color: 'var(--text)' }}>Filters — when this enricher runs</span>
+                </div>
+                {activeCount > 1 && (
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 12, color: 'var(--gray-500)' }}>Combine with</span>
+                    <div style={{ display: 'flex', gap: 2, background: 'var(--gray-100)', padding: 3, borderRadius: 999 }}>
+                      {(['AND', 'OR'] as FilterCombine[]).map((c) => {
+                        const on = combine === c;
+                        return <button key={c} type="button" onClick={() => { setCombine(c); touch(); }}
+                          style={{ padding: '5px 14px', borderRadius: 999, border: 'none', cursor: 'pointer', fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 12, letterSpacing: '.04em', background: on ? 'var(--surface)' : 'transparent', color: on ? 'var(--violet-700)' : 'var(--gray-500)', boxShadow: on ? 'var(--shadow-xs)' : 'none' }}>{c}</button>;
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
               <p style={{ margin: '0 0 18px', fontSize: 13, color: 'var(--gray-500)', maxWidth: '74ch' }}>
-                Leave both gates empty to run on every {meta?.target === 'company' ? 'company' : 'contact'} that changes. Add a field + values to restrict it. Both gates must pass for the enricher to run.
+                Each filter runs the enricher only when a field is one of the chosen values. With no filters it runs on every {meta?.target === 'company' ? 'company' : 'contact'} that changes.
+                {activeCount > 1 && <> Filters are combined with <b>{combine}</b>.</>}
               </p>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 22 }}>
-                <div>
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                    <span style={subhead}>Status gate</span><span style={hint}>run only on these values</span>
+              {filters.length === 0 && (
+                <div style={{ fontSize: 13, color: 'var(--gray-450)', padding: '10px 0 16px' }}>No filters — runs on every change. Add one to restrict it.</div>
+              )}
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                {filters.map((f, i) => (
+                  <div key={i} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 14, background: 'var(--surface-subtle, var(--surface))' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                      <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--gray-450)' }}>
+                        {i === 0 ? 'Filter' : combine} {filters.length > 1 ? `· ${i + 1}` : ''}
+                      </span>
+                      <button type="button" onClick={() => removeFilter(i)} title="Remove filter"
+                        style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--gray-400)', fontSize: 13, padding: 4 }}>
+                        <i className="fa-solid fa-xmark" /> Remove
+                      </button>
+                    </div>
+                    <GateEditor mode="list" includeVerb="match" fields={fields} scalars={scalars}
+                      field={f.field} onField={(k) => setFilterAt(i, { field: k })} fieldLabel="Field"
+                      values={f.anyOf} onValues={(v) => setFilterAt(i, { anyOf: v })} disabled={saving} />
                   </div>
-                  <GateEditor mode="list" includeVerb="run on" fields={fields} scalars={scalars}
-                    field={statusField} onField={(k) => { setStatusField(k); touch(); }} fieldLabel="Status field"
-                    values={runOn} onValues={(v) => { setRunOn(v); touch(); }} disabled={saving} />
-                </div>
-                <div>
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                    <span style={subhead}>Membership gate</span><span style={hint}>run only when the field contains one of these</span>
-                  </div>
-                  <GateEditor mode="list" includeVerb="count as a member" fields={fields} scalars={scalars}
-                    field={memberField} onField={(k) => { setMemberField(k); touch(); }} fieldLabel="Membership field"
-                    values={anyOf} onValues={(v) => { setAnyOf(v); touch(); }} disabled={saving} />
-                </div>
+                ))}
               </div>
+
+              <button type="button" onClick={addFilter} style={{ ...ghostBtn, marginTop: 14 }}>
+                <i className="fa-solid fa-plus" /> Add filter
+              </button>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border)', flexWrap: 'wrap' }}>
                 <div style={{ position: 'relative' }}>
                   <i className="fa-solid fa-key" style={{ position: 'absolute', left: 11, top: 11, fontSize: 11, color: 'var(--gray-400)' }} />
                   <input type="password" className="lrl-focus" placeholder="Admin secret" value={adminSecret} onChange={(e) => setAdminSecret(e.target.value)} style={{ ...inputBase, width: 200, paddingLeft: 30 }} />
                 </div>
-                <button type="button" style={{ ...primaryBtn, opacity: saving ? 0.6 : 1 }} disabled={saving} onClick={save}><i className="fa-solid fa-floppy-disk" />{saving ? 'Saving…' : 'Save gate'}</button>
-                <span style={{ fontSize: 12.5, color: 'var(--gray-500)' }}>{hasGate ? 'Gated' : 'No gate — runs on every change'}</span>
+                <button type="button" style={{ ...primaryBtn, opacity: saving ? 0.6 : 1 }} disabled={saving} onClick={save}><i className="fa-solid fa-floppy-disk" />{saving ? 'Saving…' : 'Save filters'}</button>
+                <span style={{ fontSize: 12.5, color: 'var(--gray-500)' }}>{activeCount ? `${activeCount} filter${activeCount > 1 ? 's' : ''} · ${combine}` : 'No filters — runs on every change'}</span>
                 {(msg || err) && <span style={{ fontSize: 13, fontWeight: 600, color: err ? '#b42318' : 'var(--teal-700)' }}><i className={`fa-solid ${err ? 'fa-circle-exclamation' : 'fa-circle-check'}`} style={{ marginRight: 6 }} />{err || msg}</span>}
               </div>
             </div>

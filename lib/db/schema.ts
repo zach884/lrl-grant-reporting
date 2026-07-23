@@ -7,7 +7,7 @@
 
 import { pgTable, uuid, text, integer, boolean, jsonb, timestamp, unique, index } from 'drizzle-orm/pg-core';
 import type { WixCreatePolicy, WixGate, WixSecondaryMatch, WixVisibility } from '../mapping/wixTypes';
-import type { EnricherMembership, EnricherStatusGate } from '../enrichment/configTypes';
+import type { EnricherFilter, EnricherMembership, EnricherStatusGate, FilterCombine } from '../enrichment/configTypes';
 
 export const syncs = pgTable('syncs', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -145,9 +145,13 @@ export const enricherConfigs = pgTable(
     /** Source object the enricher targets: 'contact' | 'business' | 'custom_objects.<key>'. */
     sourceObject: text('source_object').notNull().default('contact'),
     enabled: boolean('enabled').notNull().default(true),
-    /** Status gate {field, runOn[]} — run only when the record's status is in runOn. NULL => always. */
+    /** Filters (current model): each {field, anyOf[]}, combined per `combine`. NULL/[] => always run. */
+    filters: jsonb('filters').$type<EnricherFilter[]>(),
+    /** How the filters combine: 'AND' | 'OR'. NULL => 'AND'. */
+    combine: text('combine').$type<FilterCombine>(),
+    /** @deprecated legacy status gate {field, runOn[]} — read for back-compat; new saves write NULL. */
     gate: jsonb('gate').$type<EnricherStatusGate>(),
-    /** Membership gate {field, anyOf[]} — run only when the field contains one of anyOf. NULL => always. */
+    /** @deprecated legacy membership gate {field, anyOf[]} — read for back-compat; new saves write NULL. */
     membership: jsonb('membership').$type<EnricherMembership>(),
     version: integer('version').notNull().default(1),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

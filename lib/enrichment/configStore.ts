@@ -1,68 +1,45 @@
-// lib/enrichment/configStore.ts — Postgres-backed store for enricher gate configs.
+// lib/enrichment/configStore.ts — Postgres-backed store for enricher gate configs (FILTERS model).
 //
 // Mirrors WixMappingStore (lib/mapping/wixStore.ts): id/name-aware CRUD over the enricher_configs
 // table + a short TTL cache. The engine never reads the table directly — it calls
 // resolveEnricherConfig(name, sourceObject), which returns the stored row when present and otherwise
-// the CODE DEFAULT (today's hardcoded behavior). So a missing row / missing DB changes nothing, and a
-// row edited in /enrichment changes what the next run does.
+// the CODE DEFAULT (today's behavior). A row's gate is a list of FILTERS ({field, anyOf[]}) combined
+// with AND/OR. Rows written before the filters model are read back-compat from the legacy
+// gate/membership columns, so nothing had to be re-migrated for correctness.
 
 import { and, asc, eq } from 'drizzle-orm';
 import { getDb, hasDatabase } from '../db';
 import { enricherConfigs, type EnricherConfigRow } from '../db/schema';
-import type { EnricherConfig, EnricherConfigInput, EnricherMembership, EnricherStatusGate } from './configTypes';
+import type {
+  EnricherConfig,
+  EnricherConfigInput,
+  EnricherFilter,
+  EnricherMembership,
+  EnricherStatusGate,
+  FilterCombine,
+} from './configTypes';
 
 const TTL_MS = 5 * 60 * 1000;
 
 /**
  * Code defaults = the behavior before this table existed, keyed by "<enricher>::<sourceObject>".
  * The readiness tagger's gate is pinned here so cutover is a no-op even if the row is never seeded:
- * status runOn ['Approved'] (credit gate) + membership Team/EIR (coaches only, Board excluded).
+ * status ∈ {Approved} (credit gate) AND website_team_tags ∋ {Team,EIR} (coaches only, Board excluded).
  */
 export const DEFAULT_ENRICHER_CONFIGS: Record<string, EnricherConfig> = {
   'readiness-tagger::contact': {
     enricher: 'readiness-tagger',
     sourceObject: 'contact',
     enabled: true,
-    gate: { field: 'contact.status', runOn: ['Approved'] },
-    membership: { field: 'contact.website_team_tags', anyOf: ['Team', 'EIR'] },
+    filters: [
+      { field: 'contact.status', anyOf: ['Approved'] },
+      { field: 'contact.website_team_tags', anyOf: ['Team', 'EIR'] },
+    ],
+    combine: 'AND',
   },
 };
 
 const keyOf = (enricher: string, sourceObject: string) => `${enricher}::${sourceObject}`;
-
-function strArray(v: unknown): string[] {
-  if (!Array.isArray(v)) return [];
-  return v.map((x) => String(x).trim()).filter(Boolean);
-}
-
-/** Validate a status gate payload. `null`/empty field => null (no status restriction). */
-export function sanitizeStatusGate(raw: any): EnricherStatusGate | null {
-  if (raw == null) return null;
-  if (typeof raw !== 'object') throw new Error('gate must be an object or null');
-  const field = typeof raw.field === 'string' ? raw.field.trim() : '';
-  if (!field) return null;
-  return { field, runOn: strArray(raw.runOn) };
-}
-
-/** Validate a membership gate payload. `null`/empty field => null (no membership restriction). */
-export function sanitizeMembership(raw: any): EnricherMembership | null {
-  if (raw == null) return null;
-  if (typeof raw !== 'object') throw new Error('membership must be an object or null');
-  const field = typeof raw.field === 'string' ? raw.field.trim() : '';
-  if (!field) return null;
-  return { field, anyOf: strArray(raw.anyOf) };
-}
-
-/** Build a clean EnricherConfigInput from an API body for a known (enricher, sourceObject). */
-export function sanitizeEnricherConfigInput(body: any, enricher: string, sourceObject: string): EnricherConfigInput {
-  return {
-    enricher,
-    sourceObject,
-    enabled: body?.enabled !== false,
-    gate: sanitizeStatusGate(body?.gate),
-    membership: sanitizeMembership(body?.membership),
-  };
-}
 
 /** Pure: the code default for an enricher, or a permissive "always run" config when none is defined. */
 export function defaultEnricherConfig(enricher: string, sourceObject = 'contact'): EnricherConfig {
@@ -71,21 +48,52 @@ export function defaultEnricherConfig(enricher: string, sourceObject = 'contact'
       enricher,
       sourceObject,
       enabled: true,
-      gate: null,
-      membership: null,
+      filters: [],
+      combine: 'AND',
     }
   );
 }
 
-/** Pure: map a DB row (or null) to the resolved config, falling back to the code default. */
+const cleanFilters = (raw: unknown): EnricherFilter[] =>
+  Array.isArray(raw)
+    ? raw
+        .map((f: any) => ({ field: typeof f?.field === 'string' ? f.field.trim() : '', anyOf: Array.isArray(f?.anyOf) ? f.anyOf.map((v: any) => String(v).trim()).filter(Boolean) : [] }))
+        .filter((f) => f.field)
+    : [];
+
+/** Fold the deprecated gate+membership columns into filters (both ANDed) for a legacy row. */
+function legacyFilters(row: EnricherConfigRow): EnricherFilter[] {
+  const out: EnricherFilter[] = [];
+  const g = row.gate as EnricherStatusGate | null;
+  if (g?.field && g.runOn?.length) out.push({ field: g.field, anyOf: g.runOn });
+  const m = row.membership as EnricherMembership | null;
+  if (m?.field && m.anyOf?.length) out.push({ field: m.field, anyOf: m.anyOf });
+  return out;
+}
+
+/** Pure: map a DB row (or null) to the resolved config, preferring the filters column, then the
+ *  legacy gate/membership columns, then the code default. */
 export function configFromRow(row: EnricherConfigRow | null | undefined, enricher: string, sourceObject = 'contact'): EnricherConfig {
   if (!row) return defaultEnricherConfig(enricher, sourceObject);
+  const hasFilters = Array.isArray(row.filters);
+  const filters = hasFilters ? cleanFilters(row.filters) : legacyFilters(row);
   return {
     enricher: row.enricher,
     sourceObject: row.sourceObject,
     enabled: row.enabled,
-    gate: (row.gate as EnricherStatusGate | null) ?? null,
-    membership: (row.membership as EnricherMembership | null) ?? null,
+    filters,
+    combine: (row.combine as FilterCombine) === 'OR' ? 'OR' : 'AND',
+  };
+}
+
+/** Validate an API body into a clean EnricherConfigInput for a known (enricher, sourceObject). */
+export function sanitizeEnricherConfigInput(body: any, enricher: string, sourceObject: string): EnricherConfigInput {
+  return {
+    enricher,
+    sourceObject,
+    enabled: body?.enabled !== false,
+    filters: cleanFilters(body?.filters),
+    combine: body?.combine === 'OR' ? 'OR' : 'AND',
   };
 }
 
@@ -113,7 +121,8 @@ export class EnricherConfigStore {
     return config;
   }
 
-  /** Insert or replace the config for (enricher, sourceObject); bumps version. */
+  /** Insert or replace the config for (enricher, sourceObject); writes the filters model and clears
+   *  the deprecated gate/membership columns so filters is the single source of truth going forward. */
   async upsert(input: EnricherConfigInput): Promise<EnricherConfig> {
     const db = getDb();
     const now = new Date();
@@ -123,8 +132,10 @@ export class EnricherConfigStore {
         enricher: input.enricher,
         sourceObject: input.sourceObject,
         enabled: input.enabled,
-        gate: input.gate ?? null,
-        membership: input.membership ?? null,
+        filters: input.filters ?? [],
+        combine: input.combine ?? 'AND',
+        gate: null,
+        membership: null,
         version: 1,
         updatedAt: now,
       })
@@ -132,8 +143,10 @@ export class EnricherConfigStore {
         target: [enricherConfigs.enricher, enricherConfigs.sourceObject],
         set: {
           enabled: input.enabled,
-          gate: input.gate ?? null,
-          membership: input.membership ?? null,
+          filters: input.filters ?? [],
+          combine: input.combine ?? 'AND',
+          gate: null,
+          membership: null,
           updatedAt: now,
         },
       });

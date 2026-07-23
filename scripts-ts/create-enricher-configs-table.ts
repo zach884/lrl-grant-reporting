@@ -41,6 +41,9 @@ function loadEnvLocal() {
     CREATE UNIQUE INDEX IF NOT EXISTS enricher_configs_enricher_source_uq
       ON enricher_configs (enricher, source_object)
   `);
+  // Filters model (additive; legacy gate/membership columns kept for back-compat reads).
+  await db.execute(sql`ALTER TABLE enricher_configs ADD COLUMN IF NOT EXISTS filters jsonb`);
+  await db.execute(sql`ALTER TABLE enricher_configs ADD COLUMN IF NOT EXISTS combine text`);
 
   const rows = await db.execute(sql`SELECT count(*)::int AS n FROM enricher_configs`);
   console.log('✅ enricher_configs ready. Existing rows:', (rows as any).rows?.[0]?.n ?? (rows as any)[0]?.n ?? 0);

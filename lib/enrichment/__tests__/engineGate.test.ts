@@ -7,9 +7,9 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('../configStore', () => ({
   resolveEnricherConfig: vi.fn(async (name: string) => {
     if (name === 'gated') {
-      return { enricher: 'gated', sourceObject: 'business', enabled: true, gate: { field: 'business.status', runOn: ['Active'] }, membership: null };
+      return { enricher: 'gated', sourceObject: 'business', enabled: true, combine: 'AND', filters: [{ field: 'business.status', anyOf: ['Active'] }] };
     }
-    return { enricher: name, sourceObject: 'business', enabled: true, gate: null, membership: null };
+    return { enricher: name, sourceObject: 'business', enabled: true, combine: 'AND', filters: [] };
   }),
 }));
 

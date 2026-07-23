@@ -1,71 +1,74 @@
-// Unit tests for the pure enricher gate evaluation (lib/enrichment/gate.ts). This is the single
-// source of truth every caller uses to decide whether to run a contact enricher, so it must match
-// the pre-config behavior exactly (status=Approved + Team/EIR) and honor edited configs.
+// Unit tests for the pure enricher gate evaluation (lib/enrichment/gate.ts) — the FILTERS model.
+// Every caller uses evaluateGate to decide whether to run an enricher, so it must match the
+// pre-config behavior (status=Approved AND Team/EIR) and honor edited filters + AND/OR.
 
 import { describe, it, expect } from 'vitest';
-import { passesStatusGate, membershipMatches, evaluateContactGate } from '../gate';
+import { membershipMatches, passesFilter, evaluateGate } from '../gate';
 import type { EnricherConfig } from '../configTypes';
-
-describe('passesStatusGate', () => {
-  it('is true when value ∈ runOn (case-insensitive), false otherwise', () => {
-    expect(passesStatusGate('Approved', ['Approved'])).toBe(true);
-    expect(passesStatusGate('approved', ['Approved'])).toBe(true);
-    expect(passesStatusGate('Published', ['Approved'])).toBe(false);
-    expect(passesStatusGate('', ['Approved'])).toBe(false);
-  });
-  it('empty / absent runOn means always-run', () => {
-    expect(passesStatusGate('anything', [])).toBe(true);
-    expect(passesStatusGate('anything', null)).toBe(true);
-    expect(passesStatusGate(undefined, undefined)).toBe(true);
-  });
-});
 
 describe('membershipMatches', () => {
   it('matches array or delimited string against anyOf (case-insensitive)', () => {
     expect(membershipMatches(['Team'], ['Team', 'EIR'])).toBe(true);
     expect(membershipMatches(['Board'], ['Team', 'EIR'])).toBe(false);
     expect(membershipMatches('Team, Board', ['team'])).toBe(true);
-    expect(membershipMatches('Board;EIR', ['eir'])).toBe(true);
+    expect(membershipMatches('Approved', ['approved'])).toBe(true); // scalar status works too
   });
-  it('empty / absent anyOf means always-run', () => {
+  it('empty / absent anyOf means always-match', () => {
     expect(membershipMatches(['Board'], [])).toBe(true);
     expect(membershipMatches(undefined, null)).toBe(true);
   });
 });
 
-describe('evaluateContactGate', () => {
+describe('passesFilter', () => {
+  const read = (v: Record<string, unknown>) => (k: string) => v[k];
+  it('passes when the field value is one of anyOf', () => {
+    expect(passesFilter(read({ 'contact.status': 'Approved' }), { field: 'contact.status', anyOf: ['Approved'] })).toBe(true);
+    expect(passesFilter(read({ 'contact.status': 'Pending' }), { field: 'contact.status', anyOf: ['Approved'] })).toBe(false);
+  });
+  it('an empty filter always passes', () => {
+    expect(passesFilter(read({}), { field: '', anyOf: [] })).toBe(true);
+    expect(passesFilter(read({}), { field: 'x', anyOf: [] })).toBe(true);
+  });
+});
+
+describe('evaluateGate', () => {
   const readinessDefault: EnricherConfig = {
-    enricher: 'readiness-tagger', sourceObject: 'contact', enabled: true,
-    gate: { field: 'contact.status', runOn: ['Approved'] },
-    membership: { field: 'contact.website_team_tags', anyOf: ['Team', 'EIR'] },
+    enricher: 'readiness-tagger', sourceObject: 'contact', enabled: true, combine: 'AND',
+    filters: [
+      { field: 'contact.status', anyOf: ['Approved'] },
+      { field: 'contact.website_team_tags', anyOf: ['Team', 'EIR'] },
+    ],
   };
   const read = (vals: Record<string, unknown>) => (k: string) => vals[k];
 
-  it('runs when status + membership both pass (today’s default behavior)', () => {
-    const d = evaluateContactGate(read({ 'contact.status': 'Approved', 'contact.website_team_tags': ['Team'] }), readinessDefault);
-    expect(d.run).toBe(true);
+  it('AND: runs only when every filter passes (today’s default)', () => {
+    expect(evaluateGate(read({ 'contact.status': 'Approved', 'contact.website_team_tags': ['Team'] }), readinessDefault).run).toBe(true);
+    expect(evaluateGate(read({ 'contact.status': 'Pending', 'contact.website_team_tags': ['Team'] }), readinessDefault).run).toBe(false);
+    expect(evaluateGate(read({ 'contact.status': 'Approved', 'contact.website_team_tags': ['Board'] }), readinessDefault).run).toBe(false);
   });
 
-  it('skips on a status miss, with a reason', () => {
-    const d = evaluateContactGate(read({ 'contact.status': 'Pending', 'contact.website_team_tags': ['Team'] }), readinessDefault);
-    expect(d.run).toBe(false);
-    expect(d.reason).toContain('Pending');
+  it('OR: runs when any filter passes', () => {
+    const orCfg: EnricherConfig = { ...readinessDefault, combine: 'OR' };
+    expect(evaluateGate(read({ 'contact.status': 'Pending', 'contact.website_team_tags': ['Team'] }), orCfg).run).toBe(true);
+    expect(evaluateGate(read({ 'contact.status': 'Pending', 'contact.website_team_tags': ['Board'] }), orCfg).run).toBe(false);
   });
 
-  it('skips a Board-only contact (membership miss)', () => {
-    const d = evaluateContactGate(read({ 'contact.status': 'Approved', 'contact.website_team_tags': ['Board'] }), readinessDefault);
-    expect(d.run).toBe(false);
-    expect(d.reason).toContain('membership');
+  it('no filters => always runs', () => {
+    expect(evaluateGate(read({}), { ...readinessDefault, filters: [] }).run).toBe(true);
   });
 
-  it('a UI edit that adds Published to runOn now lets a Published contact through', () => {
-    const edited: EnricherConfig = { ...readinessDefault, gate: { field: 'contact.status', runOn: ['Approved', 'Published'] } };
-    const d = evaluateContactGate(read({ 'contact.status': 'Published', 'contact.website_team_tags': ['EIR'] }), edited);
-    expect(d.run).toBe(true);
+  it('adding a value to a filter (a UI edit) changes the decision', () => {
+    const edited: EnricherConfig = { ...readinessDefault, filters: [{ field: 'contact.status', anyOf: ['Approved', 'Published'] }, readinessDefault.filters[1]] };
+    expect(evaluateGate(read({ 'contact.status': 'Published', 'contact.website_team_tags': ['EIR'] }), edited).run).toBe(true);
   });
 
   it('disabled config never runs', () => {
-    const d = evaluateContactGate(read({ 'contact.status': 'Approved', 'contact.website_team_tags': ['Team'] }), { ...readinessDefault, enabled: false });
+    expect(evaluateGate(read({ 'contact.status': 'Approved', 'contact.website_team_tags': ['Team'] }), { ...readinessDefault, enabled: false }).run).toBe(false);
+  });
+
+  it('reason names the failed filters', () => {
+    const d = evaluateGate(read({ 'contact.status': 'Pending', 'contact.website_team_tags': ['Board'] }), readinessDefault);
     expect(d.run).toBe(false);
+    expect(d.reason).toContain('contact.status');
   });
 });

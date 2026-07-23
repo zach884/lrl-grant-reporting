@@ -27,14 +27,13 @@ const methodBadge = (m: string) => {
   return map[m] ?? { bg: 'var(--gray-100)', fg: 'var(--gray-450)' };
 };
 
-/** One-line summary of an enricher's gate, for the card. */
+/** One-line summary of an enricher's filters, for the card. */
 function gateSummary(config: EnricherListItem['config']): { text: string; tone: 'gated' | 'open' | 'off' } {
   if (config.enabled === false) return { text: 'Disabled', tone: 'off' };
-  const parts: string[] = [];
-  if (config.gate?.field && config.gate.runOn?.length) parts.push(`${config.gate.field} ∈ {${config.gate.runOn.join(', ')}}`);
-  if (config.membership?.field && config.membership.anyOf?.length) parts.push(`${config.membership.field} ∋ {${config.membership.anyOf.join(', ')}}`);
-  if (parts.length) return { text: parts.join('  ·  '), tone: 'gated' };
-  return { text: 'No gate — runs on every change', tone: 'open' };
+  const active = (config.filters ?? []).filter((f) => f?.field && f.anyOf?.length);
+  if (!active.length) return { text: 'No filters — runs on every change', tone: 'open' };
+  const sep = config.combine === 'OR' ? '  OR  ' : '  AND  ';
+  return { text: active.map((f) => `${f.field} ∈ {${f.anyOf.join(', ')}}`).join(sep), tone: 'gated' };
 }
 
 function EnricherCard({ e }: { e: EnricherListItem }) {

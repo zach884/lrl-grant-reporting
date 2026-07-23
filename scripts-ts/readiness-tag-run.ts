@@ -8,11 +8,13 @@
 //
 // Flags: --apply (default dry-run) --yes (confirm writes) --limit N --concurrency N (default 2)
 //        --only id,id --resume (checkpoint) --rederive (recompute stops from existing service_areas)
-//        --status a,b (contact.status filter; default "Approved", or "Approved,Published" for --rederive)
-//        --all-status (ignore the status filter — re-tag every live coach, e.g. after a prompt change)
+//        --status a,b (override the contact.status filter's values; default from config, or add
+//                      "Approved,Published" for --rederive)
+//        --all-status (drop the contact.status filter — re-tag regardless of status; other filters stay)
 //        --min-confidence 0 (default 0 — readiness writes every row; Low/verify rows flagged for review)
-// Gates: (1) membership — only website_team_tags ∈ {Team,EIR}; (2) status — only contact.status in
-//        the --status set (credit gate; the real-time enrich happens in /api/wix-sync on Approved).
+// Gate: the enricher's config FILTERS (from enricher_configs, default status ∈ {Approved} AND
+//        website_team_tags ∋ {Team,EIR}) decide the worklist. --status/--all-status adjust the status
+//        filter; --only <ids> bypasses all filters. Same config the real-time pipeline reads.
 // GHL write spacing: keep GHL_MAX_RPS ≤ 3 for ≥0.3s spacing (client also backs off on 429).
 // Emits reports/readiness-<mode>-<stamp>.{json,csv} — the CSV is the human review artifact.
 // Reads .env.local. Needs GHL_* and (for --apply, non-rederive) ANTHROPIC_API_KEY.
@@ -68,31 +70,40 @@ function csv(v: unknown): string {
   const { enrichContact, readContactField } = await import('../lib/enrichment/contactEngine');
   const { readinessTagger, rederiveProposals } = await import('../lib/enrichment/enrichers/readinessTagger');
   const { resolveEnricherConfig } = await import('../lib/enrichment/configStore');
-  const { membershipMatches } = await import('../lib/enrichment/gate');
+  const { evaluateGate } = await import('../lib/enrichment/gate');
   const { LINE_STOP_FIELD, LINE_KEYS } = await import('../lib/enrichment/data/readiness');
   const { hasAnthropic } = await import('../lib/ai/anthropic');
 
-  // Gate config (status runOn + membership anyOf), read from enricher_configs with a code-default
-  // fallback — same source the real-time pipeline uses, so the backstop honors UI edits too.
+  // Gate config (filters + combine), read from enricher_configs with a code-default fallback — the
+  // same source the real-time pipeline uses, so the backstop honors UI edits too.
   const config = await resolveEnricherConfig('readiness-tagger', 'contact');
-  const membershipField = config.membership?.field ?? 'contact.website_team_tags';
-  const membershipAnyOf = config.membership?.anyOf ?? ['Team', 'EIR'];
 
   const concurrency = Number(arg('concurrency') ?? 2);
   const limit = arg('limit') ? Number(arg('limit')) : undefined;
   const only = arg('only')?.split(',').map((s) => s.trim()).filter(Boolean);
   const minConfidence = arg('min-confidence') ? Number(arg('min-confidence')) : 0;
-  // Credit gate: by default only (re-)tag contacts in the "Approved" status (the nightly backstop
-  // for missed webhooks) — NOT every live coach, which would burn AI credits on unchanged bios.
-  // rederive is free (no LLM), so it defaults to all live coaches. Override with --status a,b or
-  // --all-status; --only bypasses the status filter entirely.
+
+  // Build the effective filter set for this run from config + CLI overrides. The status field is
+  // the one dimension the CLI flags touch (the credit gate): --status a,b replaces its values,
+  // --all-status drops it, --only bypasses all filters. Other filters (e.g. membership) always apply.
+  const STATUS_FIELD = 'contact.status';
   const allStatus = flag('all-status');
-  // Non-rederive default status comes from the gate config's runOn (fallback 'Approved'); rederive is
-  // free (no LLM) so it defaults to all live coaches. --status overrides; --all-status/--only bypass.
-  const defaultStatus = rederive ? 'Approved,Published' : (config.gate?.runOn?.join(',') || 'Approved');
-  const statusFilter = allStatus || only
-    ? null
-    : (arg('status') ?? defaultStatus).split(',').map((s) => s.trim()).filter(Boolean);
+  let filters = [...config.filters];
+  if (allStatus) {
+    filters = filters.filter((f) => f.field !== STATUS_FIELD);
+  } else {
+    // rederive is free (no LLM) so it defaults to a broader status set; tag defaults to config's.
+    const statusOverride = arg('status') ?? (rederive ? 'Approved,Published' : undefined);
+    if (statusOverride !== undefined) {
+      const anyOf = statusOverride.split(',').map((s) => s.trim()).filter(Boolean);
+      filters = filters.filter((f) => f.field !== STATUS_FIELD);
+      if (anyOf.length) filters.push({ field: STATUS_FIELD, anyOf });
+    }
+  }
+  const effectiveConfig = { ...config, filters };
+  const describeFilters = filters.length
+    ? filters.map((f) => `${f.field}∈{${f.anyOf.join(',')}}`).join(config.combine === 'OR' ? ' OR ' : ' AND ')
+    : '(no filters — every contact)';
 
   const reportsDir = join(process.cwd(), 'reports');
   mkdirSync(reportsDir, { recursive: true });
@@ -115,20 +126,16 @@ function csv(v: unknown): string {
 
   const catalog = await getContactFieldCatalog();
 
-  // Build worklist: enumerate all contacts, keep Team/EIR (membership gate), then apply the status
-  // credit-gate (unless --only / --all-status).
+  // Build worklist: enumerate all contacts, keep those the effective filter gate lets through
+  // (--only bypasses the gate entirely).
   let contacts = await enumerateAllContacts();
   if (only) contacts = contacts.filter((c) => only.includes(c.id));
-  let inScope = contacts.filter((c) => membershipMatches(readContactField(c, catalog, membershipField), membershipAnyOf));
-  const beforeStatus = inScope.length;
-  if (statusFilter) {
-    const set = new Set(statusFilter);
-    inScope = inScope.filter((c) => set.has(String(readContactField(c, catalog, 'contact.status') ?? '')));
-  }
+  const inScope = only
+    ? contacts
+    : contacts.filter((c) => evaluateGate((k) => readContactField(c, catalog, k), effectiveConfig).run);
   let todo = inScope.filter((c) => !done.has(c.id));
   if (limit) todo = todo.slice(0, limit);
-  console.log(`Contacts: ${contacts.length} total, ${beforeStatus} in membership {${membershipAnyOf.join('/')}}` +
-    (statusFilter ? `, ${inScope.length} in status {${statusFilter.join(',')}}` : ' (all statuses)') +
+  console.log(`Contacts: ${contacts.length} total, ${inScope.length} in scope [${only ? '--only' : describeFilters}]` +
     `, ${todo.length} to process (${done.size} via checkpoint).`);
 
   // The enricher used this run: the LLM tagger, or a no-LLM re-derive wrapper.

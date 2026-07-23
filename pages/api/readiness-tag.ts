@@ -15,7 +15,7 @@ import { getContact } from '@/lib/ghl/contacts';
 import { enrichContact, readContactField } from '@/lib/enrichment/contactEngine';
 import { readinessTagger } from '@/lib/enrichment/enrichers/readinessTagger';
 import { resolveEnricherConfig } from '@/lib/enrichment/configStore';
-import { membershipMatches } from '@/lib/enrichment/gate';
+import { evaluateGate } from '@/lib/enrichment/gate';
 import { hasAnthropic } from '@/lib/ai/anthropic';
 
 function extractContactId(req: NextApiRequest): string | undefined {
@@ -42,14 +42,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const catalogs = await getCatalogs();
 
-    // Membership gate (config-driven; enricher no longer self-gates). Board-only contacts get nothing.
+    // Gate (config-driven filters; the enricher no longer self-gates). A record must satisfy the
+    // filters to be tagged — unless this manual call passes ?force=1 to re-tag regardless.
+    const force = req.query.force === '1' || req.body?.force === true;
     const config = await resolveEnricherConfig('readiness-tagger', 'contact');
     const contact = await getContact(String(contactId), undefined);
     if (!contact) return res.status(404).json({ error: 'contact not found' });
-    if (config.membership?.field && config.membership.anyOf?.length) {
-      const membership = readContactField(contact, catalogs.contact, config.membership.field);
-      if (!membershipMatches(membership, config.membership.anyOf)) {
-        return res.status(200).json({ ok: true, dryRun, contactId, didWrite: false, applied: [], skipped: [], note: `membership gate: not in {${config.membership.anyOf.join(',')}}` });
+    if (!force) {
+      const decision = evaluateGate((k) => readContactField(contact, catalogs.contact, k), config);
+      if (!decision.run) {
+        return res.status(200).json({ ok: true, dryRun, contactId, didWrite: false, applied: [], skipped: [], note: `gate: ${decision.reason} (pass ?force=1 to override)` });
       }
     }
 

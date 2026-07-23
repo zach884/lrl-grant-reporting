@@ -1,10 +1,12 @@
-// lib/enrichment/gate.ts — pure evaluation of an enricher's status + membership gates.
+// lib/enrichment/gate.ts — pure evaluation of an enricher's FILTERS.
 //
-// Both gates share the sync gate's "field + values" idea. These are the single source of truth used
-// by every caller that runs a contact enricher (the /api/sync/up pipeline, the /api/readiness-tag
-// webhook, and the CLI) so they all decide identically. No DB, no I/O — just the values + the config.
+// An enricher runs when its filters are satisfied. Each filter is "field is one of anyOf" (values
+// within a filter are OR'd); filters are combined with a top-level AND or OR. An empty filter list
+// means "always run". This is the single source of truth used by every caller that runs an enricher
+// (the /api/sync/up pipeline, the company engine, /api/readiness-tag, the CLI) so they all agree.
+// No DB, no I/O — just the record's values + the config.
 
-import type { EnricherConfig, EnricherMembership, EnricherStatusGate } from './configTypes';
+import type { EnricherConfig, EnricherFilter } from './configTypes';
 
 /** Normalize a possibly-array / delimited value into a lowercased string set. */
 function toValueSet(value: unknown): Set<string> {
@@ -12,24 +14,17 @@ function toValueSet(value: unknown): Set<string> {
   return new Set(parts.map((v) => String(v).trim().toLowerCase()).filter(Boolean));
 }
 
-/**
- * Status gate: passes when `value` equals one of `runOn`. An empty/absent runOn list means "always"
- * (no status restriction). Case-insensitive, matching how gate values are compared elsewhere.
- */
-export function passesStatusGate(value: unknown, runOn?: string[] | null): boolean {
-  if (!runOn || runOn.length === 0) return true;
-  const want = new Set(runOn.map((s) => String(s).trim().toLowerCase()));
-  return want.has(String(value ?? '').trim().toLowerCase());
-}
-
-/**
- * Membership gate: passes when `value` (array or delimited string) contains any of `anyOf`. An
- * empty/absent anyOf list means "always". Case-insensitive.
- */
+/** True when `value` (array or delimited string) contains any of `anyOf`. Empty anyOf => always. Case-insensitive. */
 export function membershipMatches(value: unknown, anyOf?: string[] | null): boolean {
   if (!anyOf || anyOf.length === 0) return true;
   const have = toValueSet(value);
   return anyOf.some((v) => have.has(String(v).trim().toLowerCase()));
+}
+
+/** A single filter passes when the record's field value is/contains one of anyOf. Empty filter => passes. */
+export function passesFilter(read: (key: string) => unknown, filter: EnricherFilter): boolean {
+  if (!filter?.field || !filter.anyOf?.length) return true;
+  return membershipMatches(read(filter.field), filter.anyOf);
 }
 
 export interface GateDecision {
@@ -38,32 +33,30 @@ export interface GateDecision {
   reason?: string;
 }
 
+/** Only the filters that are actually configured (have a field + at least one value). */
+export function activeFilters(config: Pick<EnricherConfig, 'filters'>): EnricherFilter[] {
+  return (config.filters ?? []).filter((f) => f?.field && f.anyOf?.length);
+}
+
 /**
- * Decide whether an enricher should run for a record, using its config's status + membership gates.
+ * Decide whether an enricher should run for a record, from its filters + combine.
  * `read` resolves a source field key to its value (e.g. readContactField bound to the record).
- * `config.enabled=false` short-circuits to run=false.
+ * enabled=false short-circuits to run=false; no active filters => run=true.
  */
-export function evaluateContactGate(read: (key: string) => unknown, config: EnricherConfig): GateDecision {
+export function evaluateGate(read: (key: string) => unknown, config: EnricherConfig): GateDecision {
   if (!config.enabled) return { run: false, reason: 'enricher disabled' };
 
-  const gate: EnricherStatusGate | null = config.gate;
-  if (gate?.field && gate.runOn?.length) {
-    const status = read(gate.field);
-    if (!passesStatusGate(status, gate.runOn)) {
-      return { run: false, reason: `status "${String(status ?? '')}" not in {${gate.runOn.join(',')}}` };
-    }
-  }
+  const active = activeFilters(config);
+  if (active.length === 0) return { run: true };
 
-  const membership: EnricherMembership | null = config.membership;
-  if (membership?.field && membership.anyOf?.length) {
-    const value = read(membership.field);
-    if (!membershipMatches(value, membership.anyOf)) {
-      return { run: false, reason: `membership not in {${membership.anyOf.join(',')}}` };
-    }
-  }
+  const combine = config.combine === 'OR' ? 'OR' : 'AND';
+  const results = active.map((f) => ({ f, pass: passesFilter(read, f) }));
+  const run = combine === 'OR' ? results.some((r) => r.pass) : results.every((r) => r.pass);
+  if (run) return { run: true };
 
-  return { run: true };
+  const failed = results.filter((r) => !r.pass).map((r) => `${r.f.field}∉{${r.f.anyOf.join(',')}}`);
+  return { run: false, reason: `filters (${combine}) not satisfied: ${failed.join(combine === 'OR' ? ' or ' : ' & ')}` };
 }
 
 /** Generic alias — the same evaluation works for any object (company or contact). */
-export const evaluateGate = evaluateContactGate;
+export const evaluateContactGate = evaluateGate;
