@@ -100,6 +100,11 @@
   /* ---------- people: coaches + resources ---------- */
   .mm-people{padding:2px 26px 20px}
   .mm-people-hd{font-family:var(--font-display);font-weight:700;text-transform:uppercase;letter-spacing:.13em;font-size:10.5px;color:var(--text-muted);margin:10px 0 12px}
+  .mm-filter{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:0 0 16px}
+  .mm-filter-lbl{font-family:var(--font-display);font-weight:700;text-transform:uppercase;letter-spacing:.1em;font-size:9.5px;color:var(--text-muted);margin-right:3px}
+  .mm-chip{font-family:var(--font-body);font-size:10.5px;font-weight:600;letter-spacing:.02em;padding:4px 10px;border-radius:999px;border:1.5px solid var(--border-strong);background:var(--surface);color:var(--text-secondary);cursor:pointer;transition:background .14s,border-color .14s,color .14s}
+  .mm-chip:hover{border-color:var(--lc);color:var(--text)}
+  .mm-chip.on{background:var(--lc);color:var(--lct);border-color:var(--lc)}
   .mm-grp{margin-bottom:16px}
   .mm-grp-t{font-size:11.5px;font-weight:700;letter-spacing:.03em;color:var(--text);margin:0 0 10px;display:flex;align-items:center;gap:8px}
   .mm-grp-t .gi{width:20px;height:20px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10px;background:var(--lc);color:var(--lct)}
@@ -215,7 +220,7 @@
   var LCT    = { MRL:'var(--ink-900)', TRL:'#fff', CRL:'#fff', IRL:'#fff' };
 
   /* ===== state ===== */
-  var state = { line:'MRL', stop:1, providers:[], coachPage:0, resPage:0 };
+  var state = { line:'MRL', stop:1, providers:[], coachPage:0, resPage:0, activeTag:null };
   var root = document.getElementById('root');
   var wrap = document.getElementById('wrap');
 
@@ -254,8 +259,17 @@
         url: p.website || INTAKE_URL,
         tags: (p.services||[]).slice(0,3) };
     }
-    var coaches = at.filter(function(p){return p.type==='coach';}).map(toCard);
-    var resources = at.filter(function(p){return p.type==='tap'||p.type==='resource';}).map(toCard);
+    var coachesAll = at.filter(function(p){return p.type==='coach';}).map(toCard);
+    var resourcesAll = at.filter(function(p){return p.type==='tap'||p.type==='resource';}).map(toCard);
+
+    // Tag filter: the union of the tags shown across coaches + resources at THIS stop. Clicking one
+    // narrows both groups to providers carrying it; clicking again clears. (Re-added from dir 1a.)
+    var tagSet = {};
+    coachesAll.concat(resourcesAll).forEach(function(c){ c.tags.forEach(function(t){ tagSet[t] = 1; }); });
+    var allTags = Object.keys(tagSet).sort();
+    var activeTag = (state.activeTag && tagSet[state.activeTag]) ? state.activeTag : null; // clear if absent here
+    function byTag(list){ return activeTag ? list.filter(function(c){ return c.tags.indexOf(activeTag) !== -1; }) : list; }
+    var coaches = byTag(coachesAll), resources = byTag(resourcesAll);
 
     return {
       lk:lk, total:total, cur:cur, isLast:isLast,
@@ -263,7 +277,7 @@
       fillW: total>1 ? 'calc((100% - 100px) * '+((cur-1)/(total-1))+')' : '0px',
       stop:{ n:cur, title:stopRow[0], here:stopRow[1], next:stopRow[2], nextLabel:nextLabel,
              stageLabel: lk+' · Stage '+cur+' of '+total },
-      coaches:coaches, resources:resources,
+      coaches:coaches, resources:resources, allTags:allTags, activeTag:activeTag,
     };
   }
   function clamp(n,a,b){ n=Number(n)||1; return n<a?a:(n>b?b:n); }
@@ -318,8 +332,16 @@
     return '<div class="mm-grp"><div class="mm-grp-t"><span class="gi"><i class="fa-solid '+icon+'"></i></span>'
       + title+' <span class="cnt">'+total+'</span></div>'+body+'</div>';
   }
+  function filterHtml(v){
+    if (v.allTags.length < 2) return ''; // nothing to filter with 0–1 tag
+    var chips = v.allTags.map(function(t){
+      return '<button class="mm-chip'+(t===v.activeTag?' on':'')+'" data-act="tag" data-t="'+esc(t)+'">'+esc(t)+'</button>';
+    }).join('');
+    return '<div class="mm-filter"><span class="mm-filter-lbl">Filter by need</span>'+chips+'</div>';
+  }
   function peopleHtml(v, three){
     return '<div class="mm-people"><div class="mm-people-hd">Who can help at this stop</div>'
+      + filterHtml(v)
       + groupHtml(v,'Coaches','fa-user-group',v.coaches,false,three,'c',state.coachPage)
       + groupHtml(v,'Resources','fa-toolbox',v.resources,true,three,'r',state.resPage)
       + '</div>';
@@ -382,13 +404,16 @@
       render();
       return;
     }
-    // Changing the stop or line resets both group pages to the first page.
-    if (act === 'line'){ var k = el.getAttribute('data-k'); if (LINES[k]){ state.line = k; state.stop = 1; state.coachPage = 0; state.resPage = 0; render(); } return; }
+    // Toggle a tag filter — narrows both groups; resets their pages (the filtered lists change).
+    if (act === 'tag'){ var tg = el.getAttribute('data-t'); state.activeTag = (state.activeTag === tg) ? null : tg; state.coachPage = 0; state.resPage = 0; render(); return; }
+    // Changing the stop or line resets the filter + both group pages to the start.
+    if (act === 'line'){ var k = el.getAttribute('data-k'); if (LINES[k]){ state.line = k; state.stop = 1; resetPeople(); render(); } return; }
     if (el.tagName === 'A') return; // people cards: let the link open
-    if (act === 'pick'){ state.stop = clamp(el.getAttribute('data-n'),1,LINES[state.line].stops.length); state.coachPage = 0; state.resPage = 0; render(); return; }
-    if (act === 'prev'){ state.stop = clamp(state.stop-1,1,LINES[state.line].stops.length); state.coachPage = 0; state.resPage = 0; render(); return; }
-    if (act === 'next'){ state.stop = clamp(state.stop+1,1,LINES[state.line].stops.length); state.coachPage = 0; state.resPage = 0; render(); return; }
+    if (act === 'pick'){ state.stop = clamp(el.getAttribute('data-n'),1,LINES[state.line].stops.length); resetPeople(); render(); return; }
+    if (act === 'prev'){ state.stop = clamp(state.stop-1,1,LINES[state.line].stops.length); resetPeople(); render(); return; }
+    if (act === 'next'){ state.stop = clamp(state.stop+1,1,LINES[state.line].stops.length); resetPeople(); render(); return; }
   });
+  function resetPeople(){ state.coachPage = 0; state.resPage = 0; state.activeTag = null; }
 
   // Re-render when crossing the mobile/desktop breakpoint (layout switch) or OS theme (auto).
   var mq = window.matchMedia('(max-width:'+(MOBILE_MAX-1)+'px)');
