@@ -118,6 +118,12 @@
   .mm-tag{font-size:9.5px;font-weight:600;letter-spacing:.02em;padding:2px 7px;border-radius:999px;background:var(--surface-sunken);color:var(--text-secondary)}
   .mm-empty{font-size:11.5px;color:var(--text-muted);font-style:italic;padding:2px 0 6px}
   .mm-loading{padding:26px;font-size:12.5px;color:var(--text-muted)}
+  .mm-pager{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:10px}
+  .mm-pg{width:28px;height:28px;border-radius:8px;border:1.5px solid var(--border-strong);background:var(--surface);color:var(--text-secondary);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:11px;transition:background .14s,border-color .14s}
+  .mm-pg:hover:not(:disabled){background:var(--surface-sunken);border-color:var(--lc)}
+  .mm-pg:active:not(:disabled){transform:translateY(1px)}
+  .mm-pg:disabled{opacity:.3;cursor:default}
+  .mm-pg-lbl{font-family:var(--font-mono);font-size:10.5px;color:var(--text-muted);letter-spacing:.02em}
 
   /* ---------- dark surface variant (3a/3b) ---------- */
   .mm.dark{
@@ -145,6 +151,7 @@
   var MM_THEME = 'light';
   var INTAKE_URL = 'https://www.leanrocketlab.org/new-client-intake-form';
   var MOBILE_MAX = 640; // < this width => stepper (2a); otherwise horizontal (2b)
+  var PAGE_SIZE = 6;    // max coaches / resources shown per stop before paginating each group
 
   /* ===== per-line content (from the design's logic class) ===== */
   // Each stop = [title, "you're here" sentence, "to reach next" sentence].
@@ -208,7 +215,7 @@
   var LCT    = { MRL:'var(--ink-900)', TRL:'#fff', CRL:'#fff', IRL:'#fff' };
 
   /* ===== state ===== */
-  var state = { line:'MRL', stop:1, providers:[] };
+  var state = { line:'MRL', stop:1, providers:[], coachPage:0, resPage:0 };
   var root = document.getElementById('root');
   var wrap = document.getElementById('wrap');
 
@@ -260,6 +267,7 @@
     };
   }
   function clamp(n,a,b){ n=Number(n)||1; return n<a?a:(n>b?b:n); }
+  function clamp0(n,a,b){ n=Number(n)||0; return n<a?a:(n>b?b:n); } // 0-valid (page indices)
 
   /* ===== render pieces ===== */
   function tabsHtml(v){
@@ -285,20 +293,35 @@
       + '<div class="mm-pc-org">'+esc(p.org)+'</div>'
       + '<div class="mm-tags">'+tags+'</div></div></a>';
   }
-  function groupHtml(v, title, icon, list, res, three){
+  function pageCount(total){ return Math.max(1, Math.ceil(total / PAGE_SIZE)); }
+  function pagerHtml(kind, page, total){
+    var pages = pageCount(total);
+    var start = page * PAGE_SIZE + 1, end = Math.min((page + 1) * PAGE_SIZE, total);
+    return '<div class="mm-pager">'
+      + '<button class="mm-pg" data-act="pg'+kind+'" data-dir="-1"'+(page<=0?' disabled':'')+' aria-label="Previous"><i class="fa-solid fa-chevron-left"></i></button>'
+      + '<span class="mm-pg-lbl">'+start+'–'+end+' of '+total+'</span>'
+      + '<button class="mm-pg" data-act="pg'+kind+'" data-dir="1"'+(page>=pages-1?' disabled':'')+' aria-label="Next"><i class="fa-solid fa-chevron-right"></i></button>'
+      + '</div>';
+  }
+  // kind: 'c' (coach) | 'r' (resource); page is the current page index for that group.
+  function groupHtml(v, title, icon, list, res, three, kind, page){
+    var total = list.length;
+    var pg = Math.min(Math.max(0, page || 0), pageCount(total) - 1);
+    var shown = list.slice(pg * PAGE_SIZE, pg * PAGE_SIZE + PAGE_SIZE);
     var body;
-    if (list.length){
-      body = '<div class="mm-cards'+(three?' three':'')+'">'+list.map(function(p){return cardHtml(p,res);}).join('')+'</div>';
+    if (total){
+      body = '<div class="mm-cards'+(three?' three':'')+'">'+shown.map(function(p){return cardHtml(p,res);}).join('')+'</div>';
+      if (total > PAGE_SIZE) body += pagerHtml(kind, pg, total);
     } else {
       body = '<div class="mm-empty">No '+(res?'resource':'coach')+' tagged here yet — ask your LRL advisor'+(res?'.':' for an intro.')+'</div>';
     }
     return '<div class="mm-grp"><div class="mm-grp-t"><span class="gi"><i class="fa-solid '+icon+'"></i></span>'
-      + title+' <span class="cnt">'+list.length+'</span></div>'+body+'</div>';
+      + title+' <span class="cnt">'+total+'</span></div>'+body+'</div>';
   }
   function peopleHtml(v, three){
     return '<div class="mm-people"><div class="mm-people-hd">Who can help at this stop</div>'
-      + groupHtml(v,'Coaches','fa-user-group',v.coaches,false,three)
-      + groupHtml(v,'Resources','fa-toolbox',v.resources,true,three)
+      + groupHtml(v,'Coaches','fa-user-group',v.coaches,false,three,'c',state.coachPage)
+      + groupHtml(v,'Resources','fa-toolbox',v.resources,true,three,'r',state.resPage)
       + '</div>';
   }
   function blocksHtml(v){
@@ -349,11 +372,22 @@
     var el = e.target.closest && e.target.closest('[data-act]');
     if (!el || !root.contains(el)) return;
     var act = el.getAttribute('data-act');
-    if (act === 'line'){ var k = el.getAttribute('data-k'); if (LINES[k]){ state.line = k; state.stop = 1; render(); } return; }
+    // Paging a group — advance/retreat that group's page only (no stop/line change, no page reset).
+    if (act === 'pgc' || act === 'pgr'){
+      var dir = Number(el.getAttribute('data-dir')) || 0;
+      var v = buildView();
+      var key = act === 'pgc' ? 'coachPage' : 'resPage';
+      var total = act === 'pgc' ? v.coaches.length : v.resources.length;
+      state[key] = clamp0(state[key] + dir, 0, pageCount(total) - 1);
+      render();
+      return;
+    }
+    // Changing the stop or line resets both group pages to the first page.
+    if (act === 'line'){ var k = el.getAttribute('data-k'); if (LINES[k]){ state.line = k; state.stop = 1; state.coachPage = 0; state.resPage = 0; render(); } return; }
     if (el.tagName === 'A') return; // people cards: let the link open
-    if (act === 'pick'){ state.stop = clamp(el.getAttribute('data-n'),1,LINES[state.line].stops.length); render(); return; }
-    if (act === 'prev'){ state.stop = clamp(state.stop-1,1,LINES[state.line].stops.length); render(); return; }
-    if (act === 'next'){ state.stop = clamp(state.stop+1,1,LINES[state.line].stops.length); render(); return; }
+    if (act === 'pick'){ state.stop = clamp(el.getAttribute('data-n'),1,LINES[state.line].stops.length); state.coachPage = 0; state.resPage = 0; render(); return; }
+    if (act === 'prev'){ state.stop = clamp(state.stop-1,1,LINES[state.line].stops.length); state.coachPage = 0; state.resPage = 0; render(); return; }
+    if (act === 'next'){ state.stop = clamp(state.stop+1,1,LINES[state.line].stops.length); state.coachPage = 0; state.resPage = 0; render(); return; }
   });
 
   // Re-render when crossing the mobile/desktop breakpoint (layout switch) or OS theme (auto).
