@@ -5,14 +5,14 @@
 // carries its resolved config (stored row or code default) so the UI shows the live gate.
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { defaultEnrichers, defaultContactEnrichers } from '@/lib/enrichment';
+import { defaultEnrichers, defaultContactEnrichers, defaultRecordEnrichers } from '@/lib/enrichment';
 import { resolveEnricherConfig } from '@/lib/enrichment/configStore';
 
 export interface EnricherListItem {
   name: string;
   description?: string;
   produces: string[];
-  target: 'company' | 'contact';
+  target: 'company' | 'contact' | 'resource';
   sourceObject: string;
   /** True when this enricher's gate is read by the engine today (contact pipeline/CLI). */
   gateWired: boolean;
@@ -34,6 +34,13 @@ export default async function handler(_req: NextApiRequest, res: NextApiResponse
         name: e.name, description: e.description, produces: e.produces,
         target: 'contact', sourceObject: 'contact', gateWired: true,
         config: await resolveEnricherConfig(e.name, 'contact'),
+      });
+    }
+    for (const { enricher: e, sourceObject } of defaultRecordEnrichers) {
+      items.push({
+        name: e.name, description: e.description, produces: e.produces,
+        target: 'resource', sourceObject, gateWired: true,
+        config: await resolveEnricherConfig(e.name, sourceObject),
       });
     }
     res.status(200).json({ enrichers: items });

@@ -54,7 +54,7 @@ function EnricherCard({ e }: { e: EnricherListItem }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
         <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 15, color: 'var(--text)' }}>{e.name}</span>
         <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--gray-450)', border: '1px solid var(--border-strong)', borderRadius: 999, padding: '2px 7px' }}>
-          {e.target === 'company' ? 'Company' : 'Contact'}
+          {e.target === 'company' ? 'Company' : e.target === 'resource' ? 'Resource' : 'Contact'}
         </span>
       </div>
       {e.description && <p style={{ margin: 0, fontSize: 13, color: 'var(--gray-500)' }}>{e.description}</p>}
@@ -97,6 +97,7 @@ export default function EnrichmentPage() {
 
   const companyEnrichers = enrichers.filter((e) => e.target === 'company');
   const contactEnrichers = enrichers.filter((e) => e.target === 'contact');
+  const resourceEnrichers = enrichers.filter((e) => e.target === 'resource');
 
   return (
     <Shell active="enrichment" breadcrumb="Data Enrichment" env="live">
@@ -122,6 +123,13 @@ export default function EnrichmentPage() {
           {contactEnrichers.map((e) => <EnricherCard key={e.name} e={e} />)}
           {contactEnrichers.length === 0 && !loadErr && <div style={{ fontSize: 13, color: 'var(--gray-450)' }}>Loading…</div>}
         </div>
+
+        {resourceEnrichers.length > 0 && <>
+          <div style={{ marginBottom: 10 }}><span style={eyebrow}>Resource enrichment</span></div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 14, marginBottom: 26 }}>
+            {resourceEnrichers.map((e) => <EnricherCard key={e.name} e={e} />)}
+          </div>
+        </>}
 
         {/* Single-company spot check */}
         <div style={{ ...card, padding: 20 }}>

@@ -4,7 +4,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { hasDatabase } from '@/lib/db';
 import { isAdmin } from '@/lib/auth/admin';
-import { defaultEnrichers, defaultContactEnrichers } from '@/lib/enrichment';
+import { defaultEnrichers, defaultContactEnrichers, defaultRecordEnrichers } from '@/lib/enrichment';
 import { getEnricherConfigStore, resolveEnricherConfig, sanitizeEnricherConfigInput } from '@/lib/enrichment/configStore';
 
 /** Look up an enricher's meta (description/produces/target) from the live registry. */
@@ -13,6 +13,8 @@ function findMeta(name: string) {
   if (c) return { name: c.name, description: c.description, produces: c.produces, target: 'contact' as const, sourceObject: 'contact', gateWired: true };
   const b = defaultEnrichers.find((e) => e.name === name);
   if (b) return { name: b.name, description: b.description, produces: b.produces, target: 'company' as const, sourceObject: 'business', gateWired: true };
+  const r = defaultRecordEnrichers.find((x) => x.enricher.name === name);
+  if (r) return { name: r.enricher.name, description: r.enricher.description, produces: r.enricher.produces, target: 'resource' as const, sourceObject: r.sourceObject, gateWired: true };
   return null;
 }
 

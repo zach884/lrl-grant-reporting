@@ -73,6 +73,14 @@ reads Wix. GHL is the system of record; the transform stays in code; only when/w
   matches + stamps. OPEN: exact GHL create-custom-field v2 body — resolve from the marketplace v2 ref
   or one careful test-create; the field GET shape is `{field:{id,fieldKey,name,dataType,parentId,...}}`
   under folder `VuQMCzWXPkuNXqG2fCna`.
+- **B — Resource enricher — ✅ DONE (2026-07-23).** `lib/enrichment/recordEngine.ts` (object-agnostic
+  enrich, mirrors contactEngine) + `enrichers/resourceTagger.ts` (RecordEnricher; org-flavored prompt,
+  reuses taxonomy + deriveStops; writes custom_objects.resources.* fields). Registered in
+  `defaultRecordEnrichers`; config default `resource_status ∈ {Approved}` seeded; `/enrichment` lists a
+  Resource section + the detail page edits its gate (object-catalog field picker). CLI
+  `resources-tag-run.ts` (--all/--status/--only/--limit, --apply --yes). Dry-run over 10 classified
+  10/10 cleanly (Endurance Law → ip/legal, DFMM → dfm/supply, EDCs → bizmodel/grants/market). Tests:
+  recordEngine + resourceTagger. Original plan below:
 - **B — Resource enricher:** resource-flavored tagger (`lib/enrichment/enrichers/resourceTagger.ts`)
   + a custom-object enrich path (generalize `contactEngine` to a record engine, or `recordEngine.ts`).
   Register in the registry; gate config via `/enrichment` (sourceObject `custom_objects.resources`),

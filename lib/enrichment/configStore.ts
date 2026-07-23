@@ -43,6 +43,14 @@ export const DEFAULT_ENRICHER_CONFIGS: Record<string, EnricherConfig> = {
       },
     ],
   },
+  // Resources: credit-gate on resource_status = Approved (no membership dimension — Resources are orgs).
+  'resource-tagger::custom_objects.resources': {
+    enricher: 'resource-tagger',
+    sourceObject: 'custom_objects.resources',
+    enabled: true,
+    combine: 'AND',
+    groups: [{ combine: 'AND', filters: [{ field: 'custom_objects.resources.resource_status', anyOf: ['Approved'] }] }],
+  },
 };
 
 const keyOf = (enricher: string, sourceObject: string) => `${enricher}::${sourceObject}`;

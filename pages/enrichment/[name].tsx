@@ -15,7 +15,7 @@ import type { EnricherConfig, EnricherGroup, FilterCombine } from '@/lib/enrichm
 
 const SECRET_KEY = 'mapping_admin_secret';
 
-interface EnricherMeta { name: string; description?: string; produces: string[]; target: 'company' | 'contact'; sourceObject: string; gateWired: boolean }
+interface EnricherMeta { name: string; description?: string; produces: string[]; target: 'company' | 'contact' | 'resource'; sourceObject: string; gateWired: boolean }
 
 const inputBase: React.CSSProperties = { border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', padding: '9px 12px', fontSize: 13, color: 'var(--text)', fontFamily: 'var(--font-body)' };
 const primaryBtn: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 7, padding: '9px 16px', borderRadius: 8, border: 'none', background: 'var(--brand)', color: 'var(--ink-900)', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, cursor: 'pointer', boxShadow: 'var(--shadow-brand)' };
@@ -83,6 +83,15 @@ function EnricherDetail() {
     let cancelled = false;
     (async () => {
       try {
+        // Resources (custom objects) load their own object catalog; company/contact come from /catalogs.
+        if (meta.target === 'resource') {
+          const c = await fetch(`/api/mapping/object-catalog?object=${encodeURIComponent(meta.sourceObject)}`);
+          if (!c.ok) return;
+          const d = await c.json();
+          if (cancelled) return;
+          setScalars(d.scalars ?? []); setFields(d.fields ?? []);
+          return;
+        }
         const c = await fetch('/api/mapping/catalogs');
         if (!c.ok) return;
         const d = await c.json();
@@ -141,7 +150,7 @@ function EnricherDetail() {
             <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 20, marginBottom: 18, flexWrap: 'wrap' }}>
               <div style={{ minWidth: 0 }}>
                 <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 11, letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--brand)' }}>
-                  {meta?.target === 'company' ? 'Company enricher' : 'Contact enricher'}
+                  {meta?.target === 'company' ? 'Company enricher' : meta?.target === 'resource' ? 'Resource enricher' : 'Contact enricher'}
                 </span>
                 <h1 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 25, letterSpacing: '-.02em', margin: '6px 0 6px', color: 'var(--text)' }}>{name}</h1>
                 {meta?.description && <p style={{ margin: 0, fontSize: 14, color: 'var(--gray-500)', maxWidth: '72ch' }}>{meta.description}</p>}
@@ -164,7 +173,7 @@ function EnricherDetail() {
                 <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 16, color: 'var(--text)' }}>Gate — when this enricher runs</span>
               </div>
               <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--gray-500)', maxWidth: '76ch' }}>
-                Each filter runs the enricher only when a field is one of the chosen values. Filters combine inside a group; groups combine at the top. With no filters it runs on every {meta?.target === 'company' ? 'company' : 'contact'} that changes.
+                Each filter runs the enricher only when a field is one of the chosen values. Filters combine inside a group; groups combine at the top. With no filters it runs on every {meta?.target === 'company' ? 'company' : meta?.target === 'resource' ? 'resource' : 'contact'} that changes.
               </p>
 
               {/* top-level combine across groups */}

@@ -25,25 +25,20 @@ function flag(name: string): boolean { return process.argv.includes(`--${name}`)
   loadEnvLocal();
   const apply = flag('apply');
   const { getEnricherConfigStore, DEFAULT_ENRICHER_CONFIGS } = await import('../lib/enrichment/configStore');
-
-  const seed = DEFAULT_ENRICHER_CONFIGS['readiness-tagger::contact'];
   const store = getEnricherConfigStore();
 
-  const current = await store.get(seed.enricher, seed.sourceObject);
-  console.log(`Enricher: ${seed.enricher} (${seed.sourceObject})`);
-  console.log('Current config:', JSON.stringify(current ?? '(none — code default applies)'));
-  console.log('Will seed     :', JSON.stringify({ enabled: seed.enabled, combine: seed.combine, groups: seed.groups }));
-
-  if (current
-    && current.enabled === seed.enabled
-    && current.combine === seed.combine
-    && JSON.stringify(current.groups) === JSON.stringify(seed.groups)) {
-    console.log('\nAlready seeded — nothing to do. ✅');
-    process.exit(0);
+  // Seed EVERY code-default config (idempotent). A missing row already falls back to the same default,
+  // so seeding changes no behavior — it just pins the gate visibly/editably in /enrichment.
+  let wrote = 0;
+  for (const seed of Object.values(DEFAULT_ENRICHER_CONFIGS)) {
+    const current = await store.get(seed.enricher, seed.sourceObject);
+    const same = current && current.enabled === seed.enabled && current.combine === seed.combine
+      && JSON.stringify(current.groups) === JSON.stringify(seed.groups);
+    console.log(`${seed.enricher} (${seed.sourceObject}): ${same ? 'already seeded ✅' : apply ? 'seeding…' : 'WOULD seed'} ${JSON.stringify(seed.groups)}`);
+    if (same || !apply) continue;
+    await store.upsert(seed);
+    wrote++;
   }
-  if (!apply) { console.log('\nDRY-RUN — re-run with --apply to write.'); process.exit(0); }
-
-  const saved = await store.upsert(seed);
-  console.log(`\n✅ Seeded enricher config: combine=${saved.combine} groups=${JSON.stringify(saved.groups)}.`);
+  console.log(apply ? `\n✅ Done — ${wrote} config(s) written.` : '\nDRY-RUN — re-run with --apply to write.');
   process.exit(0);
 })().catch((e) => { console.error('SEED ENRICHER CONFIG FAILED:', e?.stack ?? e); process.exit(2); });

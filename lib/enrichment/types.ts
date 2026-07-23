@@ -126,3 +126,46 @@ export interface ContactEnrichmentResult {
   skipped: Array<{ contactKey: string; reason: string }>;
   didWrite: boolean;
 }
+
+// ── Record-targeted enrichment (any GHL object: custom_objects.*, business) ───────────────────
+// The object-agnostic twin of the contact enricher: the target is any objects-API record, addressed
+// by objectKey + recordId, with values read via lib/ghl/records.readRecordFields and written via
+// lib/ghl/writeRecord.writeRecordFields. Added for the resource tagger (custom_objects.resources).
+
+export interface RecordEnricherInput {
+  objectKey: string;
+  recordId: string;
+  catalog: CustomFieldCatalog;
+  /** Read any field off the record by fieldKey (prefixed or bare) or scalar name. */
+  field: (key: string) => unknown;
+}
+
+export interface RecordEnrichmentProposal {
+  /** Target field key on the object, e.g. 'custom_objects.resources.service_areas'. */
+  fieldKey: string;
+  value: unknown;
+  provenance: Provenance;
+}
+
+export interface RecordEnricher {
+  name: string;
+  description?: string;
+  produces: string[];
+  /** Return [] to skip cleanly. */
+  enrich(input: RecordEnricherInput): Promise<RecordEnrichmentProposal[]>;
+}
+
+export interface AppliedRecordField {
+  fieldKey: string;
+  value: unknown;
+  provenance: Provenance;
+}
+
+export interface RecordEnrichmentResult {
+  objectKey: string;
+  recordId: string;
+  proposals: RecordEnrichmentProposal[];
+  applied: AppliedRecordField[];
+  skipped: Array<{ fieldKey: string; reason: string }>;
+  didWrite: boolean;
+}
