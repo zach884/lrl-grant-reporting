@@ -105,11 +105,13 @@ export function buildResourceProposals(
       { fieldKey: `${objectKey}.readiness_rationale`, value: rationaleText || 'No clear service identified.', provenance },
     ];
   }
+  // GHL custom-object MULTIPLE_OPTIONS can't be set via update, so these live as TEXT holding a
+  // delimited list; the Wix sync splits them back into ARRAY_STRING columns for the map.
   const stops = deriveStops(tags);
   const out: RecordEnrichmentProposal[] = [
-    { fieldKey: `${objectKey}.service_areas`, value: tagsToLabels(tags), provenance },
+    { fieldKey: `${objectKey}.service_areas`, value: tagsToLabels(tags).join('; '), provenance },
   ];
-  for (const line of LINE_KEYS) out.push({ fieldKey: `${objectKey}.${STOP_BARE[line]}`, value: stops[line].map(String), provenance });
+  for (const line of LINE_KEYS) out.push({ fieldKey: `${objectKey}.${STOP_BARE[line]}`, value: stops[line].map(String).join(';'), provenance });
   out.push({ fieldKey: `${objectKey}.readiness_confidence`, value: confidence, provenance });
   out.push({ fieldKey: `${objectKey}.readiness_rationale`, value: rationaleText, provenance });
   return out;

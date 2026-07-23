@@ -96,12 +96,24 @@ reads Wix. GHL is the system of record; the transform stays in code; only when/w
 - **C — Object-agnostic Wix sync (orig):** generalize `syncContactToWix` → read a custom-object record
   (via `records.ts`) so a mapping set `custom_objects.resources → Import1` runs the gate / createPolicy
   / visibility / writeback / match-by-`ghlResourceId`. Dispatch on resource-change webhook.
-- **D — Mapping set:** seed Resource → Wix `Import1` (field rows + gate), like `set-team-gate.ts`.
-- **E — Embed:** add the Resources branch to `wix-embed/backend/http-functions.js` `get_providers`
-  (query `Import1`, map `type:'tap'`, `serviceAreas` + stops); the map already renders the "Technical
-  Assistance Providers" group. Zach pastes into Wix.
-- **F — Backfill + verify:** tagger over the 90 (dry-run review), sync, confirm the map. Coverage/gap
+- **D — Mapping set — ✅ DONE.** `scripts-ts/set-resource-gate.ts` created the persisted
+  `Resources → Wix Resources` set (id 0feeb2c1…): match id↔ghlResourceId, gate = resource_status state
+  machine (Pending→skip · Approved→upsert+publish→Published · Published→update · Hidden→hide),
+  visibility publishState, writeback wix_resource_row_id, 15 rows (descriptive + readiness).
+- **E — Embed — ✅ DONE.** `wix-embed/backend/http-functions.js` `get_providers` now also queries
+  `Import1` → `type:'tap'` (name/category/logo/shortDescription + serviceAreas + stops), concatenated
+  with coaches; a missing Resources collection can't break the coach bench. **Zach pastes into Wix.**
+- **F — Backfill + verify — ✅ (live).** Tagged 90 (81 placed, 9 no-service, 0 err), set
+  resource_status=Published, synced GHL→Wix (gated `update`, never creates — all linked). Coverage/gap
   view (TRL 7 hole) = later.
+
+### Field-type correction (important, 2026-07-23)
+GHL custom-object **MULTIPLE_OPTIONS is settable only at record CREATE, not via update** — so
+service_areas + the 4 stop fields silently dropped on the first tag run. Fixed: those 5 fields are
+now **TEXT** holding a delimited list (`resources-fix-fields.ts` deleted+recreated them); the tagger
+writes `'; '`/`';'`-joined strings; the Wix ARRAY_STRING coercion already splits `[,;]` → array. Also
+GHL SINGLE_OPTIONS reads back the lowercased option KEY (`"published"`), so the sync gate is now
+**case-insensitive** (`resolveAction`). Team/contact side unaffected (MULTIPLE_OPTIONS works on contacts).
 
 ## Definition of done
 Resources managed in GHL, enriched (service tags + stops) with an editable gate, synced to the Wix

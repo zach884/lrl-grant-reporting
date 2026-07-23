@@ -25,17 +25,18 @@ const RES_OBJ = 'custom_objects.resources';
 const RES_FIELDS_FOLDER = 'VuQMCzWXPkuNXqG2fCna'; // the resources object's field folder (parentId)
 const WIX_RES = 'Import1';
 
-const nums = (a: number, b: number) => Array.from({ length: b - a + 1 }, (_, i) => String(a + i));
-
 // GHL fields to add (bare key). options is the label list for OPTION types.
 type GhlField = { key: string; name: string; type: string; options?: string[]; note?: string };
-function ghlTarget(serviceLabels: string[]): GhlField[] {
+function ghlTarget(): GhlField[] {
   return [
-    { key: 'service_areas', name: 'Service Areas', type: 'MULTIPLE_OPTIONS', options: serviceLabels, note: '29 taxonomy labels' },
-    { key: 'mrl_stops', name: 'MRL Stops', type: 'MULTIPLE_OPTIONS', options: nums(1, 10) },
-    { key: 'trl_stops', name: 'TRL Stops', type: 'MULTIPLE_OPTIONS', options: nums(1, 9) },
-    { key: 'crl_stops', name: 'CRL Stops', type: 'MULTIPLE_OPTIONS', options: nums(1, 9) },
-    { key: 'investor_readiness_stops', name: 'Investor Readiness Stops', type: 'MULTIPLE_OPTIONS', options: nums(1, 9) },
+    // NOTE: TEXT (delimited list), NOT MULTIPLE_OPTIONS — GHL custom-object MULTIPLE_OPTIONS can't be
+    // set via update (only at record create), so the tagger writes a '; '/';'-joined string and the
+    // Wix sync splits it into an ARRAY_STRING column.
+    { key: 'service_areas', name: 'Service Areas', type: 'TEXT', note: 'delimited service labels' },
+    { key: 'mrl_stops', name: 'MRL Stops', type: 'TEXT' },
+    { key: 'trl_stops', name: 'TRL Stops', type: 'TEXT' },
+    { key: 'crl_stops', name: 'CRL Stops', type: 'TEXT' },
+    { key: 'investor_readiness_stops', name: 'Investor Readiness Stops', type: 'TEXT' },
     { key: 'readiness_confidence', name: 'Readiness Confidence', type: 'SINGLE_OPTIONS', options: ['High', 'Medium', 'Low'] },
     { key: 'readiness_rationale', name: 'Readiness Rationale', type: 'LARGE_TEXT' },
     { key: 'resource_status', name: 'Resource Status', type: 'SINGLE_OPTIONS', options: ['Pending', 'Approved', 'Published', 'Hidden'], note: 'sync gate' },
@@ -62,10 +63,8 @@ const WIX_TARGET: Array<{ key: string; displayName: string; type: string }> = [
   const { getWixCollectionSchema } = await import('../lib/wix/catalogCache');
   const { createObjectField } = await import('../lib/ghl/customFields');
   const { createField } = await import('../lib/wix/collections');
-  const { SERVICES } = await import('../lib/enrichment/data/readiness');
 
-  const serviceLabels = Object.values(SERVICES) as string[];
-  const GHL_TARGET = ghlTarget(serviceLabels);
+  const GHL_TARGET = ghlTarget();
 
   console.log(`=== Resources/TAP · Phase A prep (${apply ? 'APPLY' : 'AUDIT'}) ===\n`);
 

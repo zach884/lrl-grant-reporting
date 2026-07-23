@@ -35,6 +35,23 @@ const FIELDS = {
   irl: 'investorReadinessStops',
 };
 
+/* Resources (Technical Assistance Providers) collection = `Import1`. Same readiness columns as Team
+ * (serviceAreas + the 4 stop arrays, written by the resource-tagger + synced GHL → Wix). No membership
+ * tags — every resource is a TA provider. Mapped to type:'tap' (the map renders a separate TA group). */
+const RES_COLLECTION = 'Import1';
+const RES_FIELDS = {
+  name: 'companyResourceName',
+  org: 'category',
+  photo: 'logo',
+  bio: 'shortDescription',
+  website: 'website',
+  serviceAreas: 'serviceAreas',
+  mrl: 'mrlStops',
+  trl: 'trlStops',
+  crl: 'crlStops',
+  irl: 'investorReadinessStops',
+};
+
 /* Convert a Wix media URI (wix:image://v1/<id>~mv2.<ext>/<file>#...) to a public static URL so
  * the map's <img> can render it. Returns null for empty/unrecognized values → the map then shows
  * an initials avatar. Already-http(s) URLs pass through unchanged. */
@@ -57,7 +74,7 @@ function toProvider(m) {
     id: m._id,
     name: m[FIELDS.name] || '',
     org: m[FIELDS.org] || '',
-    type: 'coach', // Team collection = coaches/EIRs. (Add a Resources branch as type:'tap' later.)
+    type: 'coach', // Team collection = coaches/EIRs.
     photo: toStaticImageUrl(m[FIELDS.photo]),
     bio: m[FIELDS.bio] || '',
     website: m[FIELDS.linkedIn] || m[FIELDS.website] || '',
@@ -71,6 +88,26 @@ function toProvider(m) {
   };
 }
 
+/* Resources collection row → provider (type:'tap'). Same shape; placement by the synced stops. */
+function toTapProvider(m) {
+  return {
+    id: m._id,
+    name: m[RES_FIELDS.name] || '',
+    org: m[RES_FIELDS.org] || '',
+    type: 'tap',
+    photo: toStaticImageUrl(m[RES_FIELDS.photo]),
+    bio: m[RES_FIELDS.bio] || '',
+    website: m[RES_FIELDS.website] || '',
+    services: Array.isArray(m[RES_FIELDS.serviceAreas]) ? m[RES_FIELDS.serviceAreas] : [],
+    stops: {
+      MRL: stopArray(m[RES_FIELDS.mrl]),
+      TRL: stopArray(m[RES_FIELDS.trl]),
+      CRL: stopArray(m[RES_FIELDS.crl]),
+      IRL: stopArray(m[RES_FIELDS.irl]),
+    },
+  };
+}
+
 const JSON_HEADERS = {
   'Content-Type': 'application/json',
   // Wix "Embed HTML" elements run in a sandboxed iframe on a DIFFERENT origin than the site,
@@ -78,22 +115,31 @@ const JSON_HEADERS = {
   'Access-Control-Allow-Origin': '*',
 };
 
+/** True when a provider is placed on at least one line (tagged) — hides untagged rows. */
+function isPlaced(p) {
+  return p.stops.MRL.length || p.stops.TRL.length || p.stops.CRL.length || p.stops.IRL.length;
+}
+
 export async function get_providers(request) {
   try {
-    // Page through the collection (query caps at 1000/req; 200 is plenty for the coach bench).
-    const res = await wixData
+    // Coaches (Team) — EIR/Team only, Board excluded.
+    const teamRes = await wixData
       .query(COLLECTION)
-      .hasSome(FIELDS.tags, ['EIR', 'Team']) // coaches only; excludes Board-only
+      .hasSome(FIELDS.tags, ['EIR', 'Team'])
       .limit(200)
       .find({ suppressAuth: true });
+    const coaches = teamRes.items.map(toProvider).filter(isPlaced);
 
-    const providers = res.items
-      .map(toProvider)
-      // Only show people who have been placed on at least one line (tagged), so untagged rows
-      // don't render as empty cards while the backfill is still running.
-      .filter((p) => p.stops.MRL.length || p.stops.TRL.length || p.stops.CRL.length || p.stops.IRL.length);
+    // Resources (TA providers) — every resource; placement by its synced stops.
+    let taps = [];
+    try {
+      const resRes = await wixData.query(RES_COLLECTION).limit(200).find({ suppressAuth: true });
+      taps = resRes.items.map(toTapProvider).filter(isPlaced);
+    } catch (e) {
+      // A missing/renamed Resources collection must not break the coach bench.
+    }
 
-    return ok({ headers: JSON_HEADERS, body: { providers } });
+    return ok({ headers: JSON_HEADERS, body: { providers: [...coaches, ...taps] } });
   } catch (e) {
     return serverError({ headers: JSON_HEADERS, body: { error: String((e && e.message) || e), providers: [] } });
   }

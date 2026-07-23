@@ -11,7 +11,7 @@ import { GhlClient, ghl } from '../ghl/client';
 import { writeRecordFields } from '../ghl/writeRecord';
 import { readRecordFields } from '../ghl/records';
 import type { Contact, CustomFieldCatalog, GhlFieldOption } from '../ghl/types';
-import type { WixMappingSet } from '../mapping/wixTypes';
+import type { GateAction, WixMappingSet } from '../mapping/wixTypes';
 import { WixClient, wix } from '../wix/client';
 import { coerceToWix, isUnwritableWixType, type GhlSourceType } from '../wix/coerce';
 import {
@@ -93,8 +93,12 @@ type EngineAction = 'upsert' | 'update' | 'hide' | 'skip';
 function resolveAction(set: WixMappingSet, resolve: (key: string) => SourceField): { action: EngineAction; gateValue?: unknown } {
   if (set.gate) {
     const gateValue = resolve(set.gate.field).value;
-    const key = gateValue == null ? '' : String(gateValue);
-    return { action: (set.gate.actions[key] ?? 'skip') as EngineAction, gateValue };
+    // Case-insensitive match: GHL SINGLE_OPTIONS reads back the lowercased option KEY (e.g. "published"),
+    // while gate actions are usually keyed by the label ("Published"). Match either way.
+    const key = gateValue == null ? '' : String(gateValue).toLowerCase();
+    const lut: Record<string, GateAction> = {};
+    for (const [k, v] of Object.entries(set.gate.actions)) lut[k.toLowerCase()] = v;
+    return { action: (lut[key] ?? 'skip') as EngineAction, gateValue };
   }
   return { action: set.createPolicy === 'update_only' ? 'update' : 'upsert' };
 }

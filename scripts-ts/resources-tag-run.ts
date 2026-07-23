@@ -105,7 +105,8 @@ async function runPool<T>(items: T[], limit: number, worker: (item: T, i: number
 
   // Console preview
   console.log(`\n${apply ? 'Applied' : 'Would apply'}: ${stats.writes} field-write(s) across ${stats.changed} resource(s). ${stats.verify} VERIFY, ${stats.error} error(s).`);
-  for (const r of rows.slice(0, 12)) console.log(`  • ${r.name}: ${r.error ? 'ERROR ' + r.error : `[${(r.serviceAreas || []).join(', ')}] (${r.confidence}${r.verify ? ', VERIFY' : ''})`}`);
+  const asList = (v: unknown) => Array.isArray(v) ? v.join(', ') : String(v ?? '');
+  for (const r of rows.slice(0, 12)) console.log(`  • ${r.name}: ${r.error ? 'ERROR ' + r.error : `[${asList(r.serviceAreas)}] (${r.confidence}${r.verify ? ', VERIFY' : ''})`}`);
   console.log(`\nReview: reports/${tag}.csv`);
   process.exit(0);
 })().catch((e) => { console.error('RESOURCES TAG RUN FAILED:', e?.stack ?? e); process.exit(2); });
