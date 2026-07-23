@@ -130,3 +130,33 @@ export async function getCustomField(
   if (!f || !f.id) return null;
   return normalizeField(f);
 }
+
+/** Create a custom field on a GHL OBJECT (business / custom_objects.*). Verified body shape
+ *  (2026-07-23): the v2 endpoint requires fieldKey + parentId (a field-folder id); OPTION types take
+ *  `options: [{key,label}]` (GHL lowercases the key). Returns the created field's id. */
+export async function createObjectField(
+  input: {
+    objectKey: string;
+    parentId: string;
+    bareKey: string; // e.g. 'service_areas' -> fieldKey `${objectKey}.service_areas`
+    name: string;
+    dataType: string; // TEXT | LARGE_TEXT | NUMERICAL | SINGLE_OPTIONS | MULTIPLE_OPTIONS | ...
+    options?: string[]; // labels for OPTION types
+    showInForms?: boolean;
+  },
+  client: GhlClient = ghl(),
+): Promise<string> {
+  const body: Record<string, unknown> = {
+    locationId: client.locationId,
+    name: input.name,
+    dataType: input.dataType,
+    objectKey: input.objectKey,
+    fieldKey: `${input.objectKey}.${input.bareKey}`,
+    parentId: input.parentId,
+    showInForms: input.showInForms ?? false,
+  };
+  if (input.options?.length) body.options = input.options.map((o) => ({ key: o, label: o }));
+  const data = await client.request<any>({ method: 'POST', path: '/custom-fields/', autoLocation: false, body });
+  const f = data.customField ?? data.field ?? data;
+  return f?.id ?? '';
+}
