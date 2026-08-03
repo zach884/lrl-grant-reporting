@@ -14,7 +14,11 @@ export function countyRawToLabel(
 ): string | null {
   if (!raw) return null;
   const otherLabel = options?.find((o) => o.label.toLowerCase() === 'other')?.label ?? 'Other';
-  if (state && state.trim().toUpperCase() !== 'MI') return otherLabel;
+  // Accept both the abbreviation and the spelled-out name — GHL addresses carry either ("MI" or
+  // "Michigan"). Only a state that's present AND clearly not Michigan forces "Other" (out-of-state);
+  // a blank state falls through to the county-name match (the geocoded county is authoritative).
+  const s = state?.trim().toUpperCase();
+  if (s && s !== 'MI' && s !== 'MICHIGAN') return otherLabel;
 
   const base = raw.replace(/\s+county$/i, '').trim();
   const candidate = `${base} County (MI)`;
