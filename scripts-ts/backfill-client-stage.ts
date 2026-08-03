@@ -2,7 +2,7 @@
 // One-time backfill: create Client Stage Tracking records from each scored contact's
 // scoring history (mined from "Stage Scoring" notes; falls back to the initial/current
 // contact fields when a contact has no parseable notes), associated to the contact's
-// company. Idempotent via (source_contact_id + rescore_date). Dry-run writes a review CSV.
+// company. Idempotent via the record name (name + kind + date). Dry-run writes a review CSV.
 //
 //   npx vite-node scripts-ts/backfill-client-stage.ts               # dry-run (writes review CSV)
 //   npx vite-node scripts-ts/backfill-client-stage.ts --limit 80    # dry-run, first 80 contacts
@@ -48,7 +48,9 @@ async function fetchCatalog(objectKey: string, isContact = false): Promise<Custo
   return { fields, folders: [], byKey, byId };
 }
 
-/** Load existing stage records -> set of "contactId|YYYY-MM-DD" already present (dedup). */
+/** Load existing stage records -> set of record `name`s already present (dedup). The name encodes
+ *  "<contact/company> — <Kind> <YYYY-MM-DD>", so it uniquely identifies a backfilled event. (Was keyed
+ *  on source_contact_id + date until that field was removed 2026-07-31.) */
 async function loadExistingKeys(): Promise<Set<string>> {
   const keys = new Set<string>(); let page = 1;
   for (;;) {
@@ -57,7 +59,7 @@ async function loadExistingKeys(): Promise<Set<string>> {
     if (recs.length === 0) break;
     for (const r of recs) {
       const p = r.properties ?? {};
-      if (p.source_contact_id && p.rescore_date) keys.add(`${p.source_contact_id}|${String(p.rescore_date).slice(0, 10)}`);
+      if (p.name) keys.add(String(p.name));
     }
     if (recs.length < 100) break; page++;
   }
@@ -94,6 +96,7 @@ async function main() {
   const [contactCat, stageCat] = await Promise.all([fetchCatalog('contact', true), fetchCatalog(STAGE)]);
   const methodOpts = stageCat.byKey[`${STAGE}.rescore_method`]?.options;
   const kindOpts = stageCat.byKey[`${STAGE}.snapshot_kind`]?.options;
+  const substageOpts = stageCat.byKey[`${STAGE}.churchill_substage`]?.options;
   // association id for company <-> client stage
   const assocs = await client.request<any>({ path: '/associations/', params: { limit: 100 } });
   const assocId = (assocs.associations ?? []).find((a: any) => a.key === 'company_business_stage')?.id;
@@ -165,23 +168,24 @@ async function main() {
 
     const name = [c.firstName, c.lastName].filter(Boolean).join(' ') || c.companyName || lite.id;
     for (const e of events) {
-      const dedupKey = `${lite.id}|${String(e.date).slice(0, 10)}`;
-      if (existing.has(dedupKey)) { skippedDup++; continue; }
+      // Dedup on the record name (encodes name + kind + date) — the source_contact_id field was removed.
+      const recordName = `${name} — ${e.snapshotKind} ${String(e.date).slice(0, 10)}`;
+      if (existing.has(recordName)) { skippedDup++; continue; }
       const action = APPLY ? 'created' : 'would-create';
       appendFileSync(CSV, [lite.id, name, c.businessId, e.snapshotKind, String(e.date).slice(0, 10),
         e.churchill, e.substage, e.trl, e.mrl, e.crl, `${action}(${source})`, curOk ? 'ok' : 'MISMATCH'].map(csvCell).join(',') + '\n');
       if (!APPLY) continue;
 
       const props: Record<string, unknown> = {
-        name: `${name} — ${e.snapshotKind} ${String(e.date).slice(0, 10)}`,
-        source_contact_id: lite.id,
+        name: recordName,
         snapshot_kind: resolveOptionLabel(e.snapshotKind, kindOpts) ?? e.snapshotKind,
         rescore_date: toGhlDate(e.date),
         rescore_method: resolveOptionLabel((cf[contactCat.byKey['contact.business_stage_rescored_method']?.id ?? ''] as string) || 'AI', methodOpts) ?? 'AI',
         stage_rationale: e.rationale || undefined,
       };
       if (e.churchill != null) props.churchill_score = e.churchill;
-      if (e.substage != null) props.churchill_substage = e.substage;
+      // churchill_substage is now SINGLE_OPTIONS [III-D, III-G, N/A] — resolve to the exact option label.
+      if (e.substage != null) { const s = resolveOptionLabel(e.substage, substageOpts); if (s) props.churchill_substage = s; }
       if (e.trl != null) props.trl = e.trl;
       if (e.mrl != null) props.mrl = e.mrl;
       if (e.crl != null) props.crl = e.crl;
@@ -193,7 +197,7 @@ async function main() {
       if (rid) {
         await client.request({ method: 'POST', path: '/associations/relations', autoLocation: false, body: { locationId: client.locationId, associationId: assocId, firstRecordId: c.businessId, secondRecordId: rid } });
         created++;
-        existing.add(dedupKey);
+        existing.add(recordName);
       }
     }
     if (RESUME) appendFileSync(CKPT, lite.id + '\n');

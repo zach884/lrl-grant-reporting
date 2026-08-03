@@ -14,6 +14,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { getCatalogs } from '@/lib/ghl/catalogCache';
 import { applyContactChange } from '@/lib/sync/orchestrate';
 import { enrichCompany, defaultEnrichers } from '@/lib/enrichment';
+import { runStageScoreTrigger } from '@/lib/stage/trigger';
 import { hasDatabase } from '@/lib/db';
 import { hasWix } from '@/lib/wix/config';
 import { runContactTeamPipeline } from '@/lib/wix-sync/pipeline';
@@ -80,6 +81,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
+    // Client Stage scorer: when a scoring input changed on the company, (re)score it and upsert today's
+    // Client Stage Tracking record. Company-scoped but triggered by the contact change. Config-gated
+    // (enabled + gate) and change-gated (only fires when a field that feeds the score changed), so a
+    // normal contact edit does NOT spend a Claude call. Non-fatal + isolated like the enrichers above.
+    let stageScore: unknown = null;
+    if (companyId) {
+      try {
+        stageScore = await runStageScoreTrigger(companyId, {
+          apply: !dryRun,
+          changedFields: companyFieldsWritten,
+          businessCatalog: catalogs.business,
+        });
+      } catch (e: any) {
+        stageScore = { error: e?.message ?? 'stage scoring failed' };
+      }
+    }
+
     // Contact → Team pipeline: readiness enrich (on status=Approved) + Wix Team sync. This makes
     // ONE "Contact Changed" webhook fan out to everything. Non-fatal + isolated: any failure here
     // must never break the company up/down sync above, so it's wrapped and only runs when the DB +
@@ -93,7 +111,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
-    return res.status(200).json({ ok: true, dryRun, contactId, companyId, up: upResp, down: downResp, enrich, readiness });
+    return res.status(200).json({ ok: true, dryRun, contactId, companyId, up: upResp, down: downResp, enrich, stageScore, readiness });
   } catch (e: any) {
     console.error('sync/up error:', e);
     return res.status(500).json({ error: e?.message ?? 'sync failed' });

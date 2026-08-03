@@ -7,6 +7,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { defaultEnrichers, defaultContactEnrichers, defaultRecordEnrichers } from '@/lib/enrichment';
 import { resolveEnricherConfig } from '@/lib/enrichment/configStore';
+import { STAGE_SCORER_META } from '@/lib/stage/trigger';
 
 export interface EnricherListItem {
   name: string;
@@ -43,6 +44,13 @@ export default async function handler(_req: NextApiRequest, res: NextApiResponse
         config: await resolveEnricherConfig(e.name, sourceObject),
       });
     }
+    // The Client Stage scorer isn't an Enricher object (it appends a record rather than filling company
+    // fields), so it's registered from its meta rather than defaultEnrichers.
+    items.push({
+      name: STAGE_SCORER_META.name, description: STAGE_SCORER_META.description, produces: STAGE_SCORER_META.produces,
+      target: 'company', sourceObject: STAGE_SCORER_META.sourceObject, gateWired: true,
+      config: await resolveEnricherConfig(STAGE_SCORER_META.name, STAGE_SCORER_META.sourceObject),
+    });
     res.status(200).json({ enrichers: items });
   } catch (error: any) {
     console.error('enrichers/index error:', error);

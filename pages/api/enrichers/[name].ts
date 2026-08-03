@@ -6,6 +6,7 @@ import { hasDatabase } from '@/lib/db';
 import { isAdmin } from '@/lib/auth/admin';
 import { defaultEnrichers, defaultContactEnrichers, defaultRecordEnrichers } from '@/lib/enrichment';
 import { getEnricherConfigStore, resolveEnricherConfig, sanitizeEnricherConfigInput } from '@/lib/enrichment/configStore';
+import { STAGE_SCORER_META } from '@/lib/stage/trigger';
 
 /** Look up an enricher's meta (description/produces/target) from the live registry. */
 function findMeta(name: string) {
@@ -15,6 +16,7 @@ function findMeta(name: string) {
   if (b) return { name: b.name, description: b.description, produces: b.produces, target: 'company' as const, sourceObject: 'business', gateWired: true };
   const r = defaultRecordEnrichers.find((x) => x.enricher.name === name);
   if (r) return { name: r.enricher.name, description: r.enricher.description, produces: r.enricher.produces, target: 'resource' as const, sourceObject: r.sourceObject, gateWired: true };
+  if (name === STAGE_SCORER_META.name) return { ...STAGE_SCORER_META };
   return null;
 }
 

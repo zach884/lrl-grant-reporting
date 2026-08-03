@@ -51,6 +51,16 @@ export const DEFAULT_ENRICHER_CONFIGS: Record<string, EnricherConfig> = {
     combine: 'AND',
     groups: [{ combine: 'AND', filters: [{ field: 'custom_objects.resources.resource_status', anyOf: ['Approved'] }] }],
   },
+  // Client Stage scorer: ON by default, no filters — it self-gates in code (skips companies with no
+  // business_model to route on, and only fires when a scoring input changed). Add filters in the UI to
+  // narrow it (e.g. only score companies past a certain status).
+  'client-stage-scorer::business': {
+    enricher: 'client-stage-scorer',
+    sourceObject: 'business',
+    enabled: true,
+    combine: 'AND',
+    groups: [],
+  },
 };
 
 const keyOf = (enricher: string, sourceObject: string) => `${enricher}::${sourceObject}`;
