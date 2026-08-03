@@ -167,3 +167,25 @@ export const enricherConfigs = pgTable(
 
 export type EnricherConfigRow = typeof enricherConfigs.$inferSelect;
 export type NewEnricherConfigRow = typeof enricherConfigs.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Per-company enricher STATE (additive). Lets real-time enrichers gate on the record's state
+// instead of on whether the app's up-sync produced a diff (which is empty when GHL's native sync
+// populated the company first). `score_input_hash` = fingerprint of the last-scored inputs, so the
+// scorer recomputes only when the inputs actually changed (no Claude call otherwise); create =>
+// no row => it runs. `geocoded_address` = the address county/geo last ran on, so they re-run on a
+// real address change (not every edit). A missing row => "never processed" => everything runs.
+// ---------------------------------------------------------------------------
+
+export const enricherState = pgTable('enricher_state', {
+  /** GHL company (business) record id. */
+  companyId: text('company_id').primaryKey(),
+  /** Fingerprint of the scoring-input blob at the last score. NULL => never scored. */
+  scoreInputHash: text('score_input_hash'),
+  /** Normalized address county/geo last geocoded. NULL => never geocoded. */
+  geocodedAddress: text('geocoded_address'),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type EnricherStateRow = typeof enricherState.$inferSelect;
+export type NewEnricherStateRow = typeof enricherState.$inferInsert;

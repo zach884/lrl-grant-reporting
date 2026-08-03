@@ -22,6 +22,7 @@ import { routePath, scoreCompany } from './scoreCompany';
 import { buildInputBlob, labelResolvingAccessor, PATH_DIMENSIONS, SCORING_INPUT_KEYS } from './companyInputs';
 import { getCompanyStageContext, getStageAssociationId, STAGE_OBJECT } from './priorAssessment';
 import { createStageRecord, updateStageRecord } from './writeStageRecord';
+import { fingerprint, getEnricherState, setEnricherState } from '../enrichment/stateStore';
 
 /** Registry meta for the enricher UI (the scorer isn't an Enricher object, so this is its stand-in). */
 export const STAGE_SCORER_NAME = 'client-stage-scorer';
@@ -59,26 +60,22 @@ export interface StageTriggerResult {
 export interface StageTriggerOptions {
   apply: boolean;
   client?: GhlClient;
-  /** Bare company field keys written this sync. When provided, scoring only runs if one feeds the
-   *  score (the real-time cost guard). Omit to force a run regardless (manual/preview). */
-  changedFields?: string[];
   /** Reuse the business catalog if the caller already loaded it. */
   businessCatalog?: CustomFieldCatalog;
   today?: string; // YYYY-MM-DD (default now)
+  /** Bypass the input-fingerprint gate and (re)score regardless (manual/preview/backfill). */
+  force?: boolean;
 }
 
 /**
- * Score one company and upsert its stage record for today. Honors the enricher's config (enabled +
- * gate) and, when `changedFields` is given, the scoring-input change guard. Never throws to the
- * caller's critical path — returns a structured result so the webhook can log it and move on.
+ * Score one company and upsert its stage record for today. Safe to call on EVERY webhook: it gates on
+ * the record's STATE, not the app's up-sync diff. It (re)scores when the company has never been scored
+ * (create) or when a scoring input changed since the last score (input fingerprint differs), and skips
+ * — with no Claude call — when the inputs are unchanged. Honors the enricher's enabled/gate config.
+ * Never throws to the caller's critical path — returns a structured result the webhook can log.
  */
 export async function runStageScoreTrigger(companyId: string, opts: StageTriggerOptions): Promise<StageTriggerResult> {
   const client = opts.client ?? ghl();
-
-  // Cost guard: skip unless a scoring input actually changed (when the caller tells us what changed).
-  if (opts.changedFields && !scoringInputChanged(opts.changedFields)) {
-    return { ran: false, reason: 'no scoring-input change' };
-  }
 
   // Config: enabled + optional gate (evaluated against the company's fields).
   const config = await resolveEnricherConfig(STAGE_SCORER_NAME, 'business');
@@ -95,11 +92,23 @@ export async function runStageScoreTrigger(companyId: string, opts: StageTrigger
   if (!path) return { ran: false, reason: 'no business model — cannot route' };
 
   // Nothing to score from → skip (don't create an empty record).
-  if (!buildInputBlob(field, PATH_DIMENSIONS[path]).trim()) return { ran: false, reason: 'no scoring inputs populated' };
+  const blob = buildInputBlob(field, PATH_DIMENSIONS[path]);
+  if (!blob.trim()) return { ran: false, reason: 'no scoring inputs populated' };
 
   const today = opts.today ?? new Date().toISOString().slice(0, 10);
   const assocId = await getStageAssociationId(client);
   const ctx = await getCompanyStageContext(companyId, today, { client, assocId });
+
+  // Fingerprint gate: (re)score on create (never scored) or when the inputs changed; skip an
+  // unchanged re-fire with NO Claude call. State-based, so it's correct even when GHL native sync
+  // populated the company (an empty app diff would otherwise have hidden the change).
+  const inputHash = fingerprint(blob);
+  const hasRecord = Boolean(ctx.todayRecordId) || ctx.prior?.source === 'record';
+  if (!opts.force && hasRecord) {
+    const state = await getEnricherState(companyId);
+    if (state?.scoreInputHash === inputHash) return { ran: false, reason: 'inputs unchanged since last score' };
+  }
+
   const score = await scoreCompany({ field, path, prior: ctx.prior });
   if (!score) return { ran: false, reason: 'scorer returned no result' };
 
@@ -116,8 +125,10 @@ export async function runStageScoreTrigger(companyId: string, opts: StageTrigger
   const propsInput = { score, name, rescoreDate: today };
   if (ctx.todayRecordId) {
     await updateStageRecord(ctx.todayRecordId, propsInput, { catalog: await getCatalog(STAGE_OBJECT, { client }), client });
+    await setEnricherState(companyId, { scoreInputHash: inputHash });
     return { ran: true, path, action: 'updated', recordId: ctx.todayRecordId, scores };
   }
   const res = await createStageRecord(propsInput, { catalog: await getCatalog(STAGE_OBJECT, { client }), assocId: assocId!, companyId, client });
+  await setEnricherState(companyId, { scoreInputHash: inputHash });
   return { ran: true, path, action: 'created', recordId: res.recordId, scores };
 }

@@ -15,6 +15,8 @@ import { getCatalogs } from '@/lib/ghl/catalogCache';
 import { applyContactChange } from '@/lib/sync/orchestrate';
 import { enrichCompany, defaultEnrichers } from '@/lib/enrichment';
 import { runStageScoreTrigger } from '@/lib/stage/trigger';
+import { readRecordFields } from '@/lib/ghl/records';
+import { getEnricherState, setEnricherState, normalizeCompanyAddress, addressNeedsGeocode } from '@/lib/enrichment/stateStore';
 import { hasDatabase } from '@/lib/db';
 import { hasWix } from '@/lib/wix/config';
 import { runContactTeamPipeline } from '@/lib/wix-sync/pipeline';
@@ -57,15 +59,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
       : null;
 
-    // Real-time enrichment of the touched company. Address-dependent enrichers (county,
-    // geo-zone) only run when the company address actually changed this sync — that's the
-    // only thing that can change their result, and it avoids geocoding on every unrelated
-    // contact edit. Address-independent enrichers (NAICS) always run (they self-gate cheaply).
+    // Real-time enrichment of the touched company. Gated on the company's STATE (not the app's
+    // up-sync diff, which is empty when GHL native sync populated the company first): address-
+    // independent enrichers (NAICS) always run and self-gate cheaply; address-dependent ones
+    // (county, geo-zone) run only when the address is new/changed vs. what we last geocoded — so
+    // they fill on create and refresh on a real address edit, not on every unrelated change.
     // Non-fatal: enrichment failures must never break the sync.
-    const ADDRESS_KEYS = new Set(['address', 'address1', 'city', 'state', 'postalcode', 'zip', 'country']);
-    const addressChanged = companyFieldsWritten.some((k) => ADDRESS_KEYS.has(k.toLowerCase()));
-    const enrichers = addressChanged ? defaultEnrichers : defaultEnrichers.filter((e) => !e.addressDependent);
-    let enrich: { applied: number; skipped: number; fields: string[]; addressChanged: boolean } | { error: string } | null = null;
+    let geocodeAddress: string | null = null;
+    let runGeo = false;
+    if (companyId) {
+      try {
+        const brf = await readRecordFields('business', companyId);
+        geocodeAddress = normalizeCompanyAddress(brf.get);
+        const state = await getEnricherState(companyId);
+        runGeo = addressNeedsGeocode(geocodeAddress, state?.geocodedAddress);
+      } catch { /* if we can't read state, fall back to non-address enrichers only */ }
+    }
+    const enrichers = runGeo ? defaultEnrichers : defaultEnrichers.filter((e) => !e.addressDependent);
+    let enrich: { applied: number; skipped: number; fields: string[]; ranGeo: boolean } | { error: string } | null = null;
     if (companyId && enrichers.length) {
       try {
         const r = await enrichCompany(
@@ -75,24 +86,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           { mode: 'overwrite', minConfidence: 0.7 },
           { apply: !dryRun },
         );
-        enrich = { applied: r.applied.length, skipped: r.skipped.length, fields: r.applied.map((a) => a.businessKey), addressChanged };
+        enrich = { applied: r.applied.length, skipped: r.skipped.length, fields: r.applied.map((a) => a.businessKey), ranGeo: runGeo };
+        // Remember the address county/geo just ran on, so they don't re-geocode until it changes.
+        if (!dryRun && runGeo && geocodeAddress) await setEnricherState(companyId, { geocodedAddress: geocodeAddress });
       } catch (e: any) {
         enrich = { error: e?.message ?? 'enrichment failed' };
       }
     }
 
-    // Client Stage scorer: when a scoring input changed on the company, (re)score it and upsert today's
-    // Client Stage Tracking record. Company-scoped but triggered by the contact change. Config-gated
-    // (enabled + gate) and change-gated (only fires when a field that feeds the score changed), so a
-    // normal contact edit does NOT spend a Claude call. Non-fatal + isolated like the enrichers above.
+    // Client Stage scorer: (re)score the company and upsert today's Client Stage Tracking record.
+    // Safe to call on every webhook — it gates on the company's STATE (scores on create / when the
+    // scoring-input fingerprint changed; skips an unchanged re-fire with NO Claude call). Company-
+    // scoped but triggered by the contact change. Non-fatal + isolated like the enrichers above.
     let stageScore: unknown = null;
     if (companyId) {
       try {
-        stageScore = await runStageScoreTrigger(companyId, {
-          apply: !dryRun,
-          changedFields: companyFieldsWritten,
-          businessCatalog: catalogs.business,
-        });
+        stageScore = await runStageScoreTrigger(companyId, { apply: !dryRun, businessCatalog: catalogs.business });
       } catch (e: any) {
         stageScore = { error: e?.message ?? 'stage scoring failed' };
       }
