@@ -16,6 +16,7 @@
     "db:dump": "vite-node scripts-ts/dump-mappings.ts",
     "enrich": "vite-node scripts-ts/enrich-run.ts",
     "stage:score": "vite-node scripts-ts/stage-score-run.ts",
+    "sync:doctor": "vite-node scripts-ts/sync-doctor.ts",
     "reconcile": "vite-node scripts-ts/reconcile-run.ts",
     "wix:sync": "vite-node scripts-ts/wix-sync-run.ts"
   },
