@@ -1,0 +1,50 @@
+name: Nightly Client Stage scoring
+
+# Fingerprint-gated re-score of every routable company: the batch scorer sweeps all companies but only
+# spends a Claude call where a scoring input actually changed since the last score (enricher_state hash),
+# so a clean night costs ~nothing. Each write also logs to the change_log and propagates the scores up to
+# the company's *_current fields (business_stage → business), same as the real-time trigger.
+#
+# Runs 30 min BEFORE the reconcile (07:00) so the fresh company *_current values are carried DOWN to
+# contacts by that same night's company-to-contacts reconcile — the app never writes contacts on the
+# real-time webhook path (loop-lock safety). Runs here (not a Vercel cron) because the sweep reads every
+# company + makes a Claude call per changed one and exceeds a serverless function's time budget.
+#
+# Needs DATABASE_URL (fingerprint gate + change_log + the company-current-scoring mapping) and
+# ANTHROPIC_API_KEY (scoring). GHL_MAX_RPS=3 spaces the record/company writes.
+
+on:
+  schedule:
+    # 06:30 UTC = 1:30am EST / 2:30am EDT (before the reconcile at 07:00). Cron is UTC; adjust as needed.
+    - cron: '30 6 * * *'
+  workflow_dispatch: {} # allow manual runs from the Actions tab
+
+jobs:
+  score:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Score (apply, live, gated)
+        run: npx vite-node scripts-ts/stage-score-run.ts --apply --yes --gated --concurrency 3 --resume
+        env:
+          GHL_TARGET: live
+          GHL_MAX_RPS: 3
+          GHL_API_KEY: ${{ secrets.GHL_API_KEY }}
+          GHL_LOCATION_ID: ${{ secrets.GHL_LOCATION_ID }}
+          GHL_CUSTOM_OBJECT_ID: ${{ secrets.GHL_CUSTOM_OBJECT_ID }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      - name: Upload scoring report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage-score-report
+          path: reports/
+          if-no-files-found: ignore
+          retention-days: 14
