@@ -142,6 +142,16 @@ describe('buildScorePrompt', () => {
     expect(user).toContain('Churchill');
     expect(user).not.toContain('Technology Readiness Level');
   });
+  it('Churchill path carries the decision procedure + conservative conflict rule (stability guardrails)', () => {
+    const { user } = buildScorePrompt({ path: 'service', inputBlob: 'Company: Y' });
+    // The primary-signal guidance + conservative tie-break are what stabilize the classifier.
+    expect(user).toContain('Primary-signal guidance:');
+    expect(user).toContain('STOP at the');            // stop-at-first-fit decision procedure
+    expect(user).toContain('more conservative');       // conflict → lower stage
+    expect(user).toMatch(/cannot be past Stage 2 without a real product/);
+    // A solo/owner-run "profitable" business must not be pushed to Stage 3 by the label alone.
+    expect(user).toMatch(/never let a "profitable" label/);
+  });
   it('adds a Previous assessment block on re-score', () => {
     const prior: PriorAssessment = {
       trl: 4, mrl: 3, crl: 2, churchillStage: null, churchillSubstage: null,

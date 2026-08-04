@@ -111,21 +111,15 @@ const CRL_SCALE = `CRL (Commercial Readiness Level, 1-9):
   8. Established market presence - recognized in the market; sustainable revenue.
   9. Market leadership - mature commercial operation; market leader.`;
 
-const CHURCHILL_SCALE = `Churchill & Lewis stage (1-5):
-  1. Existence - getting customers, delivering product. Owner does most things. Few employees. Cash tight.
-  2. Survival - workable business, enough customers and operations to deliver. Main concern: revenue vs expenses.
-  3. Success - healthy and profitable. Owner faces choice: stay or grow.
-  4. Take-off - rapid growth, delegation challenges, cash strapped despite growth.
-  5. Resource Maturity - substantial resources, professional management, established systems.
-Stage rules:
-  Stage 1 - cash struggling, owner does almost everything, business < ~12 months old.
-  Stage 2 - cash breaking even, owner still central, small team, consistent customers.
-  Stage 3 - consistently profitable, healthy business.
-  Stage 4 - multiple locations OR >50% increase in FTE planned OR establishing management team.
-  Stage 5 - mature, multi-location, professional management team in place.
+const CHURCHILL_SCALE = `Churchill & Lewis stage (1-5). A company's stage is defined by its DEMONSTRATED operating reality — whether a product/service is actually being delivered to paying customers, at what scale, and with how much organization behind it — NOT by self-reported adjectives or future plans.
+  1. Existence - still proving the business works: winning first customers and delivering the product/service. Owner does almost everything; few or no employees; little or no meaningful revenue. Includes anything pre-product or pre-customer ("just an idea", "no product or customers yet").
+  2. Survival - a workable business with enough repeat customers and operations to deliver reliably; the central concern is revenue vs. expenses (break-even to modestly cash-generating). Still small and owner-centric.
+  3. Success - genuinely healthy and profitable at meaningful scale, with enough employees/managers that the owner is no longer doing everything and could step back. The owner faces a real "stay-put vs. grow" choice. A solo operator or owner-does-everything shop is NOT Stage 3 even if it reports being "profitable".
+  4. Take-off - an already-established, revenue-generating Stage-3 business that is NOW growing rapidly (growth already happening, not merely planned), straining delegation and the cash to finance that growth.
+  5. Resource Maturity - large, professionally managed, established systems and substantial resources; rapid growth has been consolidated.
 Sub-stage (ONLY when stage = 3; otherwise N/A):
-  III-D (Disengagement) - owner has chosen to stay at this size, extract profits, use business as platform for other interests. Modest growth plans. Cash flow consistently profitable, planned FTE growth modest (<25% increase), management is owner-only or owner + few supervisors.
-  III-G (Growth) - owner is reinvesting profits and preparing for take-off. Building systems and management talent. Cash flow profitable AND (planned FTE growth >25% OR management team being established).`;
+  III-D (Disengagement) - owner holding at this size, extracting profits; modest plans. Planned FTE growth <25%; management owner-only or owner + a few supervisors.
+  III-G (Growth) - owner reinvesting and preparing for take-off. Planned FTE growth >25% OR a management team is being established.`;
 
 // Per-dimension "primary signal" guidance — verbatim from the classifier prompts.
 const TRL_GUIDANCE =
@@ -141,6 +135,21 @@ const CRL_GUIDANCE =
   `CRL: "Where they are with selling" is the primary signal — it maps directly to CRL 1-8. Paying customers and revenue corroborate. ` +
   `PMF = Yes pushes toward 5+; Working on it suggests 3-4; No suggests ≤3. If inputs conflict (e.g., "Scaling" but 0 paying ` +
   `customers), trust the more conservative signal.`;
+const CHURCHILL_GUIDANCE =
+  `Churchill: Determine the stage from what the company ACTUALLY has in operation today. Work down this list and STOP at the ` +
+  `first stage that fits:\n` +
+  `  • No product yet, OR no paying customers yet, OR the owner is still proving the business works → Stage 1 — regardless of ` +
+  `headcount plans, management-team claims, or a "profitable" self-report.\n` +
+  `  • A real product/service delivered to repeat paying customers, covering costs but small and owner-dependent → Stage 2.\n` +
+  `  • Consistently profitable AND large/organized enough (real employees or managers; owner not doing everything) that the owner ` +
+  `could disengage → Stage 3.\n` +
+  `  • A Stage-3-caliber business already in rapid, active growth → Stage 4.\n` +
+  `  • Mature, professionally managed, well-resourced → Stage 5.\n` +
+  `Weight the signals that describe the REAL current state most: "Where they are today", the company description, actual revenue, ` +
+  `current FTE, owner involvement, and management layer. Treat "Cash flow today" adjectives (e.g. "profitable") and PLANNED/future ` +
+  `FTE as corroborating only — never let a "profitable" label or an aspirational hiring plan alone push a tiny, owner-run, or ` +
+  `pre-customer business into Stage 3+. When signals conflict, choose the LOWER (more conservative) stage: a business cannot be ` +
+  `past Stage 2 without a real product AND paying customers actually in operation.`;
 
 /** Bounds per numeric dimension (for the schema + clamp). */
 const DIM_RANGE: Record<Exclude<Dimension, never>, { min: number; max: number }> = {
@@ -250,6 +259,7 @@ export function buildScorePrompt(opts: {
   if (set.has('trl')) guidance.push(TRL_GUIDANCE);
   if (set.has('mrl')) guidance.push(MRL_GUIDANCE);
   if (set.has('crl')) guidance.push(CRL_GUIDANCE);
+  if (set.has('churchill')) guidance.push(CHURCHILL_GUIDANCE);
   if (guidance.length) parts.push('Primary-signal guidance:\n' + guidance.join('\n'));
 
   parts.push('Client information:\n' + (opts.inputBlob || '(no inputs provided)'));
