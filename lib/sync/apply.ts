@@ -11,6 +11,7 @@ import { getCatalog } from '../ghl/catalogCache';
 import { writeRecordFields } from '../ghl/writeRecord';
 import { resolveCounterpartIds } from './traverse';
 import { equalForField, proposedValue, canonicalizeSource, isHeldDowngrade } from './dryrun';
+import { guardChanges, recordLedger } from './convergenceGuard';
 import type { CustomFieldCatalog } from '../ghl/types';
 import type { GhlClient } from '../ghl/client';
 import type { DryRunConnection } from './dryrun';
@@ -111,13 +112,19 @@ export async function syncConnection(
   for (const targetId of ids) {
     const target = await readRec(connection.targetObject, targetId, client);
     const { changes, unchanged, writeValues, rawKeys, skipped: heldSkips } = diff((k) => source.get(k), (k) => target.get(k), pushRows, sourceCatalog, targetCatalog);
+    // Convergence guard: drop any change that re-proposes a value we already wrote but that didn't
+    // stick (non-converging → would loop). Best-effort; no DB => no suppression.
+    const guard = await guardChanges(targetId, changes);
+    const writeVals = { ...writeValues };
+    for (const s of guard.suppressed) delete writeVals[s.key];
     let written: string[] = [];
-    let skipped: Array<{ key: string; reason: string }> = [...heldSkips];
-    if (opts.apply && changes.length) {
-      const w = await write(connection.targetObject, targetId, writeValues, targetCatalog, client, rawKeys);
-      written = w.written; skipped = [...heldSkips, ...w.skipped];
+    let skipped: Array<{ key: string; reason: string }> = [...heldSkips, ...guard.suppressed];
+    if (opts.apply && guard.keep.length) {
+      const w = await write(connection.targetObject, targetId, writeVals, targetCatalog, client, rawKeys);
+      written = w.written; skipped = [...heldSkips, ...guard.suppressed, ...w.skipped];
+      await recordLedger(targetId, written.map((k) => ({ fieldKey: k, value: writeVals[k] })));
     }
-    forward.push({ targetId, changes, unchanged, written, skipped });
+    forward.push({ targetId, changes: guard.keep, unchanged, written, skipped });
   }
 
   // Reverse: counterpart → source (only when unambiguous — exactly one counterpart).
@@ -132,12 +139,16 @@ export async function syncConnection(
       // reverse TARGET is the source record (sourceObject) — coerce/compare via sourceCatalog.
       const revRows = pullRows.map((r) => ({ sourceKey: r.targetKey, targetKey: r.sourceKey, transform: r.transform, holdValues: r.holdValues }));
       const { changes, writeValues, rawKeys, skipped: heldSkips } = diff((k) => target.get(k), (k) => source.get(k), revRows, targetCatalog, sourceCatalog);
-      let written: string[] = []; let skipped: Array<{ key: string; reason: string }> = [...heldSkips];
-      if (opts.apply && changes.length) {
-        const w = await write(connection.sourceObject, sourceRecordId, writeValues, sourceCatalog, client, rawKeys);
-        written = w.written; skipped = [...heldSkips, ...w.skipped];
+      const guard = await guardChanges(sourceRecordId, changes);
+      const writeVals = { ...writeValues };
+      for (const s of guard.suppressed) delete writeVals[s.key];
+      let written: string[] = []; let skipped: Array<{ key: string; reason: string }> = [...heldSkips, ...guard.suppressed];
+      if (opts.apply && guard.keep.length) {
+        const w = await write(connection.sourceObject, sourceRecordId, writeVals, sourceCatalog, client, rawKeys);
+        written = w.written; skipped = [...heldSkips, ...guard.suppressed, ...w.skipped];
+        await recordLedger(sourceRecordId, written.map((k) => ({ fieldKey: k, value: writeVals[k] })));
       }
-      reverse = { changes, written, skipped };
+      reverse = { changes: guard.keep, written, skipped };
     }
   }
 

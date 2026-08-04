@@ -5,7 +5,7 @@
 // contract in lib/mapping/types.ts EXACTLY so a row round-trips to the shape the sync
 // engine already consumes — nothing in lib/sync/* changes.
 
-import { pgTable, uuid, text, integer, boolean, jsonb, timestamp, unique, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, integer, boolean, jsonb, timestamp, unique, index, primaryKey } from 'drizzle-orm/pg-core';
 import type { WixCreatePolicy, WixGate, WixSecondaryMatch, WixVisibility } from '../mapping/wixTypes';
 import type { EnricherFilter, EnricherGroup, EnricherMembership, EnricherStatusGate, FilterCombine } from '../enrichment/configTypes';
 
@@ -189,3 +189,27 @@ export const enricherState = pgTable('enricher_state', {
 
 export type EnricherStateRow = typeof enricherState.$inferSelect;
 export type NewEnricherStateRow = typeof enricherState.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Sync write ledger (additive) — powers the runtime CONVERGENCE GUARD. Records the last value the
+// sync WROTE to each (record, field). If a later sync re-proposes a value we already wrote but the
+// field's current value isn't that value (it didn't "stick" — e.g. GHL normalized a country scalar
+// back to "US" after we wrote "United States"), the write is non-converging and gets suppressed
+// instead of churning forever. Only fields that actually change are ever written here.
+// ---------------------------------------------------------------------------
+
+export const syncWriteLedger = pgTable(
+  'sync_write_ledger',
+  {
+    /** Target record the value was written to. */
+    recordId: text('record_id').notNull(),
+    /** Target field key (e.g. 'country', 'contact.geographically_disadvantaged'). */
+    fieldKey: text('field_key').notNull(),
+    /** Normalized form of the last value we wrote (for equality comparison). */
+    lastValue: text('last_value'),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({ pk: primaryKey({ columns: [t.recordId, t.fieldKey] }) }),
+);
+
+export type SyncWriteLedgerRow = typeof syncWriteLedger.$inferSelect;
