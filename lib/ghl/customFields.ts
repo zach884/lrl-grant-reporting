@@ -160,3 +160,34 @@ export async function createObjectField(
   const f = data.customField ?? data.field ?? data;
   return f?.id ?? '';
 }
+
+/** Rename an OBJECT custom field's display name (business / custom_objects.*) — v2 endpoint, keyed by
+ *  the field's stable fieldKey (so mappings that reference the key are unaffected). Returns the field
+ *  as GHL reports it after the update. */
+export async function updateObjectFieldName(
+  fieldId: string,
+  name: string,
+  client: GhlClient = ghl(),
+): Promise<CustomFieldDef | null> {
+  const data = await client.request<any>({ method: 'PUT', path: `/custom-fields/${fieldId}`, autoLocation: false, body: { name, locationId: client.locationId } });
+  const f = data.customField ?? data.field ?? data;
+  return f?.id ? normalizeField(f) : null;
+}
+
+/** Rename a LOCATION-model custom field's display name (contact / opportunity) — the v1-style
+ *  /locations/{id}/customFields endpoint (distinct from the object v2 endpoint above). fieldKey is
+ *  preserved by GHL; only the label changes. */
+export async function updateLocationFieldName(
+  fieldId: string,
+  name: string,
+  client: GhlClient = ghl(),
+): Promise<CustomFieldDef | null> {
+  const data = await client.request<any>({
+    method: 'PUT',
+    path: `/locations/${client.locationId}/customFields/${fieldId}`,
+    autoLocation: false,
+    body: { name },
+  });
+  const f = data.customField ?? data.field ?? data;
+  return f?.id ? normalizeField(f) : null;
+}
