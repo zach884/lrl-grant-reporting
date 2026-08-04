@@ -51,6 +51,7 @@ async function runPool<T>(items: T[], limit: number, worker: (item: T, i: number
   const { enumerateAllContacts } = await import('../lib/ghl/contacts');
   const { getWixCollectionSchema } = await import('../lib/wix/catalogCache');
   const { syncContactToWix } = await import('../lib/wix-sync');
+  const { withRun, newRunId } = await import('../lib/audit/context');
 
   const concurrency = Number(arg('concurrency') ?? 5);
   const limit = arg('limit') ? Number(arg('limit')) : undefined;
@@ -96,7 +97,10 @@ async function runPool<T>(items: T[], limit: number, worker: (item: T, i: number
   let lastLog = Date.now();
   let processed = 0;
 
-  await runPool(contactIds, concurrency, async (contactId) => {
+  // Correlate every Wix write this batch logs under one run id + trigger (the change-log sink reads
+  // the run context), mirroring the real-time webhook and the stage-score batch.
+  await withRun({ runId: newRunId(), trigger: 'batch:wix-sync-run' }, () =>
+   runPool(contactIds, concurrency, async (contactId) => {
     let ok = true;
     for (const set of validSets) {
       try {
@@ -117,7 +121,7 @@ async function runPool<T>(items: T[], limit: number, worker: (item: T, i: number
       console.log(`  progress ${processed}/${contactIds.length}`);
       lastLog = Date.now();
     }
-  });
+   }));
 
   const report = { tag, apply, sets: validSets.map((s) => ({ id: s.id, name: s.name, collection: s.wixCollectionId })), stats, contacts: contactIds.length };
   writeFileSync(join(reportsDir, `report-${tag}.json`), JSON.stringify(report, null, 2));

@@ -26,6 +26,7 @@ import {
   type FieldModification,
 } from '../wix/collections';
 import { importImageFromUrl, toImageFieldValue } from '../wix/media';
+import { logChange } from '../audit/log';
 import type { WixCollectionSchema, WixColumn } from '../wix/types';
 import type { WixFieldChange, WixSyncResult } from './types';
 
@@ -194,6 +195,23 @@ export async function syncSourceToWix(
     return { sourceId: contactId, action: 'skip', written: [], unchanged: 0, skipped: [], dryRun: !opts.apply, note: `match field "${set.matchSourceField}" is empty` };
   }
 
+  // Change-log sink for the Wix write path (Phase 1 covered GHL only). Records every real Wix row
+  // write — insert / patch / hide — into the change_log, correlated by run_id when the caller wraps
+  // the pipeline in withRun. Best-effort (logChange never throws); no-ops on a no-write result. Wrap
+  // each write-return with this so the log captures the row id + field diffs + applied-vs-dryrun.
+  const logWrite = async (result: WixSyncResult): Promise<WixSyncResult> => {
+    const action = result.action === 'insert' ? 'create' : (result.action === 'patch' || result.action === 'hide') ? 'update' : null;
+    if (action && result.written.length) {
+      await logChange({
+        app: 'wix', objectType: `wix:${set.name}`, recordId: result.itemId ?? '', recordLabel: String(matchValue),
+        actorKind: 'sync', actorName: `wix:${set.name}`, action,
+        changes: result.written.map((w) => ({ field: w.targetColumn, from: w.from, to: w.to })),
+        method: 'sync', applied: !result.dryRun,
+      });
+    }
+    return result;
+  };
+
   let existing = await queryItemByMatch(set.wixCollectionId, set.matchTargetColumn, String(matchValue), client);
 
   // HIDE (gate flipped to Hidden / blank with a linked row): de-provision, keep the row + ids.
@@ -212,7 +230,7 @@ export async function syncSourceToWix(
       }
       const change: WixFieldChange = { targetColumn: '_publishStatus', from: (existing as any)._publishStatus, to: 'DRAFT', via: 'value' };
       if (opts.apply && itemId) await setPublishStatus(set.wixCollectionId, itemId, 'DRAFT', client);
-      return { sourceId: contactId, itemId, action: 'hide', written: [change], unchanged: 0, skipped: [], dryRun: !opts.apply };
+      return logWrite({ sourceId: contactId, itemId, action: 'hide', written: [change], unchanged: 0, skipped: [], dryRun: !opts.apply });
     }
     // column mode
     const cur = (existing as any)[vis.column];
@@ -221,7 +239,7 @@ export async function syncSourceToWix(
     }
     const change: WixFieldChange = { targetColumn: vis.column, from: cur, to: vis.hiddenValue, via: 'value' };
     if (opts.apply && itemId) await patchItem(set.wixCollectionId, itemId, [{ fieldPath: vis.column, value: vis.hiddenValue }], client);
-    return { sourceId: contactId, itemId, action: 'hide', written: [change], unchanged: 0, skipped: [], dryRun: !opts.apply };
+    return logWrite({ sourceId: contactId, itemId, action: 'hide', written: [change], unchanged: 0, skipped: [], dryRun: !opts.apply });
   }
 
   // Dedup first-link: the hard key (ghl id) missed → try the configured secondary keys (e.g. email)
@@ -308,7 +326,7 @@ export async function syncSourceToWix(
     written.length === 0 && existing ? 'noop' : existing ? 'patch' : 'insert';
 
   if (!opts.apply) {
-    return { sourceId: contactId, itemId: (existing as any)?._id, action, written, unchanged, skipped, dryRun: true };
+    return logWrite({ sourceId: contactId, itemId: (existing as any)?._id, action, written, unchanged, skipped, dryRun: true });
   }
 
   // --- apply ---
@@ -375,5 +393,5 @@ export async function syncSourceToWix(
     }
   }
 
-  return { sourceId: contactId, itemId, action, written, unchanged, skipped, dryRun: false };
+  return logWrite({ sourceId: contactId, itemId, action, written, unchanged, skipped, dryRun: false });
 }
