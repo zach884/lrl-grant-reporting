@@ -22,6 +22,7 @@ import { routePath, scoreCompany } from './scoreCompany';
 import { buildInputBlob, labelResolvingAccessor, PATH_DIMENSIONS, SCORING_INPUT_KEYS } from './companyInputs';
 import { getCompanyStageContext, getStageAssociationId, STAGE_OBJECT } from './priorAssessment';
 import { createStageRecord, updateStageRecord } from './writeStageRecord';
+import { propagateCurrentScoring, type PropagateResult } from './propagateScoring';
 import { fingerprint, getEnricherState, setEnricherState } from '../enrichment/stateStore';
 import { logChange } from '../audit/log';
 import type { ChangeLogFieldChange } from '../audit/types';
@@ -57,6 +58,8 @@ export interface StageTriggerResult {
   action?: 'created' | 'updated' | 'would-create' | 'would-update';
   recordId?: string;
   scores?: { trl?: number; mrl?: number; crl?: number; churchillStage?: number; churchillSubstage?: string };
+  /** Result of pushing the new scores up to the company's *_current fields (apply path only). */
+  propagated?: PropagateResult | { error: string };
 }
 
 export interface StageTriggerOptions {
@@ -135,15 +138,29 @@ export async function runStageScoreTrigger(companyId: string, opts: StageTrigger
   const logScore = (recordId: string, action: 'create' | 'update') =>
     logChange({ objectType: STAGE_OBJECT, recordId, recordLabel: name, actorKind: 'scorer', actorName: STAGE_SCORER_NAME, action, changes: logFields, method: 'ai', rationale, applied: true });
 
+  // Push the new scores up to the company's *_current fields (business_stage → business). Best-effort:
+  // a propagation failure must never fail the score write. Contacts are intentionally NOT written here
+  // — the nightly company-to-contacts reconcile carries *_current down, keeping contact writes off the
+  // real-time webhook path (loop-lock safety).
+  const propagate = async (recordId: string): Promise<PropagateResult | { error: string }> => {
+    try {
+      return await propagateCurrentScoring(recordId, { apply: true, client });
+    } catch (e: any) {
+      return { error: e?.message ?? 'current-scoring propagation failed' };
+    }
+  };
+
   const propsInput = { score, name, rescoreDate: today };
   if (ctx.todayRecordId) {
     await updateStageRecord(ctx.todayRecordId, propsInput, { catalog: await getCatalog(STAGE_OBJECT, { client }), client });
     await setEnricherState(companyId, { scoreInputHash: inputHash });
     await logScore(ctx.todayRecordId, 'update');
-    return { ran: true, path, action: 'updated', recordId: ctx.todayRecordId, scores };
+    const propagated = await propagate(ctx.todayRecordId);
+    return { ran: true, path, action: 'updated', recordId: ctx.todayRecordId, scores, propagated };
   }
   const res = await createStageRecord(propsInput, { catalog: await getCatalog(STAGE_OBJECT, { client }), assocId: assocId!, companyId, client });
   await setEnricherState(companyId, { scoreInputHash: inputHash });
   await logScore(res.recordId, 'create');
-  return { ran: true, path, action: 'created', recordId: res.recordId, scores };
+  const propagated = await propagate(res.recordId);
+  return { ran: true, path, action: 'created', recordId: res.recordId, scores, propagated };
 }
