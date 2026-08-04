@@ -191,3 +191,15 @@ export async function updateLocationFieldName(
   const f = data.customField ?? data.field ?? data;
   return f?.id ? normalizeField(f) : null;
 }
+
+/** Permanently delete an OBJECT custom field (business / custom_objects.*) — v2 endpoint. IRREVERSIBLE;
+ *  drops the field definition AND its stored values on every record. locationId is passed as a query
+ *  param (the v2 write endpoints reject an undefined location). */
+export async function deleteObjectField(fieldId: string, client: GhlClient = ghl()): Promise<void> {
+  await client.request<any>({ method: 'DELETE', path: `/custom-fields/${fieldId}`, autoLocation: false, params: { locationId: client.locationId } });
+}
+
+/** Permanently delete a LOCATION-model custom field (contact / opportunity) — v1 endpoint. IRREVERSIBLE. */
+export async function deleteLocationField(fieldId: string, client: GhlClient = ghl()): Promise<void> {
+  await client.request<any>({ method: 'DELETE', path: `/locations/${client.locationId}/customFields/${fieldId}`, autoLocation: false });
+}

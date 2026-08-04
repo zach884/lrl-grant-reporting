@@ -72,10 +72,12 @@ function fromContactFields(get: (k: string) => unknown): PriorAssessment | null 
     trl, mrl, crl,
     churchillStage: churchill,
     churchillSubstage: str(get('contact.churchill_substage_current')),
+    // contact.latest_tech_stage_rationale (now displayed "Stage Rationale") holds the combined
+    // tech+service rationale. The separate churchill rationale + rescored-date legacy contact fields
+    // were deleted (2026-08-04), so serviceRationale/rescoreDate have no source on this fallback path.
     techRationale: str(get('contact.latest_tech_stage_rationale')),
-    serviceRationale: str(get('contact.latest_churchill_stage_rationale')),
+    serviceRationale: null,
     source: 'contact-fields',
-    rescoreDate: str(get('contact.business_stage_rescored_date')),
   };
 }
 
