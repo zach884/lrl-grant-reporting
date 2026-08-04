@@ -6,9 +6,15 @@
 //   npx vite-node scripts-ts/stage-score-run.ts --apply --yes        # APPLY (creates stage records!) — needs --yes
 //   npx vite-node scripts-ts/stage-score-run.ts --initial-only       # ignore prior history (score as initial)
 //   npx vite-node scripts-ts/stage-score-run.ts --model claude-haiku-4-5   # cheaper tier (validate first)
+//   npx vite-node scripts-ts/stage-score-run.ts --apply --yes --gated --resume   # nightly sweep (see nightly-score.yml)
 //
 // Flags: --apply (default dry-run) --yes (confirm writes) --limit N (cap companies EXAMINED)
 //        --only id,id  --concurrency N (default 2)  --resume (checkpoint)  --initial-only  --model <id>
+//        --gated (only (re)score companies whose inputs changed since last score — the nightly cost guard)
+//        --no-propagate (skip pushing scores up to company *_current after each write; propagation is on
+//                        by default when applying)
+// On apply, each write: sets the input fingerprint (enricher_state) + logs to the change_log + propagates
+//        scores to the company's *_current fields (business_stage → business) — same as the real-time trigger.
 // Routing: business.business_model → tech / service / both (see lib/stage/scoreCompany.routePath).
 //        Companies with no recognized business_model are SKIPPED and reported.
 // ACCEPTANCE: the dry-run CSV shows the company's PRIOR scores (from a stage record, or — before the
@@ -70,6 +76,11 @@ function agree(prior: number | null | undefined, next: number | null | undefined
   const { labelResolvingAccessor, buildInputBlob, PATH_DIMENSIONS } = await import('../lib/stage/companyInputs');
   const { getCompanyStageContext, getStageAssociationId, STAGE_OBJECT } = await import('../lib/stage/priorAssessment');
   const { createStageRecord, updateStageRecord } = await import('../lib/stage/writeStageRecord');
+  const { propagateCurrentScoring } = await import('../lib/stage/propagateScoring');
+  const { STAGE_SCORER_NAME } = await import('../lib/stage/trigger');
+  const { fingerprint, getEnricherState, setEnricherState } = await import('../lib/enrichment/stateStore');
+  const { logChange } = await import('../lib/audit/log');
+  const { withRun, newRunId } = await import('../lib/audit/context');
   const { hasAnthropic, SCORING_MODEL } = await import('../lib/ai/anthropic');
 
   const client = ghl();
@@ -78,6 +89,13 @@ function agree(prior: number | null | undefined, next: number | null | undefined
   const only = arg('only')?.split(',').map((s) => s.trim()).filter(Boolean);
   const initialOnly = flag('initial-only');
   const model = arg('model') ?? SCORING_MODEL;
+  // After each write, push the new scores up to the company's *_current fields (business_stage →
+  // business), same as the real-time trigger. On by default when applying; --no-propagate to skip.
+  const doPropagate = apply && !flag('no-propagate');
+  // --gated: only (re)score a company when its scoring inputs changed since the last score (same
+  // input-fingerprint gate as the real-time trigger). The nightly sweep runs gated so a clean night
+  // spends ~no Claude credits; manual runs stay ungated (re-score everything) unless --gated is set.
+  const gated = flag('gated');
 
   console.log(`Stage scorer ${apply ? 'APPLY' : 'DRY-RUN'} | target=${process.env.GHL_TARGET} | model=${model} | concurrency=${concurrency}` +
     (limit ? ` | limit=${limit}` : '') + (only ? ` | only=${only.length}` : '') + (initialOnly ? ' | initial-only' : ''));
@@ -112,10 +130,13 @@ function agree(prior: number | null | undefined, next: number | null | undefined
 
   const rows: any[] = [];
   const today = new Date().toISOString().slice(0, 10);
-  const stats = { processed: 0, inScope: 0, scored: 0, skippedNoRoute: 0, skippedNoInputs: 0, created: 0, updated: 0, error: 0 };
+  const stats = { processed: 0, inScope: 0, scored: 0, skippedNoRoute: 0, skippedNoInputs: 0, skippedUnchanged: 0, created: 0, updated: 0, error: 0 };
   let lastLog = Date.now();
 
-  await runPool(todo, concurrency, async (co) => {
+  // One run id + trigger for the whole sweep, so every scorer/propagation change this batch logs is
+  // correlated in the change log (the same withRun discipline the real-time webhook uses).
+  await withRun({ runId: newRunId(), trigger: 'batch:stage-score-run' }, () =>
+   runPool(todo, concurrency, async (co) => {
     const name = co.name || co.id;
     try {
       const rf = await readRecordFields('business', co.id, client);
@@ -129,12 +150,30 @@ function agree(prior: number | null | undefined, next: number | null | undefined
       stats.inScope++;
       // One fetch: the prior assessment (excluding any record already dated today) + today's record id.
       const ctx = await getCompanyStageContext(co.id, today, { client, assocId });
+
+      // Fingerprint gate (--gated): skip — with NO Claude call — a company already scored whose inputs
+      // haven't changed since. Mirrors the real-time trigger, so a company scored in real time is not
+      // re-scored by the nightly sweep. Only gates companies that already have a score record.
+      const blob = buildInputBlob(field, PATH_DIMENSIONS[path]);
+      const inputHash = fingerprint(blob);
+      if (gated && blob.trim()) {
+        const hasRecord = Boolean(ctx.todayRecordId) || ctx.prior?.source === 'record';
+        if (hasRecord) {
+          const state = await getEnricherState(co.id);
+          if (state?.scoreInputHash === inputHash) {
+            stats.skippedUnchanged++;
+            rows.push({ companyId: co.id, name, path, action: 'skip(unchanged)' });
+            return;
+          }
+        }
+      }
+
       const prior = initialOnly ? null : ctx.prior;
       const score = await scoreCompany({ field, path, prior, model });
       if (!score) {
         // Distinguish "nothing to score from" (inputs not populated on the company — often the up-sync
         // hasn't carried the intake answers up yet) from a genuine scoring failure.
-        const hadInputs = buildInputBlob(field, PATH_DIMENSIONS[path]).trim().length > 0;
+        const hadInputs = blob.trim().length > 0;
         if (hadInputs) { stats.error++; rows.push({ companyId: co.id, name, path, action: 'error(no-score)' }); }
         else { stats.skippedNoInputs++; rows.push({ companyId: co.id, name, path, action: 'skip(no-inputs)' }); }
         return;
@@ -147,6 +186,7 @@ function agree(prior: number | null | undefined, next: number | null | undefined
       let recordId = ctx.todayRecordId ?? '';
       if (apply) {
         const propsInput = { score, name, rescoreDate: today };
+        const action: 'create' | 'update' = ctx.todayRecordId ? 'update' : 'create';
         if (ctx.todayRecordId) {
           await updateStageRecord(ctx.todayRecordId, propsInput, { catalog: stageCatalog, client });
           stats.updated++;
@@ -154,6 +194,31 @@ function agree(prior: number | null | undefined, next: number | null | undefined
           const res = await createStageRecord(propsInput, { catalog: stageCatalog, assocId: assocId!, companyId: co.id, client });
           recordId = res.recordId;
           stats.created++;
+        }
+        // Remember the inputs we just scored, so a gated re-run (nightly / real-time) skips this
+        // company until an input actually changes. Best-effort — never fail the score on a state error.
+        try { await setEnricherState(co.id, { scoreInputHash: inputHash }); } catch { /* best-effort */ }
+        // Audit trail: log the scorer write (scores + combined rationale), same shape as the real-time
+        // trigger — closes the gap where batch-created records never reached the change log.
+        try {
+          const logFields: Array<{ field: string; to: unknown }> = [];
+          if (score.trl != null) logFields.push({ field: 'trl', to: score.trl });
+          if (score.mrl != null) logFields.push({ field: 'mrl', to: score.mrl });
+          if (score.crl != null) logFields.push({ field: 'crl', to: score.crl });
+          if (score.churchillStage != null) logFields.push({ field: 'churchill_score', to: score.churchillStage });
+          if (score.churchillSubstage) logFields.push({ field: 'churchill_substage', to: score.churchillSubstage });
+          await logChange({
+            objectType: STAGE_OBJECT, recordId, recordLabel: name, actorKind: 'scorer', actorName: STAGE_SCORER_NAME,
+            action, changes: logFields, method: 'ai',
+            rationale: [score.techRationale, score.serviceRationale].filter(Boolean).join('\n\n---\n\n'),
+            applied: true,
+          });
+        } catch { /* best-effort */ }
+        // Propagate the scores up to the company's *_current fields. Non-fatal: keep the score even if
+        // propagation fails (it's best-effort and the nightly reconcile will reconcile contacts anyway).
+        if (doPropagate && recordId) {
+          try { await propagateCurrentScoring(recordId, { apply: true, client }); }
+          catch (e: any) { console.warn(`  ⚠️  propagate failed for ${co.id}: ${e?.message ?? e}`); }
         }
       }
 
@@ -176,11 +241,11 @@ function agree(prior: number | null | undefined, next: number | null | undefined
       stats.processed++;
       if (apply) appendFileSync(ckptPath, co.id + '\n');
       if (Date.now() - lastLog > 2000 || stats.processed === todo.length) {
-        console.log(`  progress ${stats.processed}/${todo.length} | inScope=${stats.inScope} scored=${stats.scored} noRoute=${stats.skippedNoRoute} noInputs=${stats.skippedNoInputs} errors=${stats.error}`);
+        console.log(`  progress ${stats.processed}/${todo.length} | inScope=${stats.inScope} scored=${stats.scored} unchanged=${stats.skippedUnchanged} noRoute=${stats.skippedNoRoute} noInputs=${stats.skippedNoInputs} errors=${stats.error}`);
         lastLog = Date.now();
       }
     }
-  });
+   }));
 
   // JSON report.
   writeFileSync(join(reportsDir, `${tag}.json`), JSON.stringify({ tag, apply, model, stats, rows }, null, 2));
@@ -205,7 +270,7 @@ function agree(prior: number | null | undefined, next: number | null | undefined
   };
 
   console.log(`\n${apply ? `Created ${stats.created}, updated ${stats.updated}` : `Would create/update ${stats.scored}`} stage record(s). ` +
-    `inScope=${stats.inScope} noRoute=${stats.skippedNoRoute} noInputs=${stats.skippedNoInputs} errors=${stats.error}.`);
+    `inScope=${stats.inScope}${gated ? ` unchanged=${stats.skippedUnchanged}` : ''} noRoute=${stats.skippedNoRoute} noInputs=${stats.skippedNoInputs} errors=${stats.error}.`);
   if (withPrior.length) {
     console.log(`Acceptance vs prior (${withPrior.length} companies with a prior assessment):`);
     for (const k of ['a_trl', 'a_mrl', 'a_crl', 'a_churchill']) { const s = summarize(k); if (s) console.log('  ' + s); }
