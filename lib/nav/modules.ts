@@ -15,7 +15,7 @@ export const MODULES: ModuleItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: 'fa-gauge-high', soon: true },
   { id: 'mappings', label: 'Field Mappings', icon: 'fa-arrow-right-arrow-left', href: '/mappings' },
   { id: 'enrichment', label: 'Data Enrichment', icon: 'fa-wand-magic-sparkles', href: '/enrichment' },
-  { id: 'activity', label: 'Activity Reporting', icon: 'fa-clipboard-list', soon: true },
+  { id: 'change-logs', label: 'Change Logs', icon: 'fa-clipboard-list', href: '/change-logs' },
   { id: 'grants', label: 'Grant Reporting', icon: 'fa-file-invoice-dollar', soon: true },
   { id: 'settings', label: 'Settings', icon: 'fa-gear', soon: true },
 ];
