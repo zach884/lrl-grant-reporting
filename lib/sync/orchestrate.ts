@@ -29,6 +29,7 @@ export async function loadPushConnection(slug: string): Promise<DryRunConnection
   if (!meta || !meta.associationId) return null;
   const set = await store.loadSync(slug);
   return {
+    name: slug,
     sourceObject: meta.sourceObject,
     targetObject: meta.destObject,
     associationId: meta.associationId,

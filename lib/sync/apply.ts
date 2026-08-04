@@ -12,6 +12,7 @@ import { writeRecordFields } from '../ghl/writeRecord';
 import { resolveCounterpartIds } from './traverse';
 import { equalForField, proposedValue, canonicalizeSource, isHeldDowngrade } from './dryrun';
 import { guardChanges, recordLedger } from './convergenceGuard';
+import { logChange } from '../audit/log';
 import type { CustomFieldCatalog } from '../ghl/types';
 import type { GhlClient } from '../ghl/client';
 import type { DryRunConnection } from './dryrun';
@@ -124,6 +125,13 @@ export async function syncConnection(
       written = w.written; skipped = [...heldSkips, ...guard.suppressed, ...w.skipped];
       await recordLedger(targetId, written.map((k) => ({ fieldKey: k, value: writeVals[k] })));
     }
+    if (guard.keep.length) {
+      await logChange({
+        objectType: connection.targetObject, recordId: targetId, actorKind: 'sync',
+        actorName: connection.name ?? `${connection.sourceObject}->${connection.targetObject}`,
+        changes: guard.keep.map((c) => ({ field: c.fieldKey, from: c.from, to: c.to })), applied: opts.apply,
+      });
+    }
     forward.push({ targetId, changes: guard.keep, unchanged, written, skipped });
   }
 
@@ -147,6 +155,13 @@ export async function syncConnection(
         const w = await write(connection.sourceObject, sourceRecordId, writeVals, sourceCatalog, client, rawKeys);
         written = w.written; skipped = [...heldSkips, ...guard.suppressed, ...w.skipped];
         await recordLedger(sourceRecordId, written.map((k) => ({ fieldKey: k, value: writeVals[k] })));
+      }
+      if (guard.keep.length) {
+        await logChange({
+          objectType: connection.sourceObject, recordId: sourceRecordId, actorKind: 'sync',
+          actorName: `${connection.name ?? connection.targetObject + '->' + connection.sourceObject} (reverse)`,
+          changes: guard.keep.map((c) => ({ field: c.fieldKey, from: c.from, to: c.to })), applied: opts.apply,
+        });
       }
       reverse = { changes: guard.keep, written, skipped };
     }

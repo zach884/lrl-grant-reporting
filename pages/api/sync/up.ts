@@ -20,6 +20,7 @@ import { getEnricherState, setEnricherState, normalizeCompanyAddress, addressNee
 import { hasDatabase } from '@/lib/db';
 import { hasWix } from '@/lib/wix/config';
 import { runContactTeamPipeline } from '@/lib/wix-sync/pipeline';
+import { withRun, newRunId } from '@/lib/audit/context';
 
 function extractContactId(req: NextApiRequest): string | undefined {
   const b: any = req.body ?? {};
@@ -41,6 +42,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!contactId) return res.status(400).json({ error: 'contactId required' });
   const dryRun = req.query.dryRun === '1' || (req.body && req.body.dryRun === true);
 
+  // Tag every change this webhook fans out (sync/enrich/score across GHL + Wix) with one run id, so
+  // the change log can show the whole cascade as a single traceable event.
+  return withRun({ runId: newRunId(), trigger: `webhook:contact-changed${dryRun ? ':dryrun' : ''}` }, async () => {
   try {
     const catalogs = await getCatalogs();
 
@@ -125,4 +129,5 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     console.error('sync/up error:', e);
     return res.status(500).json({ error: e?.message ?? 'sync failed' });
   }
+  });
 }

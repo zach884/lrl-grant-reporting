@@ -5,9 +5,10 @@
 // contract in lib/mapping/types.ts EXACTLY so a row round-trips to the shape the sync
 // engine already consumes — nothing in lib/sync/* changes.
 
-import { pgTable, uuid, text, integer, boolean, jsonb, timestamp, unique, index, primaryKey } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, integer, real, boolean, jsonb, timestamp, unique, index, primaryKey } from 'drizzle-orm/pg-core';
 import type { WixCreatePolicy, WixGate, WixSecondaryMatch, WixVisibility } from '../mapping/wixTypes';
 import type { EnricherFilter, EnricherGroup, EnricherMembership, EnricherStatusGate, FilterCombine } from '../enrichment/configTypes';
+import type { ChangeLogFieldChange } from '../audit/types';
 
 export const syncs = pgTable('syncs', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -213,3 +214,45 @@ export const syncWriteLedger = pgTable(
 );
 
 export type SyncWriteLedgerRow = typeof syncWriteLedger.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Change log (additive, append-only) — a durable history of every change the app makes to a connected
+// system (GHL, Wix): which record, which field(s) before→after, which sync/enricher/scorer, why, when,
+// what triggered it, and applied vs dry-run. Powers debugging + the funder audit trail. Written
+// best-effort (a log failure never breaks a write). See docs/sprints/change-log-plan.md.
+// ---------------------------------------------------------------------------
+
+export const changeLog = pgTable(
+  'change_log',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    ts: timestamp('ts', { withTimezone: true }).notNull().defaultNow(),
+    app: text('app').notNull().default('ghl'),
+    objectType: text('object_type').notNull(),
+    recordId: text('record_id').notNull(),
+    recordLabel: text('record_label'),
+    /** 'sync' | 'enricher' | 'scorer'. */
+    actorKind: text('actor_kind').notNull(),
+    actorName: text('actor_name').notNull(),
+    action: text('action').notNull().default('update'),
+    /** Field diffs (+ per-field provenance) as JSON. */
+    changes: jsonb('changes').$type<ChangeLogFieldChange[]>(),
+    method: text('method'),
+    confidence: real('confidence'),
+    rationale: text('rationale'),
+    /** 'webhook:contact-changed' | 'batch:<script>' | 'manual'. */
+    trigger: text('trigger'),
+    /** Correlates all writes from one invocation (webhook/batch). */
+    runId: text('run_id'),
+    applied: boolean('applied').notNull().default(true),
+    error: text('error'),
+  },
+  (t) => ({
+    byRecord: index('change_log_record_idx').on(t.recordId, t.ts),
+    byRun: index('change_log_run_idx').on(t.runId),
+    byActor: index('change_log_actor_idx').on(t.actorName, t.ts),
+    byTs: index('change_log_ts_idx').on(t.ts),
+  }),
+);
+
+export type ChangeLogRow = typeof changeLog.$inferSelect;

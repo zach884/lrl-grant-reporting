@@ -23,6 +23,8 @@ import { buildInputBlob, labelResolvingAccessor, PATH_DIMENSIONS, SCORING_INPUT_
 import { getCompanyStageContext, getStageAssociationId, STAGE_OBJECT } from './priorAssessment';
 import { createStageRecord, updateStageRecord } from './writeStageRecord';
 import { fingerprint, getEnricherState, setEnricherState } from '../enrichment/stateStore';
+import { logChange } from '../audit/log';
+import type { ChangeLogFieldChange } from '../audit/types';
 
 /** Registry meta for the enricher UI (the scorer isn't an Enricher object, so this is its stand-in). */
 export const STAGE_SCORER_NAME = 'client-stage-scorer';
@@ -122,13 +124,26 @@ export async function runStageScoreTrigger(companyId: string, opts: StageTrigger
   }
   if (!assocId && !ctx.todayRecordId) return { ran: false, reason: 'company_business_stage association not found' };
 
+  // Change-log entry: the scored fields + the combined rationale (the "why").
+  const logFields: ChangeLogFieldChange[] = [];
+  if (score.trl != null) logFields.push({ field: 'trl', to: score.trl });
+  if (score.mrl != null) logFields.push({ field: 'mrl', to: score.mrl });
+  if (score.crl != null) logFields.push({ field: 'crl', to: score.crl });
+  if (score.churchillStage != null) logFields.push({ field: 'churchill_score', to: score.churchillStage });
+  if (score.churchillSubstage) logFields.push({ field: 'churchill_substage', to: score.churchillSubstage });
+  const rationale = [score.techRationale, score.serviceRationale].filter(Boolean).join('\n\n---\n\n');
+  const logScore = (recordId: string, action: 'create' | 'update') =>
+    logChange({ objectType: STAGE_OBJECT, recordId, recordLabel: name, actorKind: 'scorer', actorName: STAGE_SCORER_NAME, action, changes: logFields, method: 'ai', rationale, applied: true });
+
   const propsInput = { score, name, rescoreDate: today };
   if (ctx.todayRecordId) {
     await updateStageRecord(ctx.todayRecordId, propsInput, { catalog: await getCatalog(STAGE_OBJECT, { client }), client });
     await setEnricherState(companyId, { scoreInputHash: inputHash });
+    await logScore(ctx.todayRecordId, 'update');
     return { ran: true, path, action: 'updated', recordId: ctx.todayRecordId, scores };
   }
   const res = await createStageRecord(propsInput, { catalog: await getCatalog(STAGE_OBJECT, { client }), assocId: assocId!, companyId, client });
   await setEnricherState(companyId, { scoreInputHash: inputHash });
+  await logScore(res.recordId, 'create');
   return { ran: true, path, action: 'created', recordId: res.recordId, scores };
 }

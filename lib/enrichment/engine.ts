@@ -18,6 +18,7 @@ import {
 } from './types';
 import { resolveEnricherConfig } from './configStore';
 import { evaluateGate } from './gate';
+import { logEnrichment } from '../audit/log';
 
 const bare = (k: string) => k.replace(/^business\./, '');
 
@@ -159,5 +160,13 @@ export async function enrichCompany(
   const company = await getBusinessRecord(companyId, client);
   if (!company) throw new Error(`Company ${companyId} not found`);
   const proposals = await runEnrichers(company, businessCatalog, enrichers);
-  return applyProposals(companyId, company, proposals, businessCatalog, policy, opts);
+  const result = await applyProposals(companyId, company, proposals, businessCatalog, policy, opts);
+  if (opts.apply && result.applied.length) {
+    await logEnrichment({
+      objectType: 'business', recordId: companyId, recordLabel: String(company.properties?.name ?? ''),
+      actorName: 'company-enrichers', applyMode: opts.apply,
+      applied: result.applied.map((a) => ({ key: a.businessKey, value: a.value, provenance: a.provenance })),
+    });
+  }
+  return result;
 }

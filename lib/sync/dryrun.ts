@@ -33,6 +33,8 @@ export interface DryRunConnection {
   targetObject: string;
   associationId: string;
   rows: DryRunRow[];
+  /** Human/slug name of the connection, for change-log attribution (e.g. 'contact-to-company'). */
+  name?: string;
 }
 
 export interface DryRunChange { sourceKey: string; targetKey: string; from: unknown; to: unknown }

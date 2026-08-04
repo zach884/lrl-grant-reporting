@@ -9,6 +9,7 @@ import { GhlClient, ghl } from '../ghl/client';
 import { readRecordFields } from '../ghl/records';
 import { writeRecordFields } from '../ghl/writeRecord';
 import type { CustomFieldCatalog } from '../ghl/types';
+import { logEnrichment } from '../audit/log';
 import {
   ApplyPolicy,
   AppliedRecordField,
@@ -120,5 +121,12 @@ export async function enrichRecord(
   const fields = await readRecordFields(objectKey, recordId, client);
   const input: RecordEnricherInput = { objectKey, recordId, catalog, field: (k) => fields.get(k) };
   const proposals = await runRecordEnrichers(input, enrichers);
-  return applyRecordProposals(objectKey, recordId, proposals, catalog, input.field, policy, opts);
+  const result = await applyRecordProposals(objectKey, recordId, proposals, catalog, input.field, policy, opts);
+  if (opts.apply && result.applied.length) {
+    await logEnrichment({
+      objectType: objectKey, recordId, actorName: `${objectKey}-enrichers`, applyMode: opts.apply,
+      applied: result.applied.map((a) => ({ key: a.fieldKey, value: a.value, provenance: a.provenance })),
+    });
+  }
+  return result;
 }

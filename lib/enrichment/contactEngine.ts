@@ -9,6 +9,7 @@ import { GhlClient, ghl } from '../ghl/client';
 import { getContact } from '../ghl/contacts';
 import { writeRecordFields } from '../ghl/writeRecord';
 import type { Contact, CustomFieldCatalog } from '../ghl/types';
+import { logEnrichment } from '../audit/log';
 import {
   ContactEnricher,
   ContactEnricherInput,
@@ -158,5 +159,14 @@ export async function enrichContact(
   const contact = await getContact(contactId, client);
   if (!contact) throw new Error(`Contact ${contactId} not found`);
   const proposals = await runContactEnrichers(contact, catalog, enrichers);
-  return applyContactProposals(contactId, contact, proposals, catalog, policy, opts);
+  const result = await applyContactProposals(contactId, contact, proposals, catalog, policy, opts);
+  if (opts.apply && result.applied.length) {
+    await logEnrichment({
+      objectType: 'contact', recordId: contactId,
+      recordLabel: [contact.firstName, contact.lastName].filter(Boolean).join(' '),
+      actorName: 'contact-enrichers', applyMode: opts.apply,
+      applied: result.applied.map((a) => ({ key: a.contactKey, value: a.value, provenance: a.provenance })),
+    });
+  }
+  return result;
 }
