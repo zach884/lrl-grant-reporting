@@ -1,0 +1,49 @@
+name: Monthly Cafe Fuel net sales
+
+# Pulls Cafe Fuel Net Sales from Square for the most recent completed month and
+# creates/updates the "Cafe Fuel | <Month> <Year> Sales" opportunity in the GHL
+# Cafe Fuel Sales pipeline (so it shows on the scorecard dashboard). Idempotent:
+# updates the month's opportunity in place if it already exists. Runs on the 1st.
+#
+# Net Sales = per completed Square order, amount charged minus tax, tips, and service
+# charges, summed for the month (Square's Net Sales definition: gross - discounts/comps
+# - returns, before tax & tips). Counts COMPLETED orders only, so it runs a touch under
+# the Square Dashboard Sales Summary figure (Square documents that the two rarely match
+# to the penny); the trend is consistent month to month.
+
+on:
+  schedule:
+    # 07:00 UTC on the 1st = 2am EST / 3am EDT. Prior month is fully closed by then.
+    - cron: '0 7 1 * *'
+  workflow_dispatch:
+    inputs:
+      month:
+        description: 'Optional month YYYY-MM (blank = most recent completed month)'
+        required: false
+        default: ''
+
+jobs:
+  square-netsales:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Pull Square Net Sales -> GHL (apply, live)
+        run: |
+          if [ -n "${{ github.event.inputs.month }}" ]; then
+            npx vite-node scripts-ts/square-netsales-run.ts --month "${{ github.event.inputs.month }}" --apply --yes
+          else
+            npx vite-node scripts-ts/square-netsales-run.ts --apply --yes
+          fi
+        env:
+          GHL_TARGET: live
+          GHL_API_KEY: ${{ secrets.GHL_API_KEY }}
+          GHL_LOCATION_ID: ${{ secrets.GHL_LOCATION_ID }}
+          SQUARE_ACCESS_TOKEN: ${{ secrets.SQUARE_ACCESS_TOKEN }}
+          SQUARE_LOCATION_ID: ${{ secrets.SQUARE_LOCATION_ID }}
+          SQUARE_TIMEZONE: America/Detroit

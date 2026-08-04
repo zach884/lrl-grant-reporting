@@ -39,3 +39,5 @@ export async function ghlRequest<T = any>(opts: {
 
 /** Back-compat: the live location id, as the original module exported it. */
 export const GHL_LOCATION_ID: string = process.env.GHL_LOCATION_ID ?? '';
+
+export * as opportunities from './opportunities';
