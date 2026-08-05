@@ -226,7 +226,17 @@ function priorBlock(dims: Dimension[], prior: PriorAssessment | null | undefined
     lines.push(`  Sub-Stage = ${prior.churchillSubstage ?? 'N/A'}`);
     if (prior.serviceRationale) lines.push('  Previous service rationale:', prior.serviceRationale);
   }
-  lines.push('For each score, state what changed (or didn\'t) vs. the previous assessment and why.');
+  // De-anchor: the prior is REFERENCE for the change narrative only, NOT evidence. Re-derive every
+  // score from the current inputs + rubric/guidance as if scoring fresh — a previous score (which may
+  // have used an older rubric) must never pull the new score toward it. This keeps re-scores as stable
+  // as an initial score; without it, feeding a stale prior re-introduced the very instability the
+  // guidance fixes (a wrong prior would anchor or destabilize the new value).
+  lines.push(
+    'IMPORTANT: Re-derive each score independently from the CURRENT inputs and the rubric/guidance above, ' +
+    'exactly as you would on a first assessment. The previous scores are context for describing what changed — ' +
+    'they are NOT evidence and must not pull your score toward them (a prior score may have used an older rubric). ' +
+    'After scoring, state for each what changed (or didn\'t) vs. the previous assessment and why.',
+  );
   return lines.join('\n');
 }
 

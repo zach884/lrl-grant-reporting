@@ -180,6 +180,12 @@ function agree(prior: number | null | undefined, next: number | null | undefined
       }
       stats.scored++;
 
+      // Label correctness: when scoring FRESH (--initial-only, no prior fed — the most reliable way to
+      // re-score the base under a rubric change) for a company that already has history, the new record
+      // is still a RE-SCORE. Mark it so snapshot_kind reads "Rescore", not "Initial". Genuinely new
+      // companies (no prior, no today record) stay "Initial".
+      if (score.rescore === false && (ctx.prior || ctx.todayRecordId)) score.rescore = true;
+
       // Upsert semantics: overwrite today's record if one exists (same-day correction), else append a
       // new one. In dry-run, just report which it would be.
       const willOverwrite = Boolean(ctx.todayRecordId);
@@ -225,12 +231,14 @@ function agree(prior: number | null | undefined, next: number | null | undefined
       rows.push({
         companyId: co.id, name, path,
         action: apply ? (willOverwrite ? 'updated' : 'created') : (willOverwrite ? 'would-update' : 'would-create'),
-        rescore: score.rescore, priorSource: prior?.source ?? '',
-        prior_trl: prior?.trl ?? '', new_trl: score.trl ?? '', a_trl: agree(prior?.trl, score.trl),
-        prior_mrl: prior?.mrl ?? '', new_mrl: score.mrl ?? '', a_mrl: agree(prior?.mrl, score.mrl),
-        prior_crl: prior?.crl ?? '', new_crl: score.crl ?? '', a_crl: agree(prior?.crl, score.crl),
-        prior_churchill: prior?.churchillStage ?? '', new_churchill: score.churchillStage ?? '', a_churchill: agree(prior?.churchillStage, score.churchillStage),
-        prior_substage: prior?.churchillSubstage ?? '', new_substage: score.churchillSubstage ?? '',
+        // Compare against the company's EXISTING assessment (ctx.prior) for the report, even under
+        // --initial-only where no prior was fed to the scorer — so before→after deltas always show.
+        rescore: score.rescore, priorSource: ctx.prior?.source ?? '',
+        prior_trl: ctx.prior?.trl ?? '', new_trl: score.trl ?? '', a_trl: agree(ctx.prior?.trl, score.trl),
+        prior_mrl: ctx.prior?.mrl ?? '', new_mrl: score.mrl ?? '', a_mrl: agree(ctx.prior?.mrl, score.mrl),
+        prior_crl: ctx.prior?.crl ?? '', new_crl: score.crl ?? '', a_crl: agree(ctx.prior?.crl, score.crl),
+        prior_churchill: ctx.prior?.churchillStage ?? '', new_churchill: score.churchillStage ?? '', a_churchill: agree(ctx.prior?.churchillStage, score.churchillStage),
+        prior_substage: ctx.prior?.churchillSubstage ?? '', new_substage: score.churchillSubstage ?? '',
         recordId,
         rationale: [score.techRationale, score.serviceRationale].filter(Boolean).join(' | '),
       });
