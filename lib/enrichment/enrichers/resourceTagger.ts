@@ -105,15 +105,27 @@ export function buildResourceProposals(
       { fieldKey: `${objectKey}.readiness_rationale`, value: rationaleText || 'No clear service identified.', provenance },
     ];
   }
-  // GHL custom-object MULTIPLE_OPTIONS can't be set via update, so these live as TEXT holding a
-  // delimited list; the Wix sync splits them back into ARRAY_STRING columns for the map.
+  // The 4 stop fields are MULTIPLE_OPTIONS again (2026-08-17): they were briefly TEXT holding a
+  // ';'-joined list, back when object multi-selects looked unwritable on update. They take real
+  // arrays now, so staff get dropdowns instead of hand-edited strings.
+  // `service_areas` is still TEXT (29 labels, not yet flipped) — hence the join below. The write
+  // path tolerates either shape, so the two can be migrated independently.
   const stops = deriveStops(tags);
   const out: RecordEnrichmentProposal[] = [
     { fieldKey: `${objectKey}.service_areas`, value: tagsToLabels(tags).join('; '), provenance },
   ];
-  for (const line of LINE_KEYS) out.push({ fieldKey: `${objectKey}.${STOP_BARE[line]}`, value: stops[line].map(String).join(';'), provenance });
+  for (const line of LINE_KEYS) out.push({ fieldKey: `${objectKey}.${STOP_BARE[line]}`, value: stops[line].map(String), provenance });
   out.push({ fieldKey: `${objectKey}.readiness_confidence`, value: confidence, provenance });
-  out.push({ fieldKey: `${objectKey}.readiness_rationale`, value: rationaleText, provenance });
+  // Derived: LLM prose restating the tags above. Written only when the tags/stops change, so
+  // wording drift stops rewriting the field (and re-syncing the Wix row) on every run.
+  out.push({
+    fieldKey: `${objectKey}.readiness_rationale`, value: rationaleText, provenance,
+    derivedFrom: [
+      `${objectKey}.service_areas`,
+      ...LINE_KEYS.map((line) => `${objectKey}.${STOP_BARE[line]}`),
+      `${objectKey}.readiness_confidence`,
+    ],
+  });
   return out;
 }
 

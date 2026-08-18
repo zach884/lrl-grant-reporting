@@ -139,6 +139,16 @@ export function passesMembershipGate(membership: unknown, anyOf: string[] = ['Te
   return membershipMatches(membership, anyOf);
 }
 
+/** The fields `readiness_rationale` merely restates — it follows them rather than the LLM's prose. */
+const RATIONALE_DRIVERS = [
+  'contact.service_areas',
+  'contact.mrl_stops',
+  'contact.trl_stops',
+  'contact.crl_stops',
+  'contact.investor_readiness_stops',
+  'contact.readiness_confidence',
+];
+
 /** Confidence label → provenance 0..1 (for dedupe/policy). */
 const CONFIDENCE_SCORE: Record<string, number> = { High: 0.9, Medium: 0.6, Low: 0.3 };
 
@@ -172,7 +182,12 @@ export function buildProposals(
     });
   }
   proposals.push({ contactKey: 'contact.readiness_confidence', value: confidence, provenance });
-  proposals.push({ contactKey: 'contact.readiness_rationale', value: rationaleText, provenance });
+  // Derived: one line of LLM prose describing the tags above. It varies run to run even when the
+  // tags are identical, so it only gets rewritten when the tags/stops actually change.
+  proposals.push({
+    contactKey: 'contact.readiness_rationale', value: rationaleText, provenance,
+    derivedFrom: RATIONALE_DRIVERS,
+  });
   return proposals;
 }
 

@@ -25,6 +25,12 @@ export interface EnrichmentProposal {
   businessKey: string;
   value: unknown;
   provenance: Provenance;
+  /**
+   * Fields this value is merely a RESTATEMENT of (e.g. a free-text rationale describing the
+   * chosen tags). Written only when one of them is also written, so non-deterministic prose
+   * stops rewriting itself every run. See lib/enrichment/derived.ts.
+   */
+  derivedFrom?: string[];
 }
 
 export interface DerivedAddress {
@@ -98,6 +104,8 @@ export interface ContactEnricherInput {
 }
 
 export interface ContactEnrichmentProposal {
+  /** Fields this value merely restates — written only when a driver is written (derived.ts). */
+  derivedFrom?: string[];
   /** Contact field to fill, e.g. 'contact.service_areas'. */
   contactKey: string;
   value: unknown;
@@ -145,6 +153,8 @@ export interface RecordEnrichmentProposal {
   fieldKey: string;
   value: unknown;
   provenance: Provenance;
+  /** Fields this value merely restates — written only when a driver is written (derived.ts). */
+  derivedFrom?: string[];
 }
 
 export interface RecordEnricher {

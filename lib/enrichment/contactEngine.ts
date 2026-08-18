@@ -10,6 +10,7 @@ import { getContact } from '../ghl/contacts';
 import { writeRecordFields } from '../ghl/writeRecord';
 import type { Contact, CustomFieldCatalog } from '../ghl/types';
 import { logEnrichment } from '../audit/log';
+import { shouldWriteDerived, DERIVED_UNCHANGED_REASON } from './derived';
 import {
   ContactEnricher,
   ContactEnricherInput,
@@ -107,9 +108,17 @@ export async function applyContactProposals(
   const skipped: ContactEnrichmentResult['skipped'] = [];
   const changes: Record<string, unknown> = {};
 
-  for (const p of proposals) {
+  // Derived proposals (free-text restatements of other fields) are decided last, once we know
+  // which drivers actually changed — otherwise LLM prose drift rewrites the field every run.
+  const ordered = [...proposals].sort((a, b) => Number(!!a.derivedFrom) - Number(!!b.derivedFrom));
+
+  for (const p of ordered) {
     if (p.provenance.confidence < minConf) {
       skipped.push({ contactKey: p.contactKey, reason: `below min confidence (${p.provenance.confidence})` });
+      continue;
+    }
+    if (!shouldWriteDerived(p.derivedFrom, applied.map((a) => a.contactKey))) {
+      skipped.push({ contactKey: p.contactKey, reason: DERIVED_UNCHANGED_REASON });
       continue;
     }
     const def = catalog.byKey[p.contactKey] ?? catalog.byId[p.contactKey];

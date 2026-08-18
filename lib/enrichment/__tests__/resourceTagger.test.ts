@@ -42,6 +42,21 @@ describe('resourceTagger.enrich', () => {
     expect(out[0].provenance.source).toBe('anthropic');
   });
 
+  // The stop fields went TEXT (';'-joined) → MULTIPLE_OPTIONS on 2026-08-17. They must emit real
+  // ARRAYS so the modifier writer can diff them; `service_areas` is still TEXT, so it stays joined.
+  it('emits stops as arrays of option keys, and service_areas as a delimited string', async () => {
+    mockClassify.mockResolvedValue({ serviceTags: ['ip', 'legal'], confidence: 'High', verify: false, rationale: 'IP law firm' });
+    const out = await resourceTagger.enrich(makeInput({ resources: 'Endurance Law Group', short_description: 'IP specialists' }));
+    const byKey = Object.fromEntries(out.map((p) => [p.fieldKey, p.value]));
+
+    for (const line of ['mrl_stops', 'trl_stops', 'crl_stops', 'investor_readiness_stops']) {
+      const v = byKey[`${OBJ}.${line}`];
+      expect(Array.isArray(v), `${line} must be an array, got ${JSON.stringify(v)}`).toBe(true);
+      expect((v as unknown[]).every((x) => typeof x === 'string')).toBe(true);
+    }
+    expect(typeof byKey[`${OBJ}.service_areas`]).toBe('string');
+  });
+
   it('no clear service → records confidence + rationale only (no placement fields)', async () => {
     mockClassify.mockResolvedValue({ serviceTags: [], confidence: 'Low', verify: true, rationale: 'bare listing' });
     const out = await resourceTagger.enrich(makeInput({ resources: 'Some Directory Listing', category: 'Professional Association' }));

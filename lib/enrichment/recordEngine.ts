@@ -10,6 +10,7 @@ import { readRecordFields } from '../ghl/records';
 import { writeRecordFields } from '../ghl/writeRecord';
 import type { CustomFieldCatalog } from '../ghl/types';
 import { logEnrichment } from '../audit/log';
+import { shouldWriteDerived, DERIVED_UNCHANGED_REASON } from './derived';
 import {
   ApplyPolicy,
   AppliedRecordField,
@@ -71,9 +72,17 @@ export async function applyRecordProposals(
   const skipped: RecordEnrichmentResult['skipped'] = [];
   const changes: Record<string, unknown> = {};
 
-  for (const p of proposals) {
+  // Derived proposals last, so a rationale follows the tags it describes instead of rewriting
+  // itself on every run from LLM prose drift (see lib/enrichment/derived.ts).
+  const ordered = [...proposals].sort((a, b) => Number(!!a.derivedFrom) - Number(!!b.derivedFrom));
+
+  for (const p of ordered) {
     if (p.provenance.confidence < minConf) {
       skipped.push({ fieldKey: p.fieldKey, reason: `below min confidence (${p.provenance.confidence})` });
+      continue;
+    }
+    if (!shouldWriteDerived(p.derivedFrom, applied.map((a) => a.fieldKey))) {
+      skipped.push({ fieldKey: p.fieldKey, reason: DERIVED_UNCHANGED_REASON });
       continue;
     }
     const def = catalog.byKey[p.fieldKey] ?? catalog.byKey[`${objectKey}.${p.fieldKey}`];
