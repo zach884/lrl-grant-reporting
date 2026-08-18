@@ -15,20 +15,21 @@
 // duplicate delivery converges to a no-op rather than double-writing. That guarantee is what makes
 // fire-and-forget acceptable; do not adopt this pattern for a non-idempotent handler.
 //
-// ⛔ DISABLED BY DEFAULT — `waitUntil` DOES NOT WORK ON THIS PROJECT YET.
+// ✅ VERIFIED WORKING ON PROD 2026-08-18, and it DEPENDS ON VERCEL FLUID COMPUTE.
 //
-// Verified against prod 2026-08-18: the endpoint returned 202 in 1.5s, but the work never ran — a
-// contact with a pending `business.logo` write still had it pending afterwards. `waitUntil` needs
-// Vercel **Fluid Compute**; on the classic Node serverless runtime the invocation is frozen the
-// moment the response is sent, so the continuation is simply discarded.
+// Proof: cleared a Team row's `image_fldSrc` (invisible on the site, but a guaranteed pending write),
+// fired `?async=1`, got 202 in 1.4s, and the column was restored ~15s later without the caller
+// waiting. Two earlier attempts to verify this were WRONG and worth recording so nobody re-derives
+// them: the first probed `business.logo`, whose write GHL rejects for unrelated reasons, so nothing
+// could ever land; the second read the result back within a second or two of the 202, before ~14s of
+// work could finish. Both looked exactly like "waitUntil is broken".
 //
-// That failure mode is worse than the timeout it was meant to fix: GHL records success and nothing
-// happens — silent data loss. So async is now OPT-IN via `?async=1`, and every handler defaults to
-// synchronous. Do NOT make it the default until `waitUntil` is proven on this project:
-//   1. enable Fluid Compute in the Vercel project settings, then
-//   2. re-run the check in the commit message (fire ?async=1 at a contact with a pending write and
-//      confirm the write lands), and only then flip the defaults.
-// A durable queue (DB table + cron drain) is the alternative that needs no platform feature.
+// ⚠️ FLUID COMPUTE IS LOAD-BEARING. On the classic Node serverless runtime the invocation is frozen
+// the moment the response is sent and the continuation is silently discarded — GHL would record
+// success while nothing happened. If Fluid Compute is ever turned off for this project, these
+// handlers MUST go back to synchronous (`wantsAsync` returning false is enough). The nightly
+// reconcile/readiness/resources Actions are the backstop that would eventually paper over it, which
+// is precisely why the failure would be hard to notice.
 //
 // TRADE-OFF when it IS enabled: the caller no longer learns whether the work succeeded — 202 means
 // "accepted", not "done". Outcomes go to `change_log` (queryable in /activity), and failures are
@@ -43,13 +44,15 @@ export function wantsSynchronous(req: NextApiRequest): boolean {
 }
 
 /**
- * Should this request be handled asynchronously?
+ * Should this request be handled asynchronously? Default YES — that is the whole point.
  *
- * OPT-IN ONLY (`?async=1`), because `waitUntil` silently drops the work on this project's runtime —
- * see the header. Defaulting to async would ack GHL and do nothing.
+ * A dry run is for a human who wants the plan, and `?sync=1` forces waiting, so both stay
+ * synchronous. Everything else (i.e. a real GHL webhook delivery) gets acked immediately.
  */
 export function wantsAsync(req: NextApiRequest): boolean {
-  return req.query.async === '1' && !wantsSynchronous(req);
+  if (wantsSynchronous(req)) return false;
+  const dryRun = req.query.dryRun === '1' || (req.body as any)?.dryRun === true;
+  return !dryRun;
 }
 
 export interface FastAckOptions {
