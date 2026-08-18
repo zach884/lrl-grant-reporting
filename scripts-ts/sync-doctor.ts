@@ -1,12 +1,15 @@
 // scripts-ts/sync-doctor.ts — audit every sync mapping for option-field hazards.
 //
-// Two failure classes we've hit:
+// Three failure classes we've hit:
 //   • DROP  — an option present on one side but missing on the other → that value silently fails to
 //             sync (e.g. Independent Validation "Other" missing on the company field).
 //   • LOOP  — the two sides represent the same value differently (key vs label) with no transform, so
 //             the sync keeps rewriting it and never converges (e.g. country "US" ⇄ "United States").
+//   • CHURN — a field rewritten day after day with no source change, read from the change_log
+//             (added 2026-08-17 after unguarded image/reference writes ran for weeks unnoticed).
 // Run after editing mappings, or anytime, to catch these before they bite:
 //   npx vite-node scripts-ts/sync-doctor.ts            (or: npm run sync:doctor)
+//   npx vite-node scripts-ts/sync-doctor.ts --churn-days 14 --churn-min 2
 // Reads .env.local; GHL_TARGET default live. Read-only.
 
 import { readFileSync } from 'node:fs';
@@ -75,11 +78,91 @@ const norm = (s: string) => s.toLowerCase().replace(/\s+/g, '').replace(/[_-]+/g
   const order = ['🔴 LOOP', '🟠 DROP', '🟡 TYPE', '✓ GUARDED'];
   findings.sort((a, b) => order.indexOf(a.level) - order.indexOf(b.level));
   console.log(`Sync doctor — ${syncs.length} connections scanned.\n`);
-  if (!findings.length) { console.log('No option-field hazards found. ✅'); process.exit(0); }
-  let last = '';
-  for (const f of findings) { if (f.level !== last) { console.log(`\n${f.level}`); last = f.level; } console.log(`  [${f.conn}] ${f.msg}`); }
-  const loops = findings.filter((f) => f.level.includes('LOOP')).length;
-  const drops = findings.filter((f) => f.level.includes('DROP')).length;
-  console.log(`\nSummary: ${loops} loop-risk, ${drops} drop-risk. Fix loop-risks before enabling real-time sync.`);
+  if (!findings.length) {
+    console.log('No option-field hazards found. ✅');
+  } else {
+    let last = '';
+    for (const f of findings) { if (f.level !== last) { console.log(`\n${f.level}`); last = f.level; } console.log(`  [${f.conn}] ${f.msg}`); }
+    const loops = findings.filter((f) => f.level.includes('LOOP')).length;
+    const drops = findings.filter((f) => f.level.includes('DROP')).length;
+    console.log(`\nSummary: ${loops} loop-risk, ${drops} drop-risk. Fix loop-risks before enabling real-time sync.`);
+  }
+
+  await reportChurn();
   process.exit(0);
 })().catch((e) => { console.error('SYNC DOCTOR FAILED:', e?.stack ?? e); process.exit(1); });
+
+/**
+ * CHURN — the third failure class, added 2026-08-17.
+ *
+ * A converged sync rewrites a field only when its source changes. So the same (record, field)
+ * appearing in many applied writes over a window is proof of a non-converging write path, even when
+ * every individual write looks legitimate. This is what would have caught the unguarded image and
+ * reference intents in July instead of August: `image_fld`, `companyLogo`, `program` and
+ * `collectives` were rewritten for the same handful of contacts every single day (126 image writes
+ * and 269 reference replaces in 13 days), each image write a fresh Media Manager upload.
+ *
+ * Reads the change_log only — no API calls, safe to run any time.
+ *   --churn-days N   window to scan (default 7)
+ *   --churn-min N    flag a field rewritten on N+ distinct days (default 3)
+ */
+async function reportChurn() {
+  const argNum = (name: string, dflt: number) => {
+    const i = process.argv.indexOf(`--${name}`);
+    const v = i >= 0 ? Number(process.argv[i + 1]) : NaN;
+    return Number.isFinite(v) && v > 0 ? v : dflt;
+  };
+  const days = argNum('churn-days', 7);
+  const minDays = argNum('churn-min', 3);
+
+  const { hasDatabase } = await import('../lib/db');
+  if (!hasDatabase) {
+    console.log('\nCHURN — skipped (no DATABASE_URL).');
+    return;
+  }
+  const { queryChangeLog } = await import('../lib/audit/query');
+
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+  // Page through the window (queryChangeLog caps at 500 per call).
+  const rows: any[] = [];
+  for (let offset = 0; offset < 10_000; offset += 500) {
+    const page = await queryChangeLog({ since, applied: 'applied', limit: 500, offset });
+    rows.push(...page.rows);
+    if (!page.hasMore) break;
+  }
+
+  // (objectType|recordId|field) -> the distinct days it was written on.
+  const seen = new Map<string, Set<string>>();
+  const labels = new Map<string, string>();
+  for (const r of rows) {
+    const day = new Date(r.ts).toISOString().slice(0, 10);
+    for (const c of (r.changes ?? []) as Array<{ field?: string }>) {
+      if (!c?.field) continue;
+      const key = `${r.objectType}|${r.recordId}|${c.field}`;
+      if (!seen.has(key)) seen.set(key, new Set());
+      seen.get(key)!.add(day);
+      if (r.recordLabel) labels.set(key, String(r.recordLabel));
+    }
+  }
+
+  const churning = Array.from(seen.entries())
+    .map(([key, daySet]) => ({ key, days: daySet.size }))
+    .filter((x) => x.days >= minDays)
+    .sort((a, b) => b.days - a.days);
+
+  console.log(`\n\nCHURN — applied writes over the last ${days} day(s): ${rows.length} events scanned.`);
+  if (!churning.length) {
+    console.log(`No field was rewritten on ${minDays}+ separate days. Syncs are converging. ✅`);
+    return;
+  }
+  console.log(`🔴 ${churning.length} (record, field) pair(s) rewritten on ${minDays}+ separate days —`);
+  console.log('   a converged sync writes only when its source changes, so these are non-converging:\n');
+  for (const c of churning.slice(0, 25)) {
+    const [objectType, recordId, field] = c.key.split('|');
+    const label = labels.get(c.key);
+    console.log(`  ${String(c.days).padStart(2)} days · ${field}  (${objectType} ${label ? `"${label}" ` : ''}${recordId})`);
+  }
+  if (churning.length > 25) console.log(`  … and ${churning.length - 25} more`);
+  console.log('\nUsual causes: an unguarded write intent (image/reference), a value GHL stores in a');
+  console.log('different form than we send it, or free-text AI output that should be a derived field.');
+}

@@ -1,0 +1,74 @@
+name: Nightly resources (tag + sync)
+
+# Backstop for the Resources pipeline: tag (resource-tagger) then sync GHL Resources → Wix `Import1`.
+#
+# WHY THIS EXISTS: /api/resource-sync was built in July but nothing called it, so the 2026-08-07
+# "Become a Resource" submission sat unsynced for 11 days. The real-time path is a GHL workflow on
+# the Resources object (Record Changed → POST /api/resource-sync); this workflow is the safety net
+# for a webhook that doesn't fire, exactly like nightly-readiness.yml is for contacts.
+#
+# 08:45 UTC, after nightly-readiness (08:30) so the two AI sweeps don't overlap.
+#
+# The set's resource_status gate decides per record: Pending → skip · Approved → create + publish ·
+# Published → update · Hidden → unpublish. Match is id ↔ ghlResourceId, so this never creates a
+# duplicate Wix row. Writes are equality-guarded end to end (field values, images and references),
+# so a clean night should report all `noop` and write nothing.
+#
+# GHL_MAX_RPS=3 keeps writes at ≥0.3s spacing (the client also backs off on 429).
+
+on:
+  schedule:
+    # 08:45 UTC = 4:45am EDT / 3:45am EST. Cron is UTC.
+    - cron: '45 8 * * *'
+  workflow_dispatch: {} # allow manual runs from the Actions tab
+
+jobs:
+  resources:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+
+      - name: Tag resources (apply, live) — backstop for missed Approved webhooks
+        # Default gate = resource_status ∈ {Approved, Published}; the tagger is equality-guarded and
+        # the rationale is a derived field, so an unchanged resource re-tags to zero writes.
+        run: npx vite-node scripts-ts/resources-tag-run.ts --apply --yes
+        env:
+          GHL_TARGET: live
+          GHL_MAX_RPS: 3
+          GHL_API_KEY: ${{ secrets.GHL_API_KEY }}
+          GHL_LOCATION_ID: ${{ secrets.GHL_LOCATION_ID }}
+          GHL_CUSTOM_OBJECT_ID: ${{ secrets.GHL_CUSTOM_OBJECT_ID }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Sync resources → Wix (apply, live)
+        # No --set-status: statuses are already stamped, and the gate must stay in charge of who
+        # syncs. No --updated-since either: a nightly full pass is the point of a backstop, and with
+        # the guards in place an unchanged record is a cheap noop.
+        run: npx vite-node scripts-ts/resources-sync-run.ts --apply --yes
+        env:
+          GHL_TARGET: live
+          GHL_MAX_RPS: 3
+          GHL_API_KEY: ${{ secrets.GHL_API_KEY }}
+          GHL_LOCATION_ID: ${{ secrets.GHL_LOCATION_ID }}
+          GHL_CUSTOM_OBJECT_ID: ${{ secrets.GHL_CUSTOM_OBJECT_ID }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          # NEW SECRETS — add these two in Settings → Secrets and variables → Actions.
+          WIX_API_TOKEN: ${{ secrets.WIX_API_TOKEN }}
+          WIX_SITE_ID: ${{ secrets.WIX_SITE_ID }}
+
+      - name: Upload resources report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resources-report
+          path: reports/
+          if-no-files-found: ignore
+          retention-days: 14

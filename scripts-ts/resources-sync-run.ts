@@ -4,6 +4,7 @@
 //   npx vite-node scripts-ts/resources-sync-run.ts --set-status Published   # DRY-RUN + would-set status
 //   npx vite-node scripts-ts/resources-sync-run.ts --set-status Published --apply --yes   # LIVE
 //   npx vite-node scripts-ts/resources-sync-run.ts --only <id> --apply --yes # one record
+//   npx vite-node scripts-ts/resources-sync-run.ts --updated-since 2d       # only recent records
 //
 // Uses the persisted Resource → Wix set (its resource_status gate decides upsert/update/hide/skip).
 // `--set-status X` stamps resource_status = X on each record first (needed once, so the gate lets the
@@ -28,6 +29,18 @@ function flag(name: string): boolean { return process.argv.includes(`--${name}`)
 const RES_OBJ = 'custom_objects.resources';
 const RES_OBJID = '6a590064ad413a5431fc728e';
 const WIX_RES = 'Import1';
+
+/** `36h` / `2d` / `2026-08-17` (or any Date-parseable string) -> the cutoff instant. */
+function parseSince(input: string): Date | null {
+  const rel = input.trim().match(/^(\d+)\s*([hd])$/i);
+  if (rel) {
+    const n = Number(rel[1]);
+    const ms = rel[2].toLowerCase() === 'h' ? n * 3600_000 : n * 86_400_000;
+    return new Date(Date.now() - ms);
+  }
+  const d = new Date(input);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
 
 async function runPool<T>(items: T[], limit: number, worker: (item: T, i: number) => Promise<void>) {
   let idx = 0; const n = Math.max(1, Math.min(limit, items.length || 1));
@@ -65,6 +78,23 @@ async function runPool<T>(items: T[], limit: number, worker: (item: T, i: number
     const r = d.records ?? d.data ?? []; recs.push(...r); if (r.length < 100) break;
   }
   let todo = only ? recs.filter((r) => only.includes(r.id ?? r._id)) : recs;
+
+  // Delta gate: skip records untouched since a cutoff. Without this the sweep syncs all 91 records
+  // every night; with the field-level guards in place those are noops, but they still cost ~4 Wix
+  // calls each. `--updated-since 2d` / `36h` / an ISO date. The search already sorts updatedAt desc.
+  const since = arg('updated-since');
+  if (since) {
+    const cutoff = parseSince(since);
+    if (!cutoff) { console.error(`Unparseable --updated-since "${since}" (use 36h, 2d, or an ISO date).`); process.exit(1); }
+    const before = todo.length;
+    todo = todo.filter((r) => {
+      const ts = r.updatedAt ?? r.dateUpdated ?? (r.properties ?? {}).updatedAt;
+      // No timestamp -> keep it. Never silently skip a record we can't date.
+      return ts ? new Date(String(ts)).getTime() >= cutoff.getTime() : true;
+    });
+    console.log(`--updated-since ${since} (${cutoff.toISOString()}): ${todo.length}/${before} records in window`);
+  }
+
   if (limit) todo = todo.slice(0, limit);
 
   console.log(`Resources sync ${apply ? 'APPLY' : 'DRY-RUN'} | set "${set.name}" gate=${set.gate.field} | records ${todo.length}${setStatus ? ` | set-status=${setStatus}` : ''}`);
