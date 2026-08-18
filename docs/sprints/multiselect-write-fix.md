@@ -225,8 +225,18 @@ Engine output for a live contact:
 `/api/resource-sync` exists but nothing calls it — the 2026-08-07 form submission sat unsynced for 11 days.
 Add `.github/workflows/nightly-resources.yml` (drafted, delivered separately: tag → sync, 08:45 UTC) and
 add GitHub secrets `WIX_API_TOKEN` + `WIX_SITE_ID`. Real-time trigger is a GHL workflow on the Resources
-object → `POST /api/resource-sync` with `{"recordId":"{{record.id}}"}` (Zach to confirm GHL exposes a
-custom-object trigger).
+object → `POST /api/resource-sync`. **DONE 2026-08-18** — the custom-object trigger exists, and the
+working body is:
+
+```json
+{ "recordId": "{{custom_objects.resources.id}}" }
+```
+
+The merge field is the **object key path**. `{{record.id}}`, assumed by the original plan, is rejected
+by GHL's expression editor as "not a valid expression" — it is not a real token, so the trigger could
+never have been wired as written. Use the **Custom values** picker above the raw-body editor rather
+than typing tokens. For any future trigger of unknown shape, `POST /api/resource-sync?echo=1` returns
+the exact payload GHL delivered and runs nothing; the id extractor also deep-scans as a fallback.
 
 ### 2.5 Derive the company↔resource association from the submitting contact
 

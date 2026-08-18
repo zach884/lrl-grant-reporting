@@ -8,11 +8,13 @@
 // Auth: shared secret in `x-webhook-secret` header (or `?secret=`) vs WIX_SYNC_WEBHOOK_SECRET.
 // Body: { "recordId": "<the record id>" }. Add ?dryRun=1 to preview.
 //
-// FINDING THE RIGHT MERGE FIELD: `{{record.id}}` was an assumption and is NOT accepted by the GHL
-// custom-object trigger. Rather than guess again, hit this endpoint with `?echo=1` from the GHL
-// workflow — it returns the exact payload GHL delivered without running anything, so you can see
-// what the record id is actually called. The extractor below then also DEEP-SCANS the payload for a
-// plausible GHL record id, so most shapes work with no merge field at all.
+// THE MERGE FIELD (confirmed working 2026-08-18, LRL live):
+//     { "recordId": "{{custom_objects.resources.id}}" }
+// i.e. the OBJECT KEY path — not a generic `{{record.id}}`, which GHL's expression editor rejects
+// outright ("not a valid expression"). For another custom object, substitute its object key.
+// If a future trigger's payload shape is unknown, hit this endpoint with `?echo=1` from the
+// workflow: it returns exactly what GHL delivered and runs nothing. The extractor below also
+// deep-scans for a plausible record id, so most shapes work even without a correct merge field.
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getCatalog } from '@/lib/ghl/catalogCache';
