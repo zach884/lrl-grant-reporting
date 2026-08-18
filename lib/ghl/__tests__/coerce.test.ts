@@ -7,8 +7,8 @@ import {
   isUnwritable,
   isCreateOnly,
   isWritableInMode,
+  isModifierType,
 } from '../coerce';
-import { GhlUnwritableFieldError } from '../errors';
 import type { CustomFieldDef } from '../types';
 
 const catalog: Record<string, CustomFieldDef> = {
@@ -99,10 +99,21 @@ describe('coerceBusinessProperties', () => {
     expect(skipped).toContainEqual({ key: 'county', value: 'Nowhere County', reason: 'no matching option' });
   });
 
-  it('refuses MULTIPLE_OPTIONS on update (immutable via API after creation)', () => {
-    expect(() =>
-      coerceBusinessProperties({ i_am_selling: 'Product' }, catalog), // default mode = update
-    ).toThrow(GhlUnwritableFieldError);
+  // Corrected 2026-08-17: object multi-selects ARE updatable, via an {add,remove} modifier.
+  // The old "immutable via update" rule came from only ever sending values.
+  it('emits a MULTIPLE_OPTIONS modifier intent on update, never a bare value', () => {
+    const { properties, modifiers } = coerceBusinessProperties(
+      { i_am_selling: 'Product' }, // default mode = update
+      catalog,
+    );
+    // Critically: NOT in properties. A plain string there returns 200 and nulls the field.
+    expect(properties).toEqual({});
+    expect(modifiers).toEqual({ i_am_selling: { kind: 'options', desired: ['product'] } });
+  });
+
+  it('resolves multi-select labels to option KEYS in the modifier (labels are a silent no-op)', () => {
+    const { modifiers } = coerceBusinessProperties({ i_am_selling: ['Product', 'Both'] }, catalog);
+    expect(modifiers.i_am_selling.desired).toEqual(['product', 'both']);
   });
 
   it('accepts MULTIPLE_OPTIONS on create as an array of option KEYS', () => {
@@ -130,15 +141,26 @@ describe('coerceBusinessProperties', () => {
 });
 
 describe('writability classification', () => {
-  it('CHECKBOX / TEXTBOX_LIST are never writable via the API', () => {
-    expect(isUnwritable('CHECKBOX')).toBe(true);
+  it('TEXTBOX_LIST is not writable via the API', () => {
     expect(isUnwritable('TEXTBOX_LIST')).toBe(true);
   });
-  it('MULTIPLE_OPTIONS is create-only, not blanket-unwritable', () => {
+  // Re-probed live 2026-08-17 (scripts-ts/probe-checkbox-writability.ts): the {add,remove}
+  // modifier persists on CHECKBOX, so it was never unwritable — only mis-measured.
+  it('CHECKBOX is writable via the modifier, like MULTIPLE_OPTIONS', () => {
+    expect(isUnwritable('CHECKBOX')).toBe(false);
+    expect(isModifierType('CHECKBOX')).toBe(true);
+    expect(isWritableInMode('CHECKBOX', 'update')).toBe(true);
+  });
+  it('MULTIPLE_OPTIONS is writable in BOTH modes — via a modifier on update', () => {
     expect(isUnwritable('MULTIPLE_OPTIONS')).toBe(false);
-    expect(isCreateOnly('MULTIPLE_OPTIONS')).toBe(true);
+    expect(isCreateOnly('MULTIPLE_OPTIONS')).toBe(false);
     expect(isWritableInMode('MULTIPLE_OPTIONS', 'create')).toBe(true);
-    expect(isWritableInMode('MULTIPLE_OPTIONS', 'update')).toBe(false);
+    expect(isWritableInMode('MULTIPLE_OPTIONS', 'update')).toBe(true);
+    expect(isModifierType('MULTIPLE_OPTIONS')).toBe(true);
+  });
+  it('FILE_UPLOAD is a modifier type too ({add:[{url}]})', () => {
+    expect(isModifierType('FILE_UPLOAD')).toBe(true);
+    expect(isModifierType('TEXT')).toBe(false);
   });
   it('ordinary types are writable in both modes', () => {
     expect(isUnwritable('TEXT')).toBe(false);

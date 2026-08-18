@@ -11,6 +11,7 @@
 
 import { GhlClient, ghl } from './client';
 import { coerceObjectProperties, isUnwritable, isCreateOnly } from './coerce';
+import { applyObjectWrite } from './objectWrite';
 import { coerceContactCustomFields } from './coerceContact';
 import { setContactCustomFields, setContactScalars, CONTACT_STD_SCALARS } from './contacts';
 import type { CustomFieldCatalog } from './types';
@@ -53,11 +54,11 @@ async function writeObjectRecord(objectKey: string, id: string, changes: Record<
     }
     writable[k] = v;
   }
-  const { properties, skipped: cs } = coerceObjectProperties(objectKey, writable, catalog.byKey, 'update', rawKeys);
-  if (Object.keys(properties).length) {
-    await client.request({ method: 'PUT', path: `/objects/${objectKey}/records/${id}`, body: { properties } });
-  }
-  return { written: Object.keys(properties), skipped: [...skipped, ...cs.map((s) => ({ key: s.key, reason: s.reason }))] };
+  const coerced = coerceObjectProperties(objectKey, writable, catalog.byKey, 'update', rawKeys);
+  // applyObjectWrite owns the modifier diff (MULTIPLE_OPTIONS / FILE_UPLOAD) + the read-back
+  // verification, so `written` only ever contains fields GHL actually stored.
+  const report = await applyObjectWrite(objectKey, id, coerced, catalog.byKey, client);
+  return { written: report.written, skipped: [...skipped, ...report.skipped] };
 }
 
 async function writeOpportunity(id: string, changes: Record<string, unknown>, catalog: CustomFieldCatalog, client: GhlClient): Promise<WriteResult> {

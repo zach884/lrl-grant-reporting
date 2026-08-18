@@ -52,25 +52,29 @@ describe('suggestMappings', () => {
 });
 
 describe('resolveMappings + collectIssues', () => {
-  it('flags a truly unwritable company target (CHECKBOX) as an error', () => {
-    const cat = catalog([{ id: 'x', name: 'CB', fieldKey: 'business.cb', dataType: 'CHECKBOX' }]);
+  // CHECKBOX used to be the example here; it turned out to be writable via a modifier
+  // (probed live 2026-08-17), leaving TEXTBOX_LIST as the only unwritable type.
+  it('flags a truly unwritable company target (TEXTBOX_LIST) as an error', () => {
+    const cat = catalog([{ id: 'x', name: 'TL', fieldKey: 'business.tl', dataType: 'TEXTBOX_LIST' }]);
     const maps: FieldMapping[] = [
-      { contactKey: 'contact.naics_code', businessKey: 'business.cb', direction: 'both', mirrorDown: false },
+      { contactKey: 'contact.naics_code', businessKey: 'business.tl', direction: 'both', mirrorDown: false },
     ];
     const resolved = resolveMappings(maps, contactCat, cat);
     expect(resolved[0].businessWritable).toBe(false);
     expect(resolved[0].issues.some((i) => i.level === 'error')).toBe(true);
   });
 
-  it('treats MULTIPLE_OPTIONS as create-only: not update-writable, warning not error', () => {
+  // Corrected 2026-08-17: object multi-selects update via an {add,remove} modifier, so a
+  // MULTIPLE_OPTIONS company target is a normal mappable field — no create-only warning.
+  it('treats MULTIPLE_OPTIONS as update-writable, with no create-only warning', () => {
     const maps: FieldMapping[] = [
       { contactKey: 'contact.interested_programs', businessKey: 'business.i_am_selling', direction: 'both', mirrorDown: false },
     ];
     const resolved = resolveMappings(maps, contactCat, businessCat);
-    expect(resolved[0].businessWritable).toBe(false);
-    expect(resolved[0].businessCreateOnly).toBe(true);
+    expect(resolved[0].businessWritable).toBe(true);
+    expect(resolved[0].businessCreateOnly).toBe(false);
     expect(resolved[0].issues.some((i) => i.level === 'error')).toBe(false);
-    expect(resolved[0].issues.some((i) => i.level === 'warning')).toBe(true);
+    expect(resolved[0].issues.some((i) => i.message.includes('ONLY at company creation'))).toBe(false);
   });
 
   it('flags a mapping to a non-existent field', () => {

@@ -10,6 +10,7 @@
 import { GhlClient, ghl } from './client';
 import { BusinessListItem, BusinessRecord, CustomFieldDef } from './types';
 import { coerceBusinessProperties, CoerceResult } from './coerce';
+import { applyObjectWrite } from './objectWrite';
 
 const PAGE = 100;
 
@@ -127,12 +128,18 @@ export async function setBusinessFields(
   rawKeys: ReadonlySet<string> = new Set(),
 ): Promise<CoerceResult> {
   const coerced = coerceBusinessProperties(values, catalogByKey, 'update', rawKeys);
-  if (Object.keys(coerced.properties).length > 0) {
-    await client.request({
-      method: 'PUT',
-      path: `/objects/business/records/${businessId}`,
-      body: { properties: coerced.properties },
-    });
-  }
-  return coerced;
+  // Goes through applyObjectWrite so company multi-selects (i_am_selling & co) get the same
+  // add/remove diff + read-back verification as every other object write. Fields GHL accepted
+  // but didn't store come back as `skipped`, so callers never log them as applied.
+  const report = await applyObjectWrite('business', businessId, coerced, catalogByKey, client);
+  // report.skipped already carries coerced.skipped forward, so it is the complete list. Callers
+  // report the offending value, which may have come in under either the bare or prefixed key.
+  return {
+    ...coerced,
+    skipped: report.skipped.map((r) => ({
+      key: r.key,
+      value: values[r.key] ?? values[`business.${r.key}`],
+      reason: r.reason,
+    })),
+  };
 }

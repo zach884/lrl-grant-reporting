@@ -23,10 +23,27 @@ export class GhlApiError extends Error {
         : typeof args.body === 'string'
           ? args.body
           : '';
+    // ALWAYS surface the full body, not just `message`. A truncated 422 hid the
+    // MULTIPLE_OPTIONS `{add,remove}` modifier contract for six weeks in 2026 — GHL puts the
+    // actionable detail in sibling keys, and the phrases "unexpected format" / "couldn't
+    // process file updates" are the tell that it wants a modifier rather than a value.
+    let full = '';
+    if (typeof args.body === 'object' && args.body !== null) {
+      try {
+        const json = JSON.stringify(args.body);
+        // Skip when the body is just {message} and adds nothing beyond what's already shown.
+        if (json && json !== `{"message":${JSON.stringify(msg)}}`) {
+          full = ` body=${json.length > 2000 ? `${json.slice(0, 2000)}…(truncated)` : json}`;
+        }
+      } catch {
+        full = ` body=${String(args.body)}`;
+      }
+    }
     super(
       `GHL ${args.method} ${args.path} -> ${args.status}` +
         (msg ? `: ${msg}` : '') +
-        (args.attempts > 1 ? ` (after ${args.attempts} attempts)` : ''),
+        (args.attempts > 1 ? ` (after ${args.attempts} attempts)` : '') +
+        full,
     );
     this.name = 'GhlApiError';
     this.status = args.status;
@@ -43,9 +60,12 @@ export class GhlApiError extends Error {
 }
 
 /**
- * Thrown when a caller tries to write a field type that GHL silently drops
- * over the API (CHECKBOX / TEXTBOX_LIST / MULTIPLE_OPTIONS on the business object).
- * Surfaced loudly instead of failing silently, per the confirmed API quirks.
+ * Thrown when a caller tries to write a field type that GHL silently drops over the API
+ * (CHECKBOX / TEXTBOX_LIST). Surfaced loudly instead of failing silently.
+ *
+ * NOTE: MULTIPLE_OPTIONS was in this club until 2026-08-17 — it is updatable after all, via an
+ * `{add,remove}` modifier (see lib/ghl/coerce.ts). CHECKBOX / TEXTBOX_LIST are still due a
+ * re-probe with that same shape before we keep trusting "UI only".
  */
 export class GhlUnwritableFieldError extends Error {
   readonly fieldKey: string;

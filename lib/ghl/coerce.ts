@@ -9,11 +9,23 @@
 //   - SINGLE_OPTIONS / RADIO: send the option LABEL; GHL stores + reads back the KEY.
 //   - DATE: a date-only string ("2026-06-29") returns 200 but is SILENTLY DROPPED.
 //     Send full ISO datetime ("2026-06-29T00:00:00Z"). Reads back as YYYY-MM-DD.
-//   - MULTIPLE_OPTIONS: settable ONLY at record CREATE (POST /objects/business/records,
-//     value = array of option KEYS). Confirmed live 2026-07-07: on UPDATE, PUT returns
-//     422 "unexpected format" for every shape and PATCH is not allowed -> immutable via
-//     the API after creation. So we accept it in 'create' mode, refuse it in 'update' mode.
-//   - CHECKBOX / TEXTBOX_LIST: WILL NOT persist via API in any mode -> refuse.
+//   - MULTIPLE_OPTIONS: at CREATE, value = array of option KEYS in `properties`.
+//     On UPDATE it needs a MODIFIER object, not a value (corrected 2026-08-17):
+//       { properties: { <bareKey>: { add: [optionKeys], remove: [optionKeys] } } }
+//     The 2026-07-07 "immutable via update" conclusion was a measurement error — we had
+//     only ever sent *values*. Verified live on business + custom_objects.*: add/remove
+//     both work and are dupe-safe; there is NO set/replace modifier; a plain array 422s;
+//     and *** a plain string returns 200 and WIPES the field to null *** (this silently
+//     destroyed resource stop values from 2026-07-30 to 08-17). So: emit a modifier
+//     intent on update and NEVER fall through to a plain string/array.
+//     Option KEYS only — a label in `add` returns 200 and is a silent no-op.
+//   - FILE_UPLOAD on objects: same modifier family, { add: [{url}] } (no `meta` — including
+//     it 422s). A plain string stores null. Verified live on resources.resource_logo.
+//   - CHECKBOX: same modifier contract as MULTIPLE_OPTIONS (re-probed live 2026-08-17 —
+//     {add,remove} persists; a plain array 422s; a plain string 200s and stores null).
+//     It was wrongly listed as unwritable from the same 2026-07-07 measurement error.
+//   - TEXTBOX_LIST: still refused. NOT re-probed with the modifier shape (no field of that type
+//     exists on this location), so this is unverified rather than proven.
 //
 // READ rules:
 //   - SINGLE_OPTIONS read back as the option KEY -> map to LABEL for display.
@@ -22,20 +34,45 @@
 
 import { CustomFieldDef, GhlDataType, GhlFieldOption } from './types';
 import { GhlUnwritableFieldError } from './errors';
+import { fileUrls } from './fileValue';
 
 export type WriteMode = 'create' | 'update';
 
 const EMPTY_SET: ReadonlySet<string> = new Set();
 
-/** Field types GHL silently drops / rejects on write via the API in ALL modes. */
+/**
+ * Field types GHL silently drops / rejects on write via the API in ALL modes.
+ *
+ * CHECKBOX left this set on 2026-08-17: probed live with every shape
+ * (scripts-ts/probe-checkbox-writability.ts) and the `{add,remove}` modifier persists on the
+ * business object, exactly like MULTIPLE_OPTIONS. Same measurement error, same fix.
+ * TEXTBOX_LIST stays — but note it is UNPROBED with the modifier shape (no field of that type
+ * exists on this location to probe against), so treat it as unverified rather than proven.
+ */
 export const UNWRITABLE_TYPES: ReadonlySet<GhlDataType> = new Set<GhlDataType>([
-  'CHECKBOX',
   'TEXTBOX_LIST',
 ]);
 
-/** Types writable only when a record is CREATED (immutable via update afterward). */
-export const CREATE_ONLY_TYPES: ReadonlySet<GhlDataType> = new Set<GhlDataType>([
+/**
+ * Types writable only when a record is CREATED (immutable via update afterward).
+ *
+ * EMPTY since 2026-08-17. `MULTIPLE_OPTIONS` used to live here on the strength of the
+ * 2026-07-07 live test, but that test only ever sent *values*; the update API wants a
+ * modifier object (see the header). Nothing is create-only today. Kept as an extension
+ * point — and because `isCreateOnly` gates four separate write paths (writeRecord,
+ * mapping/resolve, enrichment/engine, dedup/engine).
+ */
+export const CREATE_ONLY_TYPES: ReadonlySet<GhlDataType> = new Set<GhlDataType>([]);
+
+/**
+ * Types whose UPDATE payload is a MODIFIER object (`{add,remove}`) rather than a value.
+ * These must never be placed in `properties` as a bare value on update — a plain array
+ * 422s and a plain string silently nulls the field.
+ */
+export const MODIFIER_TYPES: ReadonlySet<GhlDataType> = new Set<GhlDataType>([
   'MULTIPLE_OPTIONS',
+  'CHECKBOX',
+  'FILE_UPLOAD',
 ]);
 
 /** True if the field can never be written via the API (any mode). */
@@ -46,6 +83,11 @@ export function isUnwritable(dataType: GhlDataType): boolean {
 /** True if the field can be set only at create time, not on update. */
 export function isCreateOnly(dataType: GhlDataType): boolean {
   return CREATE_ONLY_TYPES.has(dataType);
+}
+
+/** True if updating this field requires an `{add,remove}` modifier instead of a value. */
+export function isModifierType(dataType: GhlDataType): boolean {
+  return MODIFIER_TYPES.has(dataType);
 }
 
 /** Is this field writable at all in the given mode? */
@@ -141,9 +183,26 @@ export function optionKeyToLabel(
   return hit ? hit.label : s;
 }
 
+/**
+ * A field whose update payload is an `{add,remove}` modifier. Coercion resolves the DESIRED
+ * end state; the writer diffs it against the record's current value to build add/remove
+ * (it can't be done here — this module is pure and has never read the record).
+ */
+export interface ModifierIntent {
+  /** 'options' -> desired is option KEYS · 'files' -> desired is file URLs. */
+  kind: 'options' | 'files';
+  desired: string[];
+}
+
 export interface CoerceResult {
   /** bareKey -> coerced value, ready to nest under { properties }. */
   properties: Record<string, unknown>;
+  /**
+   * bareKey -> desired end state for a modifier-typed field (update mode only). The writer
+   * MUST diff these and send `{add,remove}`; putting the value in `properties` instead is a
+   * silent-data-loss bug (plain string) or a 422 (plain array).
+   */
+  modifiers: Record<string, ModifierIntent>;
   /** Inputs skipped because the value didn't resolve (e.g. unknown option). */
   skipped: Array<{ key: string; value: unknown; reason: string }>;
 }
@@ -178,6 +237,7 @@ export function coerceObjectProperties(
   rawKeys: ReadonlySet<string> = EMPTY_SET,
 ): CoerceResult {
   const properties: Record<string, unknown> = {};
+  const modifiers: CoerceResult['modifiers'] = {};
   const skipped: CoerceResult['skipped'] = [];
   const prefix = `${objectKey}.`;
 
@@ -208,14 +268,33 @@ export function coerceObjectProperties(
     }
 
     switch (dataType) {
-      case 'MULTIPLE_OPTIONS': {
-        // create-mode only (guarded above): array of option KEYS.
+      case 'MULTIPLE_OPTIONS':
+      case 'CHECKBOX': {
+        // Same contract on both (CHECKBOX verified live 2026-08-17): option KEYS, modifier on update.
         const keys = resolveOptionKeys(rawValue, def?.options);
         if (keys.length === 0) {
           skipped.push({ key: bareKey, value: rawValue, reason: 'no matching options' });
           continue;
         }
-        properties[bareKey] = keys;
+        // CREATE: a plain array of option keys in `properties` is correct and proven.
+        // UPDATE: must be a modifier — hand the desired key set to the writer to diff.
+        if (mode === 'create') properties[bareKey] = keys;
+        else modifiers[bareKey] = { kind: 'options', desired: keys };
+        break;
+      }
+      case 'FILE_UPLOAD': {
+        const urls = fileUrls(rawValue);
+        if (urls.length === 0) {
+          skipped.push({ key: bareKey, value: rawValue, reason: 'no file url' });
+          continue;
+        }
+        if (mode === 'create') {
+          // Untested at create (POST). Skip rather than guess: the old behaviour fell through
+          // to String(value), which stored garbage. Files are attached on update today.
+          skipped.push({ key: bareKey, value: rawValue, reason: 'FILE_UPLOAD at create not verified — set it on update' });
+          continue;
+        }
+        modifiers[bareKey] = { kind: 'files', desired: urls };
         break;
       }
       case 'NUMERICAL': {
@@ -253,5 +332,5 @@ export function coerceObjectProperties(
     }
   }
 
-  return { properties, skipped };
+  return { properties, modifiers, skipped };
 }

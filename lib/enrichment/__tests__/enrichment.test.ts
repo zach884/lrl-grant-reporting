@@ -89,15 +89,16 @@ describe('applyProposals policy', () => {
     expect(r.skipped[0].reason).toContain('below min confidence');
   });
 
-  it('skips create-only (multi-select) and unknown fields', async () => {
+  // Corrected 2026-08-17: multi-selects are no longer create-only, so an enricher CAN now
+  // propose one — the writer turns it into an {add,remove} diff. Unknown fields still skip.
+  it('enriches multi-select fields and skips unknown ones', async () => {
     const company: BusinessRecord = { id: 'c', properties: {} };
     const r = await applyProposals('c', company, [
       proposal('business.i_am_selling', ['product']),
       proposal('business.ghost', 'x'),
     ], catalog, { mode: 'fill-empty' }, { apply: false });
-    expect(r.applied).toHaveLength(0);
+    expect(r.applied.map((a) => a.businessKey)).toEqual(['business.i_am_selling']);
     const reasons = r.skipped.map((s) => s.reason).join(' | ');
-    expect(reasons).toContain('create-only');
     expect(reasons).toContain('catalog');
   });
 
