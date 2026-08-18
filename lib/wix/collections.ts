@@ -235,10 +235,25 @@ export async function replaceReferences(
   });
 }
 
+/** Normalize a display label for tolerant matching: case, surrounding/inner whitespace, and the
+ *  punctuation that drifts between systems (GHL "i4.0" vs Wix "Industry 4.0" still won't match —
+ *  that needs an explicit valueMap — but "Local" vs "LOCAL" and "A  B" vs "A B" will). */
+function normalizeLabel(s: unknown): string {
+  return String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
 /**
  * Resolve display values to referenced-collection item ids (for REFERENCE targets).
- * Queries the referenced collection by its display field for each label; returns the
- * ids that matched (labels with no match are dropped — caller decides how to warn).
+ *
+ * Reads the referenced collection ONCE and matches client-side rather than issuing a filtered query
+ * per label. Two reasons: the Wix filter is case-SENSITIVE, so `Local` never matched Wix's `LOCAL`
+ * and those references were silently dropped for months; and referenced collections here are tiny
+ * (Programs has 6 rows, Collectives 3), so one read beats N.
+ *
+ * Matching is exact first, then case/whitespace-insensitive. Labels that are genuinely a DIFFERENT
+ * name in Wix ("i4.0 Accelerator" vs "Industry 4.0 Accelerator") cannot be resolved here by design —
+ * use the mapping row's `valueMap` for those. Unmatched labels are returned so the caller can report
+ * them instead of quietly writing a partial reference set.
  */
 export async function resolveReferenceIds(
   referencedCollectionId: string,
@@ -246,20 +261,31 @@ export async function resolveReferenceIds(
   labels: string[],
   client: WixClient = wix(),
 ): Promise<{ ids: string[]; unmatched: string[] }> {
+  const data = await client.request<any>({
+    method: 'POST',
+    path: '/wix-data/v2/items/query',
+    body: {
+      dataCollectionId: referencedCollectionId,
+      query: { paging: { limit: 1000 } },
+    },
+  });
+  const items: any[] = (data.dataItems ?? data.items ?? []).map((it: any) => it.data ?? it.dataItem?.data ?? it);
+
+  const exact = new Map<string, string>();
+  const loose = new Map<string, string>();
+  for (const it of items) {
+    const label = it?.[displayField];
+    if (label == null || !it?._id) continue;
+    if (!exact.has(String(label))) exact.set(String(label), it._id);
+    const n = normalizeLabel(label);
+    if (n && !loose.has(n)) loose.set(n, it._id);
+  }
+
   const ids: string[] = [];
   const unmatched: string[] = [];
   for (const label of labels) {
-    const data = await client.request<any>({
-      method: 'POST',
-      path: '/wix-data/v2/items/query',
-      body: {
-        dataCollectionId: referencedCollectionId,
-        query: { filter: { [displayField]: label }, paging: { limit: 1 } },
-      },
-    });
-    const items = data.dataItems ?? data.items ?? [];
-    const item = items[0]?.data ?? items[0];
-    if (item?._id) ids.push(item._id);
+    const hit = exact.get(String(label)) ?? loose.get(normalizeLabel(label));
+    if (hit) { if (!ids.includes(hit)) ids.push(hit); }
     else unmatched.push(label);
   }
   return { ids, unmatched };

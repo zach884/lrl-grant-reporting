@@ -36,6 +36,17 @@ function sanitizeRow(raw: any): WixMappingRow | null {
   const row: WixMappingRow = { sourceFieldKey, targetColumnKey };
   if (TRANSFORMS.includes(raw?.transform)) row.transform = raw.transform;
   if (POLICIES.includes(raw?.policy)) row.policy = raw.policy;
+  // valueMap: a flat {string: string} map. Silently drop non-string entries rather than persisting
+  // something the engine can't use; an empty map is treated as absent.
+  if (raw?.valueMap != null) {
+    if (typeof raw.valueMap !== 'object' || Array.isArray(raw.valueMap)) throw new Error('valueMap must be an object');
+    const vm: Record<string, string> = {};
+    for (const [k, v] of Object.entries(raw.valueMap as Record<string, unknown>)) {
+      const kk = str(k); const vv = str(v);
+      if (kk && vv) vm[kk] = vv;
+    }
+    if (Object.keys(vm).length) row.valueMap = vm;
+  }
   return row;
 }
 

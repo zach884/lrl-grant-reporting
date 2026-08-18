@@ -116,6 +116,8 @@ export const wixMappingRows = pgTable(
     transform: text('transform'),
     /** Per-row policy override: 'overwrite' | 'fill-empty'. NULL => use the set default. */
     policy: text('policy'),
+    /** Per-row GHL-label → Wix-value rewrites for labels that are a different name on each side. */
+    valueMap: jsonb('value_map').$type<Record<string, string>>(),
     sortOrder: integer('sort_order').notNull().default(0),
   },
   (t) => ({

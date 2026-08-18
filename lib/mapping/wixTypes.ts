@@ -57,6 +57,17 @@ export interface WixMappingRow {
   transform?: WixTransform;
   /** Per-row override of the set policy. undefined => use set default. */
   policy?: WixApplyPolicy;
+  /**
+   * Per-row GHL-label → Wix-value rewrites, applied BEFORE the value is coerced/resolved.
+   *
+   * For (MULTI_)REFERENCE columns the reference resolver already matches case- and whitespace-
+   * insensitively, so this is only for labels that are a genuinely DIFFERENT name on each side —
+   * e.g. GHL "i4.0 Accelerator" is Wix "Industry 4.0 Accelerator". Without it those references
+   * resolve to nothing and are silently dropped from the row.
+   *
+   * Keys are matched case/whitespace-insensitively. Labels not present pass through untouched.
+   */
+  valueMap?: Record<string, string>;
 }
 
 export interface WixMappingSet {

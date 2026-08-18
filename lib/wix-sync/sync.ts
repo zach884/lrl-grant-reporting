@@ -88,6 +88,23 @@ const sameIdSet = (a: string[], b: string[]) =>
   a.length === b.length && [...a].sort().join(' ') === [...b].sort().join(' ');
 
 /**
+ * Apply a mapping row's `valueMap` (GHL label → Wix value) before coercion.
+ *
+ * Only for labels that are a genuinely different NAME on each side — casing and whitespace are
+ * already handled by the reference resolver. Matching is case/whitespace-insensitive so the
+ * configured key doesn't have to reproduce GHL's exact capitalization. Arrays are mapped
+ * element-wise; anything unmapped passes through untouched.
+ */
+export function applyValueMap(value: unknown, valueMap: Record<string, string> | undefined): unknown {
+  if (!valueMap || value == null) return value;
+  const norm = (x: unknown) => String(x ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const lut = new Map<string, string>();
+  for (const [k, v] of Object.entries(valueMap)) lut.set(norm(k), v);
+  const one = (v: unknown) => (typeof v === 'string' || typeof v === 'number' ? lut.get(norm(v)) ?? v : v);
+  return Array.isArray(value) ? value.map(one) : one(value);
+}
+
+/**
  * The companion column that records an image column's GHL SOURCE url, if the collection has one.
  * Convention: `<imageColumn>Src` (e.g. `logo` -> `logoSrc`, `image_fld` -> `image_fldSrc`).
  * Provision them with `scripts-ts/wix-image-guard-columns.ts`.
@@ -360,7 +377,10 @@ export async function syncSourceToWix(
     if (isUnwritableWixType(String(col.type), col.systemField)) { skipped.push({ targetColumn: col.key, reason: `unwritable Wix type ${col.type}` }); continue; }
 
     const src = source.resolve(row.sourceFieldKey);
-    const result = coerceToWix(src.value, src.ghlType, String(col.type), row.transform, src.options);
+    // Rewrite labels that Wix names differently before coercing (e.g. "i4.0 Accelerator" →
+    // "Industry 4.0 Accelerator"); without this those references resolve to nothing and drop out.
+    const mapped = applyValueMap(src.value, row.valueMap);
+    const result = coerceToWix(mapped, src.ghlType, String(col.type), row.transform, src.options);
 
     if (result.kind === 'skip') { if (result.reason !== 'empty') skipped.push({ targetColumn: col.key, reason: result.reason }); continue; }
 

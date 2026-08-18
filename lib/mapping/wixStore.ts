@@ -60,6 +60,7 @@ function rowToMappingRow(r: WixMappingRowRow): WixMappingRow {
   const m: WixMappingRow = { sourceFieldKey: r.sourceFieldKey, targetColumnKey: r.targetColumnKey };
   if (r.transform) m.transform = r.transform as WixTransform;
   if (r.policy) m.policy = r.policy as WixApplyPolicy;
+  if (r.valueMap && Object.keys(r.valueMap).length) m.valueMap = r.valueMap as Record<string, string>;
   return m;
 }
 
@@ -231,6 +232,7 @@ export class WixMappingStore {
       targetColumnKey: r.targetColumnKey,
       transform: r.transform ?? null,
       policy: r.policy ?? null,
+      valueMap: r.valueMap && Object.keys(r.valueMap).length ? r.valueMap : null,
       sortOrder: i,
     };
   }
