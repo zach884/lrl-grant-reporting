@@ -226,3 +226,69 @@ describe('applyObjectWrite — CHECKBOX uses the same modifier contract', () => 
     expect(r.unchanged).toEqual(['programs_cb']);
   });
 });
+
+describe('applyObjectWrite — a rejected property must not take down the batch', () => {
+  const cat: Record<string, CustomFieldDef> = {
+    'business.logo': { id: 'L', name: 'Logo', fieldKey: 'business.logo', dataType: 'FILE_UPLOAD' },
+    'business.problem': { id: 'P', name: 'Problem', fieldKey: 'business.problem', dataType: 'TEXT' },
+    'business.county': { id: 'C', name: 'County', fieldKey: 'business.county', dataType: 'TEXT' },
+  };
+
+  /** GHL rejects the WHOLE body if it contains `poison`, mirroring the live 400 on business.logo:
+   *  "We couldn't access the file link for Logo." */
+  function pickyClient(poison: string, stored: Record<string, unknown> = {}) {
+    const record = { ...stored };
+    const requests: Array<{ method: string; body?: any }> = [];
+    return {
+      requests,
+      record,
+      locationId: 'LOC',
+      async request({ method = 'GET', body }: any) {
+        requests.push({ method, body });
+        if (method === 'PUT') {
+          if (Object.keys(body.properties).includes(poison)) {
+            throw new Error(`GHL PUT -> 400: We couldn't access the file link for Logo.`);
+          }
+          for (const [k, v] of Object.entries(body.properties as Record<string, any>)) record[k] = v;
+          return {};
+        }
+        return { record: { properties: record } };
+      },
+    } as any;
+  }
+
+  it('lands the good fields and reports only the offender as skipped', async () => {
+    const client = pickyClient('logo');
+    const coerced = coerceObjectProperties(
+      'business',
+      { logo: 'https://services.leadconnectorhq.com/documents/download/abc', problem: 'We help manufacturers.', county: 'Jackson' },
+      cat,
+    );
+    const r = await applyObjectWrite('business', 'biz1', coerced, cat, client);
+
+    // The unrelated fields must still be written...
+    expect(r.written.sort()).toEqual(['county', 'problem']);
+    // ...and the rejection surfaced with GHL's own message, not swallowed.
+    const bad = r.skipped.find((s) => s.key === 'logo');
+    expect(bad).toBeDefined();
+    expect(bad!.reason).toContain("couldn't access the file link");
+    expect(client.record.problem).toBe('We help manufacturers.');
+    expect(client.record.logo).toBeUndefined();
+  });
+
+  it('does not throw — a poison field is reported, never fatal', async () => {
+    const client = pickyClient('logo');
+    const coerced = coerceObjectProperties('business', { logo: 'https://x.test/a.png' }, cat);
+    // Single-property case: still resolves, still reports.
+    const r = await applyObjectWrite('business', 'biz1', coerced, cat, client);
+    expect(r.written).toEqual([]);
+    expect(r.skipped[0].key).toBe('logo');
+  });
+
+  it('costs no extra calls when the batch succeeds', async () => {
+    const client = pickyClient('nothing-is-poison');
+    const coerced = coerceObjectProperties('business', { problem: 'a', county: 'b' }, cat);
+    await applyObjectWrite('business', 'biz1', coerced, cat, client);
+    expect(client.requests.filter((r: any) => r.method === 'PUT')).toHaveLength(1);
+  });
+});
