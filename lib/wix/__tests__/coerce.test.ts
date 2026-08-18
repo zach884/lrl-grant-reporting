@@ -57,6 +57,24 @@ describe('coerceToWix — image intent', () => {
     const r = coerceToWix('https://ghl.example/p.png', 'scalar', 'IMAGE');
     expect(r).toEqual({ kind: 'image', sourceUrl: 'https://ghl.example/p.png' });
   });
+  it('extracts a url from the uuid-keyed map a GHL FORM upload produces', () => {
+    // Regression: this shape returned "no file url" until 2026-08-17, so every expert who
+    // submitted through the form reached Wix with no headshot and no company logo.
+    const r = coerceToWix(
+      {
+        'ced71d35-1d7a-48fa-89ec-400fa054d091': {
+          meta: { name: 'headshot.jpg' },
+          url: 'https://services.leadconnectorhq.com/documents/download/ced71d35',
+        },
+      },
+      'FILE_UPLOAD',
+      'IMAGE',
+    );
+    expect(r).toEqual({
+      kind: 'image',
+      sourceUrl: 'https://services.leadconnectorhq.com/documents/download/ced71d35',
+    });
+  });
   it('skips when no file url present', () => {
     expect(coerceToWix({ documentId: 'x' }, 'FILE_UPLOAD', 'IMAGE').kind).toBe('skip');
   });
@@ -78,5 +96,38 @@ describe('isUnwritableWixType', () => {
     expect(isUnwritableWixType('TEXT', true)).toBe(true);
     expect(isUnwritableWixType('PAGE_LINK')).toBe(true);
     expect(isUnwritableWixType('TEXT')).toBe(false);
+  });
+});
+
+describe('coerceToWix — ARRAY_STRING resolves option keys to labels', () => {
+  const opts = [
+    { key: 'ip_patents', label: 'IP & Patents' },
+    { key: 'syseng', label: 'Systems Engineering' },
+  ];
+
+  it('maps stored KEYS to display labels (what the website renders)', () => {
+    const r = coerceToWix(['ip_patents', 'syseng'], 'MULTIPLE_OPTIONS', 'ARRAY_STRING', undefined, opts);
+    expect(r).toEqual({ kind: 'value', value: ['IP & Patents', 'Systems Engineering'] });
+  });
+
+  it('passes labels through unchanged', () => {
+    const r = coerceToWix(['IP & Patents'], 'MULTIPLE_OPTIONS', 'ARRAY_STRING', undefined, opts);
+    expect(r).toEqual({ kind: 'value', value: ['IP & Patents'] });
+  });
+
+  it('still splits a delimited TEXT-era string', () => {
+    const r = coerceToWix('ip_patents;syseng', 'TEXT', 'ARRAY_STRING', undefined, opts);
+    expect(r).toEqual({ kind: 'value', value: ['IP & Patents', 'Systems Engineering'] });
+  });
+
+  it('leaves values alone when the source has no option catalog', () => {
+    const r = coerceToWix(['1', '2'], 'TEXT', 'ARRAY_STRING');
+    expect(r).toEqual({ kind: 'value', value: ['1', '2'] });
+  });
+
+  it('keeps numeric stop keys as-is (key === label)', () => {
+    const stopOpts = [1, 2, 3].map((n) => ({ key: String(n), label: String(n) }));
+    const r = coerceToWix(['1', '3'], 'MULTIPLE_OPTIONS', 'ARRAY_STRING', undefined, stopOpts);
+    expect(r).toEqual({ kind: 'value', value: ['1', '3'] });
   });
 });

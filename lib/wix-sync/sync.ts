@@ -21,6 +21,7 @@ import {
   queryItemByMatch,
   queryItemsByColumn,
   replaceReferences,
+  referencedIds,
   resolveReferenceIds,
   setPublishStatus,
   type FieldModification,
@@ -83,6 +84,85 @@ function valuesEqual(a: unknown, b: unknown): boolean {
   return JSON.stringify(na) === JSON.stringify(nb);
 }
 
+const sameIdSet = (a: string[], b: string[]) =>
+  a.length === b.length && [...a].sort().join(' ') === [...b].sort().join(' ');
+
+/**
+ * The companion column that records an image column's GHL SOURCE url, if the collection has one.
+ * Convention: `<imageColumn>Src` (e.g. `logo` -> `logoSrc`, `image_fld` -> `image_fldSrc`).
+ * Provision them with `scripts-ts/wix-image-guard-columns.ts`.
+ */
+export function imageSourceColumn(
+  imageColumnKey: string,
+  colById: Map<string, WixColumn>,
+): string | undefined {
+  const candidate = `${imageColumnKey}Src`;
+  return colById.has(candidate) ? candidate : undefined;
+}
+
+export type ImagePlan =
+  | { kind: 'unchanged' }
+  | { kind: 'adopt' } // Wix already holds a file; stamp provenance without re-importing
+  | { kind: 'import' }
+  | { kind: 'blocked'; reason: string };
+
+/**
+ * Decide whether an image actually needs (re-)importing.
+ *
+ * With a companion column this is exact. Without one we refuse to re-import over an image that is
+ * already present — churn is the bug being fixed, and a silent duplicate upload every run is worse
+ * than a stale image that a `--force-images` run or a companion column resolves. A NEW row always
+ * imports either way.
+ */
+export function planImageWrite(
+  existing: unknown,
+  imageColumnKey: string,
+  companionColumn: string | undefined,
+  sourceUrl: string,
+  forceImages: boolean,
+): ImagePlan {
+  if (!existing) return { kind: 'import' }; // fresh insert: nothing to compare against
+  const row = existing as Record<string, unknown>;
+  const hasImage = row[imageColumnKey] != null && row[imageColumnKey] !== '';
+
+  if (forceImages) return { kind: 'import' };
+
+  if (companionColumn) {
+    const recordedSource = row[companionColumn];
+    if (typeof recordedSource === 'string' && recordedSource.trim() === sourceUrl.trim()) {
+      return { kind: 'unchanged' };
+    }
+    // Image present but no provenance recorded (pre-guard rows): trust the existing file and
+    // record where it came from, so the NEXT run is an exact comparison.
+    if (hasImage && (recordedSource == null || recordedSource === '')) return { kind: 'adopt' };
+    return { kind: 'import' };
+  }
+
+  if (hasImage) {
+    return {
+      kind: 'blocked',
+      reason:
+        `image already set and no \`${imageColumnKey}Src\` column to compare against — skipped to ` +
+        `avoid a duplicate Media Manager upload. Add the companion column ` +
+        `(scripts-ts/wix-image-guard-columns.ts) or re-run with forceImages.`,
+    };
+  }
+  return { kind: 'import' };
+}
+
+/** Resolve reference labels to target item ids (needs the referenced collection's display field). */
+async function resolveDesiredReferenceIds(
+  col: WixColumn,
+  labels: string[],
+  client: WixClient,
+): Promise<{ ids: string[]; unmatched: string[] }> {
+  const refCollId = col.referencedCollectionId;
+  if (!refCollId) throw new Error('missing referenced collection');
+  const refSchema = await getCollectionSchema(refCollId, client);
+  const displayField = refSchema.displayField ?? 'title';
+  return resolveReferenceIds(refCollId, displayField, labels, client);
+}
+
 /** upsert = create-or-update · update = update-only · hide = de-provision · skip = pass by. */
 type EngineAction = 'upsert' | 'update' | 'hide' | 'skip';
 
@@ -131,7 +211,7 @@ export async function syncContactToWix(
   set: WixMappingSet,
   catalog: CustomFieldCatalog,
   wixSchema: WixCollectionSchema,
-  opts: { apply: boolean; client?: WixClient; ghlClient?: GhlClient },
+  opts: { apply: boolean; client?: WixClient; ghlClient?: GhlClient; forceImages?: boolean },
 ): Promise<WixSyncResult> {
   const gclient = opts.ghlClient ?? ghl();
   const contact = await getContact(contactId, gclient);
@@ -144,7 +224,7 @@ export async function syncContactToWix(
     resolve: (key) => resolveContactField(contact, catalog, key),
     writeFields: async (changes) => { await writeRecordFields('contact', contact.id, changes, catalog, gclient); },
   };
-  return syncSourceToWix(source, set, wixSchema, { apply: opts.apply, client: opts.client });
+  return syncSourceToWix(source, set, wixSchema, { apply: opts.apply, client: opts.client, forceImages: opts.forceImages });
 }
 
 /** Sync one GHL OBJECT RECORD (custom_objects.*, business) into the mapping set's Wix collection. */
@@ -154,7 +234,7 @@ export async function syncRecordToWix(
   set: WixMappingSet,
   catalog: CustomFieldCatalog,
   wixSchema: WixCollectionSchema,
-  opts: { apply: boolean; client?: WixClient; ghlClient?: GhlClient },
+  opts: { apply: boolean; client?: WixClient; ghlClient?: GhlClient; forceImages?: boolean },
 ): Promise<WixSyncResult> {
   const gclient = opts.ghlClient ?? ghl();
   let fields: Awaited<ReturnType<typeof readRecordFields>>;
@@ -169,7 +249,7 @@ export async function syncRecordToWix(
     resolve: (key) => resolveRecordField(objectKey, fields, catalog, key),
     writeFields: async (changes) => { await writeRecordFields(objectKey, recordId, changes, catalog, gclient); },
   };
-  return syncSourceToWix(source, set, wixSchema, { apply: opts.apply, client: opts.client });
+  return syncSourceToWix(source, set, wixSchema, { apply: opts.apply, client: opts.client, forceImages: opts.forceImages });
 }
 
 /** The shared, object-agnostic core: sync one source record into the mapping set's Wix collection. */
@@ -177,7 +257,7 @@ export async function syncSourceToWix(
   source: SyncSource,
   set: WixMappingSet,
   wixSchema: WixCollectionSchema,
-  opts: { apply: boolean; client?: WixClient },
+  opts: { apply: boolean; client?: WixClient; forceImages?: boolean },
 ): Promise<WixSyncResult> {
   const client = opts.client ?? wix();
   const contactId = source.recordId;
@@ -212,7 +292,14 @@ export async function syncSourceToWix(
     return result;
   };
 
-  let existing = await queryItemByMatch(set.wixCollectionId, set.matchTargetColumn, String(matchValue), client);
+  // Inline the mapped reference columns' current targets so the reference guard below can compare
+  // id sets without an extra round trip per field.
+  const referenceColumns = set.rows
+    .map((row) => colById.get(row.targetColumnKey))
+    .filter((col): col is WixColumn => !!col && (String(col.type) === 'REFERENCE' || String(col.type) === 'MULTI_REFERENCE'))
+    .map((col) => col.key);
+
+  let existing = await queryItemByMatch(set.wixCollectionId, set.matchTargetColumn, String(matchValue), client, referenceColumns);
 
   // HIDE (gate flipped to Hidden / blank with a linked row): de-provision, keep the row + ids.
   if (engineAction === 'hide') {
@@ -249,7 +336,7 @@ export async function syncSourceToWix(
     for (const sm of set.secondaryMatch) {
       const sv = source.resolve(sm.sourceField).value;
       if (sv == null || sv === '') continue;
-      const hits = await queryItemsByColumn(set.wixCollectionId, sm.targetColumn, String(sv), 2, client);
+      const hits = await queryItemsByColumn(set.wixCollectionId, sm.targetColumn, String(sv), 2, client, referenceColumns);
       if (hits.length > 1) {
         return { sourceId: contactId, action: 'skip', written: [], unchanged: 0, skipped: [], dryRun: !opts.apply,
           note: `dedup: ${sm.targetColumn}="${sv}" matched ${hits.length} rows → needs review (not created)` };
@@ -264,8 +351,8 @@ export async function syncSourceToWix(
 
   const valueMods: FieldModification[] = []; // plain-value changes (patch/insert body)
   const insertBody: Record<string, unknown> = {};
-  const imageIntents: Array<{ col: string; sourceUrl: string; displayName?: string }> = [];
-  const refIntents: Array<{ col: WixColumn; labels: string[] }> = [];
+  const imageIntents: Array<{ col: string; sourceUrl: string; displayName?: string; companionColumn?: string }> = [];
+  const refIntents: Array<{ col: WixColumn; labels: string[]; ids: string[]; unmatched: string[] }> = [];
 
   for (const row of set.rows) {
     const col = colById.get(row.targetColumnKey);
@@ -284,11 +371,39 @@ export async function syncSourceToWix(
       valueMods.push({ fieldPath: col.key, value: result.value });
       insertBody[col.key] = result.value;
     } else if (result.kind === 'image') {
-      imageIntents.push({ col: col.key, sourceUrl: result.sourceUrl, displayName: result.displayName });
+      // Equality-guarded via a companion source-url column, because Wix re-hosts the file on
+      // import: the stored `wix:image://…` value can never be compared to the GHL source url, so
+      // without a provenance marker every run re-imported the same file (126 duplicate Media
+      // Manager uploads in the 13 days to 2026-08-17).
+      const companion = imageSourceColumn(col.key, colById);
+      const plan = planImageWrite(existing, col.key, companion, result.sourceUrl, !!opts.forceImages);
+      if (plan.kind === 'unchanged') { unchanged++; continue; }
+      if (plan.kind === 'blocked') { skipped.push({ targetColumn: col.key, reason: plan.reason }); continue; }
+      if (plan.kind === 'adopt') {
+        // Wix already holds the right file; just record its provenance so later runs are exact.
+        written.push({ targetColumn: companion!, from: (existing as any)?.[companion!], to: result.sourceUrl, via: 'value' });
+        valueMods.push({ fieldPath: companion!, value: result.sourceUrl });
+        continue;
+      }
+      imageIntents.push({ col: col.key, sourceUrl: result.sourceUrl, displayName: result.displayName, companionColumn: companion });
       written.push({ targetColumn: col.key, to: result.sourceUrl, via: 'image' });
     } else if (result.kind === 'reference') {
-      refIntents.push({ col, labels: result.labels });
-      written.push({ targetColumn: col.key, to: result.labels, via: 'reference' });
+      // Resolve to ids up front so we can compare against the row's CURRENT targets (read inline
+      // via includeReferencedItems). Unguarded, replaceReferences fired on every run — 269 calls
+      // in the same window — and a set mapping any reference could never report `noop`.
+      let resolved: { ids: string[]; unmatched: string[] };
+      try {
+        resolved = await resolveDesiredReferenceIds(col, result.labels, client);
+      } catch (e: any) {
+        skipped.push({ targetColumn: col.key, reason: `reference resolve failed: ${e?.message ?? e}` });
+        continue;
+      }
+      if (resolved.unmatched.length) skipped.push({ targetColumn: col.key, reason: `unmatched references: ${resolved.unmatched.join(', ')}` });
+      if (!resolved.ids.length) continue;
+      const currentIds = existing ? referencedIds((existing as any)[col.key]) : [];
+      if (existing && sameIdSet(currentIds, resolved.ids)) { unchanged++; continue; }
+      refIntents.push({ col, labels: result.labels, ids: resolved.ids, unmatched: resolved.unmatched });
+      written.push({ targetColumn: col.key, from: currentIds, to: resolved.ids, via: 'reference' });
     }
   }
 
@@ -330,13 +445,18 @@ export async function syncSourceToWix(
   }
 
   // --- apply ---
-  // 1) resolve image intents (import to Media Manager) into concrete field values.
+  // 1) resolve image intents (import to Media Manager) into concrete field values, recording the
+  //    GHL source url in the companion column so the next run can skip this entirely.
   for (const img of imageIntents) {
     try {
       const file = await importImageFromUrl(img.sourceUrl, { displayName: img.displayName }, client);
       const value = toImageFieldValue(file);
       valueMods.push({ fieldPath: img.col, value });
       insertBody[img.col] = value;
+      if (img.companionColumn) {
+        valueMods.push({ fieldPath: img.companionColumn, value: img.sourceUrl });
+        insertBody[img.companionColumn] = img.sourceUrl;
+      }
     } catch (e: any) {
       skipped.push({ targetColumn: img.col, reason: `image import failed: ${e?.message ?? e}` });
     }
@@ -354,16 +474,12 @@ export async function syncSourceToWix(
   // 2b) publishState visibility: publish the row (a fresh insert lands DRAFT; a hidden row republishes).
   if (needsPublish && itemId) await setPublishStatus(set.wixCollectionId, itemId, 'PUBLISHED', client);
 
-  // 3) reference intents (need the item id + the referenced collection's display field).
+  // 3) reference intents — ids were resolved and diffed during planning, so anything still here
+  //    is a genuine change. Needs the item id, which a fresh insert only just produced.
   for (const ref of refIntents) {
-    const refCollId = ref.col.referencedCollectionId;
-    if (!itemId || !refCollId) { skipped.push({ targetColumn: ref.col.key, reason: 'missing item id or referenced collection' }); continue; }
+    if (!itemId) { skipped.push({ targetColumn: ref.col.key, reason: 'missing item id' }); continue; }
     try {
-      const refSchema = await getCollectionSchema(refCollId, client);
-      const displayField = refSchema.displayField ?? 'title';
-      const { ids, unmatched } = await resolveReferenceIds(refCollId, displayField, ref.labels, client);
-      if (unmatched.length) skipped.push({ targetColumn: ref.col.key, reason: `unmatched references: ${unmatched.join(', ')}` });
-      if (ids.length) await replaceReferences(set.wixCollectionId, itemId, ref.col.key, ids, client);
+      await replaceReferences(set.wixCollectionId, itemId, ref.col.key, ref.ids, client);
     } catch (e: any) {
       skipped.push({ targetColumn: ref.col.key, reason: `reference write failed: ${e?.message ?? e}` });
     }

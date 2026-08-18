@@ -69,13 +69,18 @@ export async function getCollectionSchema(
 
 /** Query up to `limit` items whose `column` equals `value`, INCLUDING drafts. Draft inclusion is
  *  essential for dedup: a drafted (hidden) row is invisible to a normal query, so without this the
- *  sync would create a DUPLICATE of a person who already exists as a draft. */
+ *  sync would create a DUPLICATE of a person who already exists as a draft.
+ *
+ *  `includeReferencedItems` (property names, max 50 per the Data API) inlines each named
+ *  reference/multi-reference field's target items in the result — that is how the sync reads a
+ *  row's CURRENT references so it can skip a no-op `replaceReferences`. */
 export async function queryItemsByColumn(
   collectionId: string,
   column: string,
   value: string,
   limit: number,
   client: WixClient = wix(),
+  includeReferencedItems?: string[],
 ): Promise<WixItem[]> {
   const data = await client.request<any>({
     method: 'POST',
@@ -84,6 +89,7 @@ export async function queryItemsByColumn(
       dataCollectionId: collectionId,
       query: { filter: { [column]: value }, paging: { limit } },
       publishPluginOptions: { includeDraftItems: true },
+      ...(includeReferencedItems?.length ? { includeReferencedItems: includeReferencedItems.slice(0, 50) } : {}),
     },
   });
   const items = data.dataItems ?? data.items ?? [];
@@ -96,9 +102,28 @@ export async function queryItemByMatch(
   column: string,
   value: string,
   client: WixClient = wix(),
+  includeReferencedItems?: string[],
 ): Promise<WixItem | null> {
-  const items = await queryItemsByColumn(collectionId, column, value, 1, client);
+  const items = await queryItemsByColumn(collectionId, column, value, 1, client, includeReferencedItems);
   return items[0] ?? null;
+}
+
+/** The item ids referenced by a (multi-)reference field value, as returned by
+ *  `includeReferencedItems` (full item objects) or a raw id / id array. */
+export function referencedIds(value: unknown): string[] {
+  if (value == null || value === '') return [];
+  const arr = Array.isArray(value) ? value : [value];
+  const out: string[] = [];
+  for (const entry of arr) {
+    const id =
+      typeof entry === 'string'
+        ? entry
+        : entry && typeof entry === 'object'
+          ? String((entry as any)._id ?? (entry as any).id ?? '')
+          : '';
+    if (id && !out.includes(id)) out.push(id);
+  }
+  return out;
 }
 
 /** Full item by id (re-read before diffing — query returns partial items). */

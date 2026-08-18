@@ -7,6 +7,7 @@
 // overwrite Wix with blank), mirroring coerceBusinessProperties.
 
 import { optionKeyToLabel, resolveOptionLabel } from '../ghl/coerce';
+import { firstFileUrl } from '../ghl/fileValue';
 import type { GhlDataType, GhlFieldOption } from '../ghl/types';
 import type { WixTransform } from '../mapping/wixTypes';
 import type { WixFieldType } from './types';
@@ -31,17 +32,9 @@ function isEmpty(v: unknown): boolean {
   return v == null || v === '' || (Array.isArray(v) && v.length === 0);
 }
 
-/** Extract a file URL from a GHL FILE_UPLOAD value (array of {url} objects or a raw url). */
-function fileUrl(value: unknown): string | null {
-  if (typeof value === 'string' && /^https?:\/\//i.test(value)) return value;
-  if (Array.isArray(value) && value.length) {
-    const first = value[0];
-    if (typeof first === 'string') return first;
-    if (first && typeof first === 'object' && typeof (first as any).url === 'string') return (first as any).url;
-  }
-  if (value && typeof value === 'object' && typeof (value as any).url === 'string') return (value as any).url;
-  return null;
-}
+// File URL extraction lives in lib/ghl/fileValue.ts — it must handle the uuid-keyed map that GHL
+// *form* uploads produce, which this file mishandled until 2026-08-17 (every form-submitted
+// headshot and company logo silently never reached Wix).
 
 /** GHL option value (key/label, scalar or array or delimited) -> array of display LABELS. */
 function toLabels(value: unknown, options?: GhlFieldOption[]): string[] {
@@ -85,7 +78,7 @@ export function coerceToWix(
 
   // Image targets → import the source file downstream.
   if (wixType === 'IMAGE' || transform === 'imageFromUpload') {
-    const url = fileUrl(value);
+    const url = firstFileUrl(value);
     return url ? { kind: 'image', sourceUrl: url } : { kind: 'skip', reason: 'no file url' };
   }
 
@@ -100,9 +93,15 @@ export function coerceToWix(
       return Number.isFinite(n) ? { kind: 'value', value: n } : { kind: 'skip', reason: 'not a number' };
     }
     case 'ARRAY_STRING': {
-      const arr = Array.isArray(value)
-        ? value.map((v) => String(v))
-        : toLabels(value, ghlOptions);
+      // Resolve to display LABELS whenever the source field has an option catalog — a multi-select
+      // reads back as option KEYS, and GHL normalizes keys it generates (e.g. label "IP & Patents"
+      // can store as key "ip_patents"). The site renders these strings, so it must get labels.
+      // Without a catalog (plain TEXT source) the raw values are all we have.
+      const arr = ghlOptions?.length
+        ? toLabels(value, ghlOptions)
+        : Array.isArray(value)
+          ? value.map((v) => String(v))
+          : toLabels(value, ghlOptions);
       return arr.length ? { kind: 'value', value: arr } : { kind: 'skip', reason: 'empty array' };
     }
     case 'DATE':
