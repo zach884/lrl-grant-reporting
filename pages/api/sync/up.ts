@@ -9,6 +9,12 @@
 // Auth: shared secret in the `x-webhook-secret` header (or `?secret=`), compared to
 // SYNC_WEBHOOK_SECRET. Configure the GHL webhook body as e.g. { "contactId": "{{contact.id}}" }.
 // Add `?dryRun=1` to preview writes without applying.
+//
+// RESPONDS 202 IMMEDIATELY and finishes the work in the background (2026-08-18). This handler does a
+// lot per contact change and measured 7.4–17.7s end to end — far beyond GHL's webhook timeout, so
+// every contact change logged a FAILURE, hundreds piled up, and GHL flagged the workflow "Needs
+// Review" and stopped running it. Real-time sync had silently stopped. See lib/webhooks/fastAck.ts.
+// `?dryRun=1` and `?sync=1` still run synchronously and return the full result.
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getCatalogs } from '@/lib/ghl/catalogCache';
@@ -21,6 +27,7 @@ import { hasDatabase } from '@/lib/db';
 import { hasWix } from '@/lib/wix/config';
 import { runContactTeamPipeline } from '@/lib/wix-sync/pipeline';
 import { withRun, newRunId } from '@/lib/audit/context';
+import { ackAndRun, wantsSynchronous } from '@/lib/webhooks/fastAck';
 
 function extractContactId(req: NextApiRequest): string | undefined {
   const b: any = req.body ?? {};
@@ -44,7 +51,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   // Tag every change this webhook fans out (sync/enrich/score across GHL + Wix) with one run id, so
   // the change log can show the whole cascade as a single traceable event.
-  return withRun({ runId: newRunId(), trigger: `webhook:contact-changed${dryRun ? ':dryrun' : ''}` }, async () => {
+  const runWork = async () =>
+    withRun({ runId: newRunId(), trigger: `webhook:contact-changed${dryRun ? ':dryrun' : ''}` }, async () => {
   try {
     const catalogs = await getCatalogs();
 
@@ -124,10 +132,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
-    return res.status(200).json({ ok: true, dryRun, contactId, companyId, up: upResp, down: downResp, enrich, stageScore, readiness });
+    return { ok: true, dryRun, contactId, companyId, up: upResp, down: downResp, enrich, stageScore, readiness };
   } catch (e: any) {
     console.error('sync/up error:', e);
-    return res.status(500).json({ error: e?.message ?? 'sync failed' });
+    // Rethrow so the caller decides how to surface it: a synchronous request gets a 500, an
+    // already-acknowledged async run gets it logged (it cannot un-send the 202).
+    throw e;
   }
-  });
+    });
+
+  // A human/script asking for the result waits for it; a GHL webhook must not.
+  if (dryRun || wantsSynchronous(req)) {
+    try {
+      return res.status(200).json(await runWork());
+    } catch (e: any) {
+      return res.status(500).json({ error: e?.message ?? 'sync failed' });
+    }
+  }
+
+  ackAndRun(res, runWork, { label: 'sync/up', detail: { contactId, dryRun } });
+  return;
 }

@@ -8,6 +8,10 @@
 // Auth: shared secret in `x-webhook-secret` header (or `?secret=`) vs WIX_SYNC_WEBHOOK_SECRET.
 // Body: { "recordId": "<the record id>" }. Add ?dryRun=1 to preview.
 //
+// RESPONDS 202 IMMEDIATELY and finishes in the background (2026-08-18) — an Approved resource runs
+// the AI tagger, which exceeds GHL's webhook timeout. `?dryRun=1`/`?sync=1` still wait and return the
+// full result. See lib/webhooks/fastAck.ts for why (it killed the contact workflow outright).
+//
 // THE MERGE FIELD (confirmed working 2026-08-18, LRL live):
 //     { "recordId": "{{custom_objects.resources.id}}" }
 // i.e. the OBJECT KEY path — not a generic `{{record.id}}`, which GHL's expression editor rejects
@@ -21,6 +25,7 @@ import { getCatalog } from '@/lib/ghl/catalogCache';
 import { hasDatabase } from '@/lib/db';
 import { hasWix } from '@/lib/wix/config';
 import { runResourcePipeline } from '@/lib/wix-sync/pipeline';
+import { ackAndRun, wantsSynchronous } from '@/lib/webhooks/fastAck';
 
 const RES_OBJ = 'custom_objects.resources';
 
@@ -116,15 +121,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
   const dryRun = req.query.dryRun === '1' || (req.body && req.body.dryRun === true);
 
-  try {
+  const runWork = async () => {
     const catalog = await getCatalog(RES_OBJ);
     const r = await runResourcePipeline(String(recordId), catalog, { apply: !dryRun });
-    return res.status(200).json({
-      ok: true, dryRun, recordId, foundVia: via,
-      enrich: r.enrich, companyLink: r.companyLink, sets: r.sets,
-    });
-  } catch (e: any) {
-    console.error('resource-sync error:', e);
-    return res.status(500).json({ error: e?.message ?? 'resource sync failed' });
+    return { ok: true, dryRun, recordId, foundVia: via, enrich: r.enrich, companyLink: r.companyLink, sets: r.sets };
+  };
+
+  // A human/script asking for the result waits for it; a GHL webhook must not. An APPROVED resource
+  // triggers the AI tagger, which pushes this past GHL's webhook timeout — the same failure that
+  // killed the contact workflow (see lib/webhooks/fastAck.ts).
+  if (dryRun || wantsSynchronous(req)) {
+    try {
+      return res.status(200).json(await runWork());
+    } catch (e: any) {
+      console.error('resource-sync error:', e);
+      return res.status(500).json({ error: e?.message ?? 'resource sync failed' });
+    }
   }
+
+  ackAndRun(res, runWork, { label: 'resource-sync', detail: { recordId, foundVia: via } });
+  return;
 }
