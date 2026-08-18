@@ -25,7 +25,7 @@ import { getCatalog } from '@/lib/ghl/catalogCache';
 import { hasDatabase } from '@/lib/db';
 import { hasWix } from '@/lib/wix/config';
 import { runResourcePipeline } from '@/lib/wix-sync/pipeline';
-import { ackAndRun, wantsSynchronous } from '@/lib/webhooks/fastAck';
+import { ackAndRun, wantsAsync } from '@/lib/webhooks/fastAck';
 
 const RES_OBJ = 'custom_objects.resources';
 
@@ -130,7 +130,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // A human/script asking for the result waits for it; a GHL webhook must not. An APPROVED resource
   // triggers the AI tagger, which pushes this past GHL's webhook timeout — the same failure that
   // killed the contact workflow (see lib/webhooks/fastAck.ts).
-  if (dryRun || wantsSynchronous(req)) {
+  if (!wantsAsync(req)) {
     try {
       return res.status(200).json(await runWork());
     } catch (e: any) {

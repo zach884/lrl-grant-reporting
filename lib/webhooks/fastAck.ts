@@ -15,10 +15,24 @@
 // duplicate delivery converges to a no-op rather than double-writing. That guarantee is what makes
 // fire-and-forget acceptable; do not adopt this pattern for a non-idempotent handler.
 //
-// TRADE-OFF: the caller no longer learns whether the work succeeded — 202 means "accepted", not
-// "done". Outcomes go to `change_log` (queryable in /activity), and failures are logged server-side.
-// Pass `?sync=1` to force the old synchronous behaviour when you need the result in the response
-// (scripts, manual verification, debugging a specific record).
+// ⛔ DISABLED BY DEFAULT — `waitUntil` DOES NOT WORK ON THIS PROJECT YET.
+//
+// Verified against prod 2026-08-18: the endpoint returned 202 in 1.5s, but the work never ran — a
+// contact with a pending `business.logo` write still had it pending afterwards. `waitUntil` needs
+// Vercel **Fluid Compute**; on the classic Node serverless runtime the invocation is frozen the
+// moment the response is sent, so the continuation is simply discarded.
+//
+// That failure mode is worse than the timeout it was meant to fix: GHL records success and nothing
+// happens — silent data loss. So async is now OPT-IN via `?async=1`, and every handler defaults to
+// synchronous. Do NOT make it the default until `waitUntil` is proven on this project:
+//   1. enable Fluid Compute in the Vercel project settings, then
+//   2. re-run the check in the commit message (fire ?async=1 at a contact with a pending write and
+//      confirm the write lands), and only then flip the defaults.
+// A durable queue (DB table + cron drain) is the alternative that needs no platform feature.
+//
+// TRADE-OFF when it IS enabled: the caller no longer learns whether the work succeeded — 202 means
+// "accepted", not "done". Outcomes go to `change_log` (queryable in /activity), and failures are
+// logged server-side. `?sync=1` forces synchronous.
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { waitUntil } from '@vercel/functions';
@@ -26,6 +40,16 @@ import { waitUntil } from '@vercel/functions';
 /** True when the caller explicitly wants to wait for the result (`?sync=1`). */
 export function wantsSynchronous(req: NextApiRequest): boolean {
   return req.query.sync === '1' || req.query.wait === '1';
+}
+
+/**
+ * Should this request be handled asynchronously?
+ *
+ * OPT-IN ONLY (`?async=1`), because `waitUntil` silently drops the work on this project's runtime —
+ * see the header. Defaulting to async would ack GHL and do nothing.
+ */
+export function wantsAsync(req: NextApiRequest): boolean {
+  return req.query.async === '1' && !wantsSynchronous(req);
 }
 
 export interface FastAckOptions {

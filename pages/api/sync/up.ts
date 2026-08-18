@@ -27,7 +27,7 @@ import { hasDatabase } from '@/lib/db';
 import { hasWix } from '@/lib/wix/config';
 import { runContactTeamPipeline } from '@/lib/wix-sync/pipeline';
 import { withRun, newRunId } from '@/lib/audit/context';
-import { ackAndRun, wantsSynchronous } from '@/lib/webhooks/fastAck';
+import { ackAndRun, wantsAsync } from '@/lib/webhooks/fastAck';
 
 function extractContactId(req: NextApiRequest): string | undefined {
   const b: any = req.body ?? {};
@@ -142,7 +142,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
 
   // A human/script asking for the result waits for it; a GHL webhook must not.
-  if (dryRun || wantsSynchronous(req)) {
+  if (!wantsAsync(req)) {
     try {
       return res.status(200).json(await runWork());
     } catch (e: any) {
