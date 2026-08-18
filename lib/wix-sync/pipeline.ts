@@ -21,6 +21,7 @@ import { hasAnthropic } from '../ai/anthropic';
 import { getWixStore } from '../mapping/wixStore';
 import { getWixCollectionSchema } from '../wix/catalogCache';
 import { readRecordFields } from '../ghl/records';
+import { ensureResourceCompanyLink, type ResourceCompanyLinkResult } from '../ghl/resourceRelations';
 import { syncContactToWix, syncRecordToWix } from './sync';
 import type { CustomFieldCatalog } from '../ghl/types';
 
@@ -93,6 +94,8 @@ export async function runContactTeamPipeline(
 export interface ResourcePipelineResult {
   status: string;
   enrich: { ran: boolean; applied?: string[]; note?: string };
+  /** The company↔resource link the form can't create itself (see lib/ghl/resourceRelations.ts). */
+  companyLink?: ResourceCompanyLinkResult;
   sets: ContactTeamPipelineResult['sets'];
 }
 
@@ -128,6 +131,18 @@ export async function runResourcePipeline(
     }
   }
 
+  // 1b) Guarantee the company↔resource association. The form creates the CONTACT link but has no
+  //     notion of the business object, so without this a new resource is joinable to nobody.
+  //     Never blocks the sync: an unlinkable resource is reported as needs-review and still syncs.
+  let companyLink: ResourceCompanyLinkResult | undefined;
+  if (fields) {
+    try {
+      companyLink = await ensureResourceCompanyLink(recordId, { apply: opts.apply, client: gclient });
+    } catch (e: any) {
+      companyLink = { status: 'error', applied: false, note: e?.message ?? String(e) };
+    }
+  }
+
   // 2) Sync every enabled resource set (each set's resource_status gate decides the action).
   const sets = await getWixStore().setsForSource(OBJ);
   const results: ResourcePipelineResult['sets'] = [];
@@ -141,5 +156,5 @@ export async function runResourcePipeline(
     }
   }
 
-  return { status, enrich, sets: results };
+  return { status, enrich, companyLink, sets: results };
 }
