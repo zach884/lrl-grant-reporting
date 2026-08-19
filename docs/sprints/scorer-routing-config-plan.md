@@ -1,5 +1,24 @@
 # Plan — Make the Client Stage scorer's ROUTING front-end configurable
 
+> ## ⛔ PARKED 2026-08-19 — this solves a problem that does not exist
+>
+> This plan assumed the no-route rate came from a value-matching failure: a moved or renamed intake
+> "business model" field silently routing every company to nothing, fixable by making the routing field
+> and its value→path rules front-end-configurable.
+>
+> **Measured on live 2026-08-19 and that is not what is happening.** Of 895 companies: 38 route
+> (12 tech / 21 service / 5 both), **857 are blank, and ZERO have an unrecognized value.** Every company
+> that holds a value routes correctly, so there is nothing for a configurable value→path table to fix.
+>
+> The real cause is upstream and is not a defect: the source mapping
+> (`contact.radio_183j1` "Business Model" → `business.business_model`) is correctly configured and enabled,
+> but only **42 of ~1,200 contacts (3.5%)** have ever answered the question — the intake form that asks it
+> launched recently (Zach, 8/19). The rate will improve on its own as clients come through the new form.
+>
+> Revive this ONLY if unrecognized values start appearing (watch `routePath` returning null on a non-blank
+> value). If the goal is instead to score the existing 857, that needs an enricher that INFERS business
+> model from company data — a different piece of work, and a product decision.
+
 > Status: PLANNED, not built (Zach, 2026-08-03). Scope decision: **routing only** (routing field +
 > value→path rules). Input-field bindings and the rubrics stay in code this increment.
 >

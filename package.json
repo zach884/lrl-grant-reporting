@@ -19,7 +19,8 @@
     "sync:doctor": "vite-node scripts-ts/sync-doctor.ts",
     "reconcile": "vite-node scripts-ts/reconcile-run.ts",
     "wix:sync": "vite-node scripts-ts/wix-sync-run.ts",
-    "square:netsales": "vite-node scripts-ts/square-netsales-run.ts"
+    "square:netsales": "vite-node scripts-ts/square-netsales-run.ts",
+    "git:doctor": "bash scripts/git-doctor.sh"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
