@@ -58,6 +58,12 @@ const PLAN = [
   // status field, and it is also where the AI Companion summary will be fetched from.
   { bareKey: 'zoom_meeting_id', name: '[SYNC] Zoom Meeting ID', dataType: 'TEXT' as const },
   { bareKey: 'grant_status', name: '[SYNC] Grant Status', dataType: 'SINGLE_OPTIONS', options: GRANT_STATUSES },
+  // WHO a client was referred to. `counterparty_name` (already on the object) is the reportable
+  // value; these two make the referral traceable back to the actual record — a contact, a company,
+  // or one of the 91 records in the Resources directory, which is literally the list of people and
+  // orgs LRL refers clients to.
+  { bareKey: 'counterparty_kind', name: '[SYNC] Referred-To Kind', dataType: 'SINGLE_OPTIONS', options: ['Contact', 'Company', 'Resource', 'External'] },
+  { bareKey: 'counterparty_id', name: '[SYNC] Referred-To Record ID', dataType: 'TEXT' as const },
 ];
 
 (async () => {

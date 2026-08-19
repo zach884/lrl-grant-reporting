@@ -21,9 +21,9 @@ source. A manual form is the *exception* path, not the product.
 
 | Activity type | Source | Trigger | Notes |
 |---|---|---|---|
-| **Metrics** | Semi-annual client survey (GHL form) | form submission | one snapshot per client per period |
-| **Grant** | Grant form (GHL) | form submission | grant-level fields + up to 10 expense line items |
-| **Introduction / Referral** | Referral form (GHL) | form submission | counterparty may not be a contact |
+| **Metrics** | **Client Reporting Form** (GHL) | form submission | one snapshot per client per period |
+| **Grant** | **Direct Grant Application form** (GHL) | form submission | detail fields; the pipeline supplies `grant_status` |
+| **Introduction / Referral** | **This app's form** (`/`) | staff logs it | internal, so it can look the counterparty up dynamically — see below |
 | **Intake** | GHL calendar / appointment link | appointment webhook | routed by which calendar was booked |
 | **Technical Assistance** | GHL calendar / appointment link | appointment webhook | routed by which calendar was booked |
 | **Workshop / Event** | Wix attendance | scheduled sync (existing `wix-ghl` tooling) | registered vs attended |
@@ -144,10 +144,10 @@ fields reachable; `activity_owner` hand-typed. Measured evidence: the surviving 
 |---|---|---|
 | 1 | **Shared core** — registry, verified create, associations, audit, timeline, tests | ✅ done |
 | 2 | **Idempotency** — source-key fields, claims ledger, `upsertActivity`, noop on re-delivery | ✅ done, verified live |
-| 7 | **Manual exception form** — rebuilt at `/`, company-first | ✅ done, verified live |
+| 7 | **Referral logger + back-up form** — rebuilt at `/`, company-first, cross-entity referral picker | ✅ done, verified live |
 | 3 | **Appointments → Intake / TA** — webhook, calendar→type config, status handling | ✅ done, verified live (`f3d1d6d`) |
 | 4 | **Program acceptance + grant lifecycle** — 7th `activity_type`, stage→program config | ✅ done, verified live (`388de12`) |
-| 5 | **Forms → Referral / Grant / Metrics** — form ingestion + contact-field→activity-field mapping | **next** |
+| 5 | **Forms → Grant + Metrics** — Direct Grant Application + Client Reporting Form → activity, via a contact-field→activity-field map | **next** |
 | 6 | **Wix attendance → Workshop/Event** — registered vs attended, one record per attendee | |
 | 8 | **Backfill + live verification** — history per source, dry-run → review → apply | |
 | — | Zoom AI Companion notes onto appointment activities | Sprint 5 (feasibility spike open) |

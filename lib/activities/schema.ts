@@ -61,7 +61,11 @@ export const CORE_TYPE_SPECIFIC = new Set(['referral_type', 'appointment_id']);
  * key, so a typo there would make the next delivery of that event create a duplicate record.
  * (Both carry the `[SYNC]` name prefix in GHL for the same reason.)
  */
-export const MACHINE_FIELDS = new Set(['activity_source', 'source_record_id', 'appointment_status', 'zoom_meeting_id', 'grant_status']);
+export const MACHINE_FIELDS = new Set([
+  'activity_source', 'source_record_id', 'appointment_status', 'zoom_meeting_id', 'grant_status',
+  // Set by the referral picker, not typed: the picker writes the name AND the record it points at.
+  'counterparty_kind', 'counterparty_id',
+]);
 
 export const ACTIVITY_TYPES: ActivityTypeDef[] = [
   {

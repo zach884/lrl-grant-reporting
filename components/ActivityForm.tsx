@@ -1,14 +1,20 @@
-// components/ActivityForm.tsx — the manual/back-up activity logger.
+// components/ActivityForm.tsx — the REFERRAL logger, and the back-up path for everything else.
 //
-// Most activities are INGESTED (appointments, forms, Wix attendance, pipeline stage) — see
-// docs/sprints/activity-tracking.md. This form is the path for what no source captures: an offline
-// meeting, a phone call, a drop-in, or a booking that never went through a GHL appointment link.
+// Two jobs (Zach, 2026-08-19):
+//
+//   1. REFERRALS ARE LOGGED HERE, on purpose. It is internal, so it can look the counterparty up
+//      dynamically across the Resources directory, contacts and companies — which a GHL form cannot
+//      do. This is the primary way a referral gets recorded, not a fallback.
+//   2. Everything else is INGESTED from its real source (appointments, forms, Wix attendance,
+//      pipeline stages), so for those this is the back-up: an offline meeting, a phone call, a
+//      drop-in, a booking that never went through a GHL appointment link.
 //
 // The fields come from /api/activities/meta, which derives them from the LIVE catalog by folder, so
 // a field added in GHL appears here with no front-end change.
 
 import { useEffect, useMemo, useState } from 'react';
 import CompanySearch, { type CompanyOption } from './CompanySearch';
+import ReferralTargetPicker, { type ReferralTarget } from './ReferralTargetPicker';
 
 interface MetaField {
   key: string;
@@ -37,6 +43,9 @@ const field: React.CSSProperties = { display: 'flex', flexDirection: 'column', g
 /** Core fields the form handles itself (or fills in for you) — never rendered as generic inputs. */
 const HANDLED = new Set(['activity_date', 'activity_notes', 'activity_owner', 'activity_name']);
 
+/** The referral picker owns this one — it writes the name, the kind and the record id together. */
+const PICKER_OWNED = new Set(['counterparty_name']);
+
 const today = () => new Date().toISOString().slice(0, 10);
 
 export default function ActivityForm({
@@ -52,7 +61,9 @@ export default function ActivityForm({
   const [company, setCompany] = useState<CompanyOption | null>(null);
   const [contacts, setContacts] = useState<ContactOpt[]>([]);
   const [picked, setPicked] = useState<string[]>([]);
-  const [referredTo, setReferredTo] = useState('');
+  const [target, setTarget] = useState<ReferralTarget | null>(null);
+  // Bumped after a save so the picker clears its typed query too, not just its selection.
+  const [pickerKey, setPickerKey] = useState(0);
   const [values, setValues] = useState<Record<string, unknown>>({ activity_date: today() });
   const [showMore, setShowMore] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -87,8 +98,10 @@ export default function ActivityForm({
   }, [company]);
 
   const active = useMemo(() => meta.find((t) => t.key === type), [meta, type]);
-  const prominent = active?.fields.filter((f) => f.prominent) ?? [];
-  const rest = active?.fields.filter((f) => !f.prominent) ?? [];
+  const isReferral = type === 'introduction_referral';
+  const hidden = (f: MetaField) => isReferral && PICKER_OWNED.has(f.key);
+  const prominent = (active?.fields ?? []).filter((f) => f.prominent && !hidden(f));
+  const rest = (active?.fields ?? []).filter((f) => !f.prominent && !hidden(f));
   const coreExtra = (active?.core ?? []).filter((f) => !HANDLED.has(f.key));
 
   const set = (k: string, v: unknown) => setValues((s) => ({ ...s, [k]: v }));
@@ -145,6 +158,7 @@ export default function ActivityForm({
   }
 
   const missing = (active?.required ?? []).filter((k) => {
+    if (isReferral && PICKER_OWNED.has(k)) return !target; // the picker supplies counterparty_name
     const v = values[k];
     return v == null || v === '' || (Array.isArray(v) && v.length === 0);
   });
@@ -162,8 +176,18 @@ export default function ActivityForm({
           type,
           companyId: company.id,
           contactIds: picked,
-          referredToContactId: type === 'introduction_referral' && referredTo ? referredTo : undefined,
-          values,
+          // A contact counterparty also gets the referred-to ASSOCIATION, so it is traversable in GHL.
+          referredToContactId: isReferral && target?.kind === 'Contact' ? target.id : undefined,
+          values: {
+            ...values,
+            ...(isReferral && target
+              ? {
+                  counterparty_name: target.name,
+                  counterparty_kind: target.kind,
+                  ...(target.id ? { counterparty_id: target.id } : {}),
+                }
+              : {}),
+          },
           actor,
         }),
       });
@@ -182,7 +206,8 @@ export default function ActivityForm({
       );
       if (!broken.length) {
         setValues({ activity_date: today() });
-        setReferredTo('');
+        setTarget(null);
+        setPickerKey((k) => k + 1);
         onSaved(company.id);
       }
     } catch (e: any) {
@@ -265,13 +290,15 @@ export default function ActivityForm({
         {prominent.map(renderField)}
       </div>
 
-      {type === 'introduction_referral' && contacts.length > 0 && (
+      {isReferral && (
         <div style={field}>
-          <label htmlFor="referredTo" style={label}>Referred to (a contact, if they are one)</label>
-          <select id="referredTo" style={input} value={referredTo} onChange={(e) => setReferredTo(e.target.value)}>
-            <option value="">—</option>
-            {contacts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+          <span style={label}>
+            Referred to <span style={{ color: 'var(--red-600, #b3261e)' }}>*</span>
+          </span>
+          <ReferralTargetPicker key={pickerKey} value={target} onChange={setTarget} />
+          <span style={{ fontSize: 12, color: 'var(--gray-500)' }}>
+            Searches the Resources directory, contacts and companies — or type any name.
+          </span>
         </div>
       )}
 
@@ -319,7 +346,7 @@ export default function ActivityForm({
         {!company && <span style={{ fontSize: 13, color: 'var(--gray-500)' }}>Pick a company first.</span>}
         {company && missing.length > 0 && (
           <span style={{ fontSize: 13, color: 'var(--gray-500)' }}>
-            Still needed: {missing.map((k) => active?.fields.find((f) => f.key === k)?.label ?? k).join(', ')}
+            Still needed: {missing.map((k) => (PICKER_OWNED.has(k) ? 'Referred to' : active?.fields.find((f) => f.key === k)?.label ?? k)).join(', ')}
           </span>
         )}
       </div>
