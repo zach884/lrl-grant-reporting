@@ -200,13 +200,27 @@ export function activityFieldSet(catalog: CustomFieldCatalog, type: string): Act
   };
 }
 
+/** What a client can be referred TO. Any mix — a person at an org, the org, and its directory entry. */
+export type ReferredToKind = 'Contact' | 'Company' | 'Resource';
+
+export interface ReferredTo {
+  kind: ReferredToKind;
+  recordId: string;
+}
+
 export interface ActivityInput {
   type: string;
-  /** Company (business) record id — required: reporting aggregates by company. */
+  /**
+   * The company that PARTICIPATED — required, and the thing reporting aggregates by.
+   * Never the referral counterparty: those are separate associations (see `referredTo`), which is
+   * why a service-provider company in the CRM can't inflate a "companies served" count.
+   */
   companyId: string;
   /** Contacts who took part. May be empty (a company-level activity). */
   contactIds?: string[];
-  /** Referral only: the contact the client was referred TO. */
+  /** Referral only: who/what the client was referred TO — contact, company, resource, or several. */
+  referredTo?: ReferredTo[];
+  /** Referral only, legacy shorthand for a single contact target. */
   referredToContactId?: string;
   /** bareKey → value, for core + this type's fields. */
   values: Record<string, unknown>;
@@ -261,8 +275,9 @@ export function validateActivityInput(
       }
     }
   }
-  if (input.referredToContactId && input.type !== 'introduction_referral') {
-    errors.push('referredToContactId only applies to an Introduction / Referral activity');
+  const targets = [...(input.referredTo ?? []), ...(input.referredToContactId ? [{ kind: 'Contact' as const, recordId: input.referredToContactId }] : [])];
+  if (targets.length && input.type !== 'introduction_referral') {
+    errors.push('a referred-to target only applies to an Introduction / Referral activity');
   }
   return errors;
 }

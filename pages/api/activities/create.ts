@@ -6,17 +6,23 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { createActivity, ActivityValidationError } from '@/lib/activities/create';
 import { SOURCE_FIELD } from '@/lib/activities/upsert';
+import { expandReferredTo } from '@/lib/activities/referral';
+import type { ReferredTo } from '@/lib/activities/schema';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { type, companyId, contactIds, referredToContactId, values, actor } = req.body ?? {};
+  const { type, companyId, contactIds, referredTo, referredToContactId, values, actor } = req.body ?? {};
   try {
+    // Picking a Resource implies the company behind it, when that link is known — so the referral is
+    // joinable by organization and not only by directory row.
+    const targets = Array.isArray(referredTo) ? await expandReferredTo(referredTo as ReferredTo[]) : [];
     const result = await createActivity(
       {
         type: String(type ?? ''),
         companyId: String(companyId ?? ''),
         contactIds: Array.isArray(contactIds) ? contactIds.map(String) : [],
+        referredTo: targets,
         referredToContactId: referredToContactId ? String(referredToContactId) : undefined,
         // Stamp the source so a hand-logged record is distinguishable from an ingested one — both
         // in the timeline and in any report that needs to know where a number came from.

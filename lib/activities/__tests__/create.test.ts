@@ -39,6 +39,8 @@ const ASSOC_DEFS = [
   { id: 'assoc-company', key: COMPANY_ACTIVITY_KEY, firstObjectKey: 'business', secondObjectKey: ACTIVITIES_OBJECT },
   { id: 'assoc-contact', key: ACTIVITY_CONTACT_KEY, firstObjectKey: 'contact', secondObjectKey: ACTIVITIES_OBJECT },
   { id: 'assoc-referred', key: REFERRED_TO_KEY, firstObjectKey: 'contact', secondObjectKey: ACTIVITIES_OBJECT },
+  { id: 'assoc-referred-co', key: 'referral_referred_to_company', firstObjectKey: 'business', secondObjectKey: ACTIVITIES_OBJECT },
+  { id: 'assoc-referred-res', key: 'referral_referred_to_resource', firstObjectKey: 'custom_objects.resources', secondObjectKey: ACTIVITIES_OBJECT },
 ];
 
 interface FakeOpts {
@@ -230,6 +232,47 @@ describe('createActivity', () => {
     expect(res.activityName).toBe('Pricing workshop follow-up');
     const post = client.requests.find((r: any) => r.method === 'POST' && r.path.endsWith('/records'));
     expect(post.body.properties.activity_owner).toBe('Emmett Barrett');
+  });
+
+  it('links a referred-to COMPANY and RESOURCE, not just a contact', async () => {
+    // Participants and counterparties are different links: reporting counts participants, which is
+    // why a service provider can appear here without ever entering a "companies served" count.
+    const client = fakeClient();
+    const res = await createActivity(
+      {
+        type: 'introduction_referral',
+        companyId: 'biz1',
+        contactIds: ['c1'],
+        referredTo: [
+          { kind: 'Resource', recordId: 'res9' },
+          { kind: 'Company', recordId: 'biz-provider' },
+        ],
+        values: { activity_date: '2026-08-19', referral_type: ['mentor'], counterparty_name: 'Fidelis' },
+      },
+      { actor, client },
+    );
+    expect(res.links.map((l) => [l.key, l.recordId, l.status])).toEqual([
+      [COMPANY_ACTIVITY_KEY, 'biz1', 'linked'],
+      [ACTIVITY_CONTACT_KEY, 'c1', 'linked'],
+      ['referral_referred_to_resource', 'res9', 'linked'],
+      ['referral_referred_to_company', 'biz-provider', 'linked'],
+    ]);
+  });
+
+  it('does not link the same counterparty twice', async () => {
+    const client = fakeClient();
+    const res = await createActivity(
+      {
+        type: 'introduction_referral',
+        companyId: 'biz1',
+        contactIds: [],
+        referredTo: [{ kind: 'Contact', recordId: 'c2' }],
+        referredToContactId: 'c2', // legacy shorthand for the same person
+        values: { activity_date: '2026-08-19', referral_type: ['mentor'], counterparty_name: 'Ann' },
+      },
+      { actor, client },
+    );
+    expect(res.links.filter((l) => l.recordId === 'c2')).toHaveLength(1);
   });
 
   it('refuses an incomplete input before writing anything', async () => {

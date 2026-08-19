@@ -12,7 +12,7 @@
 import { GhlClient, ghl } from '../ghl/client';
 import { getCatalog } from '../ghl/catalogCache';
 import { createObjectRecord } from '../ghl/createRecord';
-import { createRelation, resolveAssociationId } from '../ghl/associations';
+import { createRelation, resolveAssociationDef } from '../ghl/associations';
 import { getBusinessRecord } from '../ghl/businesses';
 import { logChange } from '../audit/log';
 import type { ChangeLogFieldChange } from '../audit/types';
@@ -23,12 +23,26 @@ import {
   validateActivityInput,
   type ActivityInput,
   type ActivityWriteMode,
+  type ReferredToKind,
 } from './schema';
 
 /** Association keys this module links through, resolved by key (never hardcoded ids). */
 export const COMPANY_ACTIVITY_KEY = 'company_activity';
 export const ACTIVITY_CONTACT_KEY = 'activity_contact';
 export const REFERRED_TO_KEY = 'referral_received_referred_to';
+
+/**
+ * The referral counterparty, per kind. An activity records WHO PARTICIPATED (company_activity +
+ * activity_contact) separately from WHO IT WAS REFERRED TO — which is what keeps a service provider
+ * out of "companies served": reporting counts participants, never counterparties.
+ *
+ * The company and resource links were created 2026-08-19; the contact one predates this work.
+ */
+export const REFERRED_TO_KEYS: Record<ReferredToKind, string> = {
+  Contact: REFERRED_TO_KEY,
+  Company: 'referral_referred_to_company',
+  Resource: 'referral_referred_to_resource',
+};
 
 export interface ActivityLinkResult {
   /** Which association was attempted. */
@@ -77,13 +91,22 @@ async function link(
   client: GhlClient,
 ): Promise<ActivityLinkResult> {
   try {
-    const associationId = await resolveAssociationId(key, client);
-    if (!associationId) {
+    const def = await resolveAssociationDef(key, client);
+    if (!def) {
       return { key, recordId, status: 'failed', reason: `no association definition with key "${key}" on this location` };
     }
-    // Direction matters and is fixed by the definition: for all three of ours the activity is the
-    // SECOND record (company/contact first) — see the association table in the sprint spec.
-    await createRelation({ associationId, firstRecordId: recordId, secondRecordId: activityId }, client);
+    // Which side the activity goes on is READ FROM THE DEFINITION, never assumed: GHL swapped the
+    // sides when creating the resource association (see resolveAssociationDef), and posting the
+    // wrong way round fails with "422 Invalid record id ... for association".
+    const activityFirst = def.first.objectKey === ACTIVITIES_OBJECT;
+    await createRelation(
+      {
+        associationId: def.id,
+        firstRecordId: activityFirst ? activityId : recordId,
+        secondRecordId: activityFirst ? recordId : activityId,
+      },
+      client,
+    );
     return { key, recordId, status: 'linked' };
   } catch (e: any) {
     return { key, recordId, status: 'failed', reason: e?.message ?? String(e) };
@@ -131,8 +154,18 @@ export async function createActivity(
   for (const contactId of input.contactIds ?? []) {
     links.push(await link(ACTIVITY_CONTACT_KEY, contactId, created.recordId, client));
   }
-  if (input.referredToContactId) {
-    links.push(await link(REFERRED_TO_KEY, input.referredToContactId, created.recordId, client));
+  const targets = [
+    ...(input.referredTo ?? []),
+    ...(input.referredToContactId ? [{ kind: 'Contact' as const, recordId: input.referredToContactId }] : []),
+  ];
+  // De-duplicate: the picker may pass a resource AND the company it resolves to, and a caller may
+  // use both `referredTo` and the legacy `referredToContactId` for the same person.
+  const seen = new Set<string>();
+  for (const t of targets) {
+    const dedupeKey = `${t.kind}:${t.recordId}`;
+    if (!t.recordId || seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    links.push(await link(REFERRED_TO_KEYS[t.kind], t.recordId, created.recordId, client));
   }
 
   const changes: ChangeLogFieldChange[] = created.written.map((key) => ({

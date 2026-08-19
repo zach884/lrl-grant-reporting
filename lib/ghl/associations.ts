@@ -80,6 +80,29 @@ export async function resolveAssociationId(
 /** Drop the cached association map (after creating an association, or in tests). */
 export function clearAssociationCache(): void {
   assocCache = null;
+  defCache = null;
+}
+
+let defCache: { at: number; byKey: Map<string, AssociationDef> } | null = null;
+
+/**
+ * The full definition for a key — id AND which object sits on each side.
+ *
+ * The sides matter and CANNOT be assumed: GHL **swapped them** when creating a custom-object ↔
+ * custom-object association (sent `custom_objects.resources` first + `custom_objects.activities`
+ * second; stored the reverse), and posting a relation in the wrong order fails with
+ * `422 Invalid record id ... for association`. Verified live 2026-08-19. Read the definition.
+ */
+export async function resolveAssociationDef(
+  key: string,
+  client: GhlClient = ghl(),
+  opts: { force?: boolean } = {},
+): Promise<AssociationDef | null> {
+  if (opts.force || !defCache || Date.now() - defCache.at > ASSOC_TTL_MS) {
+    const defs = await listAssociationDefs(client);
+    defCache = { at: Date.now(), byKey: new Map(defs.map((d) => [d.key, d])) };
+  }
+  return defCache.byKey.get(key) ?? null;
 }
 
 /**

@@ -21,8 +21,8 @@ source. A manual form is the *exception* path, not the product.
 
 | Activity type | Source | Trigger | Notes |
 |---|---|---|---|
-| **Metrics** | **Client Reporting Form** (GHL) | form submission | one snapshot per client per period |
-| **Grant** | **Direct Grant Application form** (GHL) | form submission | detail fields; the pipeline supplies `grant_status` |
+| **Metrics** | **Client Reporting Form** (GHL) — id `ed03BbRGWrc6Ugtwr9JB` | form submission | one snapshot per client per period |
+| **Grant** | **Direct Grant Application form** (GHL) — id `0d8irJ6Ay6VQFajG06Go` | form submission | detail fields; the pipeline supplies `grant_status` |
 | **Introduction / Referral** | **This app's form** (`/`) | staff logs it | internal, so it can look the counterparty up dynamically — see below |
 | **Intake** | GHL calendar / appointment link | appointment webhook | routed by which calendar was booked |
 | **Technical Assistance** | GHL calendar / appointment link | appointment webhook | routed by which calendar was booked |

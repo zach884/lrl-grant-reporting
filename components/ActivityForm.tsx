@@ -176,8 +176,12 @@ export default function ActivityForm({
           type,
           companyId: company.id,
           contactIds: picked,
-          // A contact counterparty also gets the referred-to ASSOCIATION, so it is traversable in GHL.
-          referredToContactId: isReferral && target?.kind === 'Contact' ? target.id : undefined,
+          // The counterparty is linked by ASSOCIATION, per kind — a contact, a company, or a
+          // resource (the server also adds the company behind a resource when it knows it).
+          referredTo:
+            isReferral && target?.id && target.kind !== 'External'
+              ? [{ kind: target.kind, recordId: target.id }]
+              : [],
           values: {
             ...values,
             ...(isReferral && target
