@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react';
 import Shell from '@/components/shell/Shell';
 import ActivityForm from '@/components/ActivityForm';
 import ActivityList from '@/components/ActivityList';
+import MetricsHistory from '@/components/MetricsHistory';
 import CompanySearch, { type CompanyOption } from '@/components/CompanySearch';
 import { parseGHLContext } from '@/lib/auth';
 import type { GHLUser } from '@/types';
@@ -25,7 +26,7 @@ const sub: React.CSSProperties = { margin: '4px 0 0', fontSize: 13, color: 'var(
 
 export default function Home() {
   const [user, setUser] = useState<GHLUser | null>(null);
-  const [tab, setTab] = useState<'log' | 'timeline'>('log');
+  const [tab, setTab] = useState<'log' | 'timeline' | 'metrics'>('log');
   const [timelineCompany, setTimelineCompany] = useState<CompanyOption | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -47,7 +48,7 @@ export default function Home() {
         </div>
 
         <div style={{ display: 'flex', gap: 8 }}>
-          {(['log', 'timeline'] as const).map((t) => (
+          {(['log', 'timeline', 'metrics'] as const).map((t) => (
             <button
               key={t}
               type="button"
@@ -59,7 +60,7 @@ export default function Home() {
                 color: tab === t ? 'var(--teal-700, #0f766e)' : 'var(--text)', fontWeight: tab === t ? 600 : 400,
               }}
             >
-              {t === 'log' ? 'Log an activity' : 'Company timeline'}
+              {t === 'log' ? 'Log an activity' : t === 'timeline' ? 'Company timeline' : 'Metrics over time'}
             </button>
           ))}
         </div>
@@ -77,13 +78,19 @@ export default function Home() {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div style={card}>
-              <h2 style={h2}>Company timeline</h2>
-              <p style={sub}>Everything recorded for one company — logged by hand or ingested from its source.</p>
+              <h2 style={h2}>{tab === 'timeline' ? 'Company timeline' : 'Metrics over time'}</h2>
+              <p style={sub}>
+                {tab === 'timeline'
+                  ? 'Everything recorded for one company — logged by hand or ingested from its source.'
+                  : 'Every Client Reporting snapshot, one column per period. A form overwrites the contact’s answers; these records keep each period, so an audit two periods back reads the column it asks for.'}
+              </p>
               <div style={{ marginTop: 12 }}>
                 <CompanySearch value={timelineCompany} onChange={setTimelineCompany} />
               </div>
             </div>
-            <ActivityList companyId={timelineCompany?.id ?? ''} refreshKey={refreshKey} />
+            {tab === 'timeline'
+              ? <ActivityList companyId={timelineCompany?.id ?? ''} refreshKey={refreshKey} />
+              : <MetricsHistory companyId={timelineCompany?.id ?? ''} />}
           </div>
         )}
       </div>
