@@ -145,8 +145,8 @@ fields reachable; `activity_owner` hand-typed. Measured evidence: the surviving 
 | 1 | **Shared core** — registry, verified create, associations, audit, timeline, tests | ✅ done |
 | 2 | **Idempotency** — source-key fields, claims ledger, `upsertActivity`, noop on re-delivery | ✅ done, verified live |
 | 7 | **Manual exception form** — rebuilt at `/`, company-first | ✅ done, verified live |
-| 3 | **Appointments → Intake / TA** — GHL appointment webhook, calendar→type config, status handling | **next** |
-| 4 | **Program acceptance** — new `activity_type` option, opportunity stage→program config | |
+| 3 | **Appointments → Intake / TA** — webhook, calendar→type config, status handling | ✅ done, verified live (`f3d1d6d`) |
+| 4 | **Program acceptance** — new `activity_type` option, opportunity stage→program config | **next** |
 | 5 | **Forms → Referral / Grant / Metrics** — form-submission ingestion + contact-field→activity-field mapping | |
 | 6 | **Wix attendance → Workshop/Event** — registered vs attended, one record per attendee | |
 | 8 | **Backfill + live verification** — history per source, dry-run → review → apply | |
@@ -164,10 +164,11 @@ fields reachable; `activity_owner` hand-typed. Measured evidence: the surviving 
 - **Company derivation** for every source: `contact.businessId` first, name match second,
   `needs-review` third — never invent a company (the `resourceRelations.ts` rule). A brand-new
   contact with no `businessId` is the realistic failure mode.
-- **Booked ≠ held.** Appointment status (showed / no-show / cancelled / rescheduled) has to reach the
-  record, or reports count meetings that never happened.
-- **Calendar → type routing must be config, not code** (which calendar means Intake vs TA), in the
-  same store as the mapping sets and gates.
+- ~~Booked ≠ held~~ / ~~calendar routing as config~~ — both settled in phase 3 above.
+- **Zoom AI Companion is now more than a nice-to-have:** it is the most reliable "did this meeting
+  happen" signal available, because the team doesn't maintain appointment status. Needs a Zoom
+  Server-to-Server OAuth app (none configured yet); `past_meetings/{id}` + `/participants` answer
+  attendance, `meetings/{id}/meeting_summary` returns the AI Companion notes.
 - **Attribution:** automatic sources set `activity_owner` from the appointment's assigned user, not
   from whoever is logged into the app.
 - **Backfill:** history matters for reporting — past appointments, past events, and the grant/metrics
