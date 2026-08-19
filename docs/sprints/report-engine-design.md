@@ -86,6 +86,53 @@ wearing a different hat. The stored tag is a cache of the rules, never the autho
 persist the run — grant, period, rule-set version, the activity ids selected, and the output. That,
 not a frozen tag, is what makes an audit answerable.
 
+## The forward flow (Zach, 2026-08-19) — and why it changes the emphasis
+
+> *"Intake survey submitted → appointment scheduled → enrichers and syncs run → appointment date
+> comes → activity logger runs → activity enriched with program/grant based on eligibility and
+> definitions, and maybe the focus of the meeting from the Zoom notes."*
+
+**Measured, and the premise holds.** Across 137 booked appointments the gap between booking and the
+meeting is a **median of 11.9 days** (p10 = 44 hours; only 4% are booked inside 24 hours, and none
+inside an hour). The intake survey also fires the contact-change webhook, so enrichment runs in real
+time rather than waiting for the nightly job. By the time an activity is created, the company's
+firmographics are populated — the "tag computed before its inputs exist" failure does not apply to
+the forward path.
+
+So **tag the activity when it is created.** That is Zach's flow, it is correct, and it makes the
+report engine simpler and the CRM readable.
+
+**What stays true regardless of timing**, and is the whole reason the tag must remain recomputable:
+
+- **Rules change, and new grants get onboarded.** When I4.0 is added, *every prior activity* needs
+  evaluating against it — not just the ones logged afterwards. This has nothing to do with when the
+  first tag was written.
+- **History predates the flow.** There are 72 backfillable intake appointments right now that were
+  never enriched in this order.
+- **Corrections happen.** An address fix, a re-scored stage, a late LARA match all change eligibility
+  after the fact.
+
+**Therefore: write the tag eagerly, treat it as a materialized view, and refresh it on four
+triggers** — (1) activity created, (2) the company's firmographics change (fan out to that company's
+activities, the same shape as the down-sync's company→contacts fan-out), (3) a rule-set version bump
+or a new grant, (4) immediately before a report run, so a submitted number is never computed from a
+stale tag. The tag carries the rule-set version that produced it; disagreement between tag and rules
+is then detectable rather than silent.
+
+That is the synthesis: Zach gets the tag on the activity from day one, and the numbers still survive
+a rule change.
+
+## Meeting focus from Zoom notes — it fills a real, current gap
+
+`service_topic` (coaching / marketing / operations / finance / product-tech) is **required** for a
+Technical Assistance activity in the manual form, but the appointment adapter cannot know it: it can
+only apply a fixed default from the route, so every ingested TA activity has the same topic or none.
+Deriving it from the AI Companion summary is the missing per-meeting input, not a nicety.
+
+Shape is already proven here — it is the readiness tagger over again: AI reads text, returns
+structured tags, written through a `derivedFrom` guard so it only rewrites when the summary changes.
+Same for a short meeting summary into `activity_notes`.
+
 ## What this asks of Sprint B
 
 - Phase 4 (program acceptance) is now **load-bearing for reporting**, not optional. Build it with
