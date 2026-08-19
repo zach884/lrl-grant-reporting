@@ -104,13 +104,14 @@ report engine simpler and the CRM readable.
 
 **What stays true regardless of timing**, and is the whole reason the tag must remain recomputable:
 
-- **Rules change, and new grants get onboarded.** When I4.0 is added, *every prior activity* needs
-  evaluating against it — not just the ones logged afterwards. This has nothing to do with when the
-  first tag was written.
-- **History predates the flow.** There are 72 backfillable intake appointments right now that were
-  never enriched in this order.
 - **Corrections happen.** An address fix, a re-scored stage, a late LARA match all change eligibility
   after the fact.
+- **History predates the flow.** There are 72 backfillable intake appointments right now that were
+  never enriched in this order.
+- **Rules get revised** within a grant's life.
+
+*(Corrected 2026-08-19 — an earlier draft of this note claimed a new grant means re-evaluating every
+prior activity. It does not: see the period rule below, which bounds it.)*
 
 **Therefore: write the tag eagerly, treat it as a materialized view, and refresh it on four
 triggers** — (1) activity created, (2) the company's firmographics change (fan out to that company's
@@ -121,6 +122,56 @@ is then detectable rather than silent.
 
 That is the synthesis: Zach gets the tag on the activity from day one, and the numbers still survive
 a rule change.
+
+## THE GRANT PERIOD BOUNDS EVERYTHING (Zach, 2026-08-19)
+
+> *"Grants will have defined grant periods. When we get a new grant for our LOCAL program, we don't
+> need to tag the existing log of intake meetings that have already occurred — just ones that take
+> place within the grant period and qualify. This will be true for all activity types."*
+
+Correct, and it is already how `CANONICAL_REPORTING_MODEL.md` defines every KPI: *"COUNT DISTINCT
+Company where Service Activity type=TA, modality=1:1, **in TC period**"*, *"served **in period**"*,
+*"with a Service Activity **in period**"*. The period is not a new concept — it is the selection
+predicate the model always had. Making it a first-class field on the grant definition is what turns
+it from prose into config.
+
+**A grant definition therefore carries: period start, period end, reporting cadence within it, the
+eligibility rules, and a version.** An activity outside the period cannot qualify, full stop.
+
+This is a significant simplification, because **the period bounds every re-evaluation**:
+
+| Trigger | Scope of work |
+|---|---|
+| Activity created | evaluate against only the grants whose period contains its date — a small set, not every grant ever |
+| Company firmographics change | re-evaluate that company's activities **inside open grant periods**, not its whole history |
+| New grant onboarded | evaluate **only activities inside that grant's period** — for a forward-dated grant, that is *zero* historical work |
+| Rules revised | same, bounded by the grant's period |
+| Before a report run | refresh the run's window only |
+
+So the temporal model is three simple pieces:
+
+```
+grant period      |------------------------|      (interval, per grant)
+enrollment        |--------------|                (interval, per company+program — phase 4)
+activity                    •                     (point in time)
+
+qualifies  ⇔  activity date ∈ grant period
+              ∧ company passes the grant's company lens
+              ∧ (if required) company enrolled in the program at that date
+```
+
+Two consequences worth stating:
+
+- **The tag is a SET, per (activity, grant)** — not one program value. Periods overlap, and the
+  canonical model's whole premise is that the same activity is claimed through different lenses.
+- **Eligibility is evaluated AS AT the activity date**, not as at today. A company that leaves a
+  qualifying tract, or graduates a program, does not retroactively disqualify the meetings it had
+  while it did qualify. This is a further argument for tagging at creation: that is precisely the
+  moment the state is right.
+
+⚠️ **One edge case to keep in mind:** MEDC contracts are sometimes executed with a *backdated* period
+(signed in November, period starting July 1). "New grant ⇒ no historical work" is therefore not
+guaranteed — the honest rule is "work bounded by the period", which is still small and knowable.
 
 ## Meeting focus from Zoom notes — it fills a real, current gap
 
