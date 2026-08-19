@@ -16,6 +16,7 @@ import { logChange } from '../audit/log';
 import type { CustomFieldCatalog } from '../ghl/types';
 import type { GhlClient } from '../ghl/client';
 import type { DryRunConnection } from './dryrun';
+import { resolveRecordLabel, labelFromFields } from '../audit/label';
 
 export interface ApplyChange { fieldKey: string; from: unknown; to: unknown }
 export interface ForwardResult { targetId: string; changes: ApplyChange[]; unchanged: number; written: string[]; skipped: Array<{ key: string; reason: string }> }
@@ -128,6 +129,9 @@ export async function syncConnection(
     if (guard.keep.length) {
       await logChange({
         objectType: connection.targetObject, recordId: targetId, actorKind: 'sync',
+        // Without a label the log reads "update business" + a raw id, which meant pasting ids into
+        // GHL to review a night's writes. Memoised, so a sweep costs one read per record.
+        recordLabel: await resolveRecordLabel(connection.targetObject, targetId, client),
         actorName: connection.name ?? `${connection.sourceObject}->${connection.targetObject}`,
         changes: guard.keep.map((c) => ({ field: c.fieldKey, from: c.from, to: c.to })), applied: opts.apply,
       });
@@ -159,6 +163,8 @@ export async function syncConnection(
       if (guard.keep.length) {
         await logChange({
           objectType: connection.sourceObject, recordId: sourceRecordId, actorKind: 'sync',
+          // `source` is already in hand here, so this needs no read at all.
+          recordLabel: labelFromFields(connection.sourceObject, (k) => source.get(k)),
           actorName: `${connection.name ?? connection.targetObject + '->' + connection.sourceObject} (reverse)`,
           changes: guard.keep.map((c) => ({ field: c.fieldKey, from: c.from, to: c.to })), applied: opts.apply,
         });

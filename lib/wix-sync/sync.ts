@@ -28,6 +28,7 @@ import {
 } from '../wix/collections';
 import { importImageFromUrl, toImageFieldValue } from '../wix/media';
 import { logChange } from '../audit/log';
+import { labelFromFields } from '../audit/label';
 import type { WixCollectionSchema, WixColumn } from '../wix/types';
 import type { WixFieldChange, WixSyncResult } from './types';
 
@@ -209,6 +210,11 @@ function resolveAction(set: WixMappingSet, resolve: (key: string) => SourceField
 export interface SyncSource {
   objectKey: string;
   recordId: string;
+  /**
+   * Human name of the source record, for the change log. Supplied by the caller because the record
+   * is already read there — the log used to show the raw GHL id, which told a reviewer nothing.
+   */
+  label?: string;
   resolve(key: string): SourceField;
   /** Write field changes back to the source record (id/status write-back). */
   writeFields(changes: Record<string, unknown>): Promise<void>;
@@ -238,6 +244,7 @@ export async function syncContactToWix(
   const source: SyncSource = {
     objectKey: 'contact',
     recordId: contact.id,
+    label: labelFromFields('contact', (k) => (contact as any)[k]),
     resolve: (key) => resolveContactField(contact, catalog, key),
     writeFields: async (changes) => { await writeRecordFields('contact', contact.id, changes, catalog, gclient); },
   };
@@ -263,6 +270,7 @@ export async function syncRecordToWix(
   const source: SyncSource = {
     objectKey,
     recordId,
+    label: labelFromFields(objectKey, (k) => fields.get(k)),
     resolve: (key) => resolveRecordField(objectKey, fields, catalog, key),
     writeFields: async (changes) => { await writeRecordFields(objectKey, recordId, changes, catalog, gclient); },
   };
@@ -300,7 +308,9 @@ export async function syncSourceToWix(
     const action = result.action === 'insert' ? 'create' : (result.action === 'patch' || result.action === 'hide') ? 'update' : null;
     if (action && result.written.length) {
       await logChange({
-        app: 'wix', objectType: `wix:${set.name}`, recordId: result.itemId ?? '', recordLabel: String(matchValue),
+        app: 'wix', objectType: `wix:${set.name}`, recordId: result.itemId ?? '',
+        // Human name first; the match value (a GHL id) is only a fallback now.
+        recordLabel: source.label ?? String(matchValue),
         actorKind: 'sync', actorName: `wix:${set.name}`, action,
         changes: result.written.map((w) => ({ field: w.targetColumn, from: w.from, to: w.to })),
         method: 'sync', applied: !result.dryRun,
