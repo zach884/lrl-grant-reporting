@@ -39,6 +39,15 @@ const SOURCE_OPTIONS = ['Appointment', 'Form', 'Wix Attendance', 'Opportunity St
  */
 const APPOINTMENT_STATUSES = ['confirmed', 'showed', 'noshow', 'cancelled', 'invalid', 'new'];
 
+/**
+ * A grant's LIFECYCLE, which the Direct Grants pipeline knows and the grant form does not (Zach,
+ * 2026-08-19: "grant details arrive via a form, but we know the grant has officially been given and
+ * that receipts have been received from the Pipeline"). Both sources write to the SAME activity —
+ * the opportunity IS the grant — so the form supplies the detail fields and the pipeline moves this
+ * field along. Two sources, one record, no double count.
+ */
+const GRANT_STATUSES = ['Application Complete', 'Agreement Executed', 'Receipts Received', 'Closed Won', 'Closed Lost'];
+
 const PLAN = [
   { bareKey: 'activity_source', name: '[SYNC] Activity Source', dataType: 'SINGLE_OPTIONS', options: SOURCE_OPTIONS },
   { bareKey: 'source_record_id', name: '[SYNC] Source Record ID', dataType: 'TEXT' as const },
@@ -48,6 +57,7 @@ const PLAN = [
   // exists only if the meeting actually happened, which is a better attendance signal than the
   // status field, and it is also where the AI Companion summary will be fetched from.
   { bareKey: 'zoom_meeting_id', name: '[SYNC] Zoom Meeting ID', dataType: 'TEXT' as const },
+  { bareKey: 'grant_status', name: '[SYNC] Grant Status', dataType: 'SINGLE_OPTIONS', options: GRANT_STATUSES },
 ];
 
 (async () => {

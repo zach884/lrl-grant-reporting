@@ -111,10 +111,22 @@ export async function findActivityBySource(
  * Associations are set at create only: they don't change for an existing event, and re-POSTing a
  * relation that exists is exactly the kind of write that should be a no-op.
  */
+export interface UpsertOptions extends CreateActivityOptions {
+  /**
+   * Bare keys written ONLY when the record is created, never on a later update.
+   *
+   * For values that describe WHEN something began. A program enrollment is the case that forced
+   * this: several pipeline stages imply one enrollment, so without it each advance would rewrite
+   * `activity_date` to the newer stage-change moment and the enrollment start would silently drift
+   * forward — a wrong date that looks entirely plausible.
+   */
+  onlyIfAbsent?: string[];
+}
+
 export async function upsertActivity(
   key: SourceKey,
   input: ActivityInput,
-  opts: CreateActivityOptions = {},
+  opts: UpsertOptions = {},
 ): Promise<UpsertActivityResult> {
   const client = opts.client ?? ghl();
   const values = { ...input.values, [SOURCE_FIELD]: key.source, [SOURCE_ID_FIELD]: key.sourceRecordId };
@@ -165,8 +177,11 @@ export async function upsertActivity(
   // fields diff internally), so handing it the full desired state would rewrite an unchanged record
   // on every re-delivery — churn, and a `noop` that can never be reported. In the sync engine the
   // dry-run planner owns this comparison; for ingestion, this is the planner.
+  const isBlank = (v: unknown) => v == null || v === '' || (Array.isArray(v) && v.length === 0);
   const changed: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(updatable)) {
+    // Set-once fields keep whatever the create wrote (see onlyIfAbsent).
+    if (opts.onlyIfAbsent?.includes(k) && !isBlank(before.get(k))) continue;
     const def = catalog.byKey[`${ACTIVITIES_OBJECT}.${k}`] ?? catalog.byKey[k];
     // didPersist answers "is the stored value equal to this one?", type-aware (a DATE written as
     // full ISO reads back as YYYY-MM-DD; a single-select written as a label reads back as a key).

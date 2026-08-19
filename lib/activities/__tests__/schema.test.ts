@@ -60,18 +60,22 @@ const catalog: CustomFieldCatalog = {
 const keys = (defs: CustomFieldDef[]) => defs.map(bareKey);
 
 describe('activity type registry', () => {
-  it('covers exactly the six live activity_type option keys', () => {
+  it('covers exactly the live activity_type option keys', () => {
+    // Seven since 2026-08-19: program_acceptance was added to the live picklist for phase 4.
     expect(ACTIVITY_TYPES.map((t) => t.key)).toEqual([
       'intake', 'technical_assistance', 'introduction_referral', 'workshop_event', 'grant', 'metrics',
+      'program_acceptance',
     ]);
   });
 
-  it('treats grant and metrics as form-fed, not staff-logged', () => {
+  it('treats grant, metrics and program acceptance as machine-fed, not staff-logged', () => {
     expect(staffLoggedTypes().map((t) => t.key)).toEqual([
       'intake', 'technical_assistance', 'introduction_referral', 'workshop_event',
     ]);
     expect(activityType('grant')!.staffLogged).toBe(false);
     expect(activityType('metrics')!.staffLogged).toBe(false);
+    // Enrollment comes from a pipeline stage — a person never types it.
+    expect(activityType('program_acceptance')!.staffLogged).toBe(false);
   });
 });
 

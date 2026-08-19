@@ -29,7 +29,8 @@ export type ActivityTypeKey =
   | 'introduction_referral'
   | 'workshop_event'
   | 'grant'
-  | 'metrics';
+  | 'metrics'
+  | 'program_acceptance';
 
 export interface ActivityTypeDef {
   key: ActivityTypeKey;
@@ -60,7 +61,7 @@ export const CORE_TYPE_SPECIFIC = new Set(['referral_type', 'appointment_id']);
  * key, so a typo there would make the next delivery of that event create a duplicate record.
  * (Both carry the `[SYNC]` name prefix in GHL for the same reason.)
  */
-export const MACHINE_FIELDS = new Set(['activity_source', 'source_record_id', 'appointment_status', 'zoom_meeting_id']);
+export const MACHINE_FIELDS = new Set(['activity_source', 'source_record_id', 'appointment_status', 'zoom_meeting_id', 'grant_status']);
 
 export const ACTIVITY_TYPES: ActivityTypeDef[] = [
   {
@@ -111,6 +112,17 @@ export const ACTIVITY_TYPES: ActivityTypeDef[] = [
     staffLogged: false,
     required: [],
     prominent: ['reporting_period'],
+  },
+  {
+    // The 7th type, added 2026-08-19. Not a meeting — the record that a company ENTERED a program,
+    // which is what gives the report engine each company's enrollment intervals. Comes from an
+    // opportunity reaching an accepted stage; never hand-logged.
+    key: 'program_acceptance',
+    label: 'Program Acceptance',
+    folder: null,
+    staffLogged: false,
+    required: [],
+    prominent: ['program__grant_association'],
   },
 ];
 
