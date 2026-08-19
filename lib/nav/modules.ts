@@ -13,6 +13,7 @@ export interface ModuleItem {
 
 export const MODULES: ModuleItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: 'fa-gauge-high', soon: true },
+  { id: 'activities', label: 'Activities', icon: 'fa-clipboard-check', href: '/' },
   { id: 'mappings', label: 'Field Mappings', icon: 'fa-arrow-right-arrow-left', href: '/mappings' },
   { id: 'enrichment', label: 'Data Enrichment', icon: 'fa-wand-magic-sparkles', href: '/enrichment' },
   { id: 'change-logs', label: 'Change Logs', icon: 'fa-clipboard-list', href: '/change-logs' },

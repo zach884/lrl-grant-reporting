@@ -20,7 +20,8 @@ export interface ChangeLogEvent {
   recordId: string;
   /** Best-effort human label (company/contact name). */
   recordLabel?: string;
-  actorKind: 'sync' | 'enricher' | 'scorer';
+  /** 'staff' = a human logging something in the app (Sprint B); the rest are machine writers. */
+  actorKind: 'sync' | 'enricher' | 'scorer' | 'staff';
   /** e.g. 'contact-to-company', 'naics', 'client-stage-scorer'. */
   actorName: string;
   action?: 'create' | 'update';

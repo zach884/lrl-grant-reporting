@@ -1,324 +1,343 @@
-// components/ActivityForm.tsx — Main activity logging form
-import { useState, useEffect, useMemo } from 'react';
-import ContactSearch from './ContactSearch';
-import type { ContactOption, FieldOption, GHLUser } from '@/types';
+// components/ActivityForm.tsx — the manual/back-up activity logger.
+//
+// Most activities are INGESTED (appointments, forms, Wix attendance, pipeline stage) — see
+// docs/sprints/activity-tracking.md. This form is the path for what no source captures: an offline
+// meeting, a phone call, a drop-in, or a booking that never went through a GHL appointment link.
+//
+// The fields come from /api/activities/meta, which derives them from the LIVE catalog by folder, so
+// a field added in GHL appears here with no front-end change.
 
-interface ActivityFormProps {
-  user: GHLUser;
-  activityTypeOptions: FieldOption[];
-  referralTypeOptions: FieldOption[];
-  grantOptions: FieldOption[];
-  onSuccess?: () => void;
+import { useEffect, useMemo, useState } from 'react';
+import CompanySearch, { type CompanyOption } from './CompanySearch';
+
+interface MetaField {
+  key: string;
+  label: string;
+  dataType: string;
+  options: Array<{ key: string; label: string }>;
+  required: boolean;
+  prominent: boolean;
 }
+interface MetaType {
+  key: string;
+  label: string;
+  core: MetaField[];
+  fields: MetaField[];
+  required: string[];
+}
+interface ContactOpt { id: string; name: string; email: string }
+
+const label: React.CSSProperties = { fontSize: 11, fontWeight: 600, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--gray-500)' };
+const input: React.CSSProperties = {
+  width: '100%', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)',
+  padding: '9px 11px', fontSize: 14, color: 'var(--text)', fontFamily: 'var(--font-body)',
+};
+const field: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 5 };
+
+/** Core fields the form handles itself (or fills in for you) — never rendered as generic inputs. */
+const HANDLED = new Set(['activity_date', 'activity_notes', 'activity_owner', 'activity_name']);
+
+const today = () => new Date().toISOString().slice(0, 10);
 
 export default function ActivityForm({
-  user,
-  activityTypeOptions,
-  referralTypeOptions,
-  grantOptions,
-  onSuccess,
-}: ActivityFormProps) {
-  const [contact, setContact] = useState<ContactOption | null>(null);
-  const [activityType, setActivityType] = useState('');
-  const [activityDate, setActivityDate] = useState(
-    new Date().toISOString().split('T')[0]
-  );
-  const [selectedGrants, setSelectedGrants] = useState<string[]>([]);
-  const [activityNotes, setActivityNotes] = useState('');
-  const [referredTo, setReferredTo] = useState<ContactOption | null>(null);
-  const [referralType, setReferralType] = useState('');
-  const [nameOverride, setNameOverride] = useState('');
-  const [isEditingName, setIsEditingName] = useState(false);
+  actor,
+  onSaved,
+}: {
+  actor: { name?: string; email?: string };
+  onSaved: (companyId: string) => void;
+}) {
+  const [meta, setMeta] = useState<MetaType[]>([]);
+  const [metaError, setMetaError] = useState('');
+  const [type, setType] = useState('');
+  const [company, setCompany] = useState<CompanyOption | null>(null);
+  const [contacts, setContacts] = useState<ContactOpt[]>([]);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [referredTo, setReferredTo] = useState('');
+  const [values, setValues] = useState<Record<string, unknown>>({ activity_date: today() });
+  const [showMore, setShowMore] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; text: string; detail?: string[] } | null>(null);
 
-  const [submitting, setSubmitting] = useState(false);
-  const [successMsg, setSuccessMsg] = useState('');
-  const [errorMsg, setErrorMsg] = useState('');
-  const [sheetWarning, setSheetWarning] = useState('');
-
-  const isReferral = activityType === 'referral';
-
-  // Auto-generate activity name (includes time to ensure uniqueness)
-  const [nameTimestamp, setNameTimestamp] = useState('');
-
-  // Refresh timestamp when key fields change so each submit gets a unique name
   useEffect(() => {
-    const now = new Date();
-    setNameTimestamp(
-      now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
-    );
-  }, [contact, activityType, activityDate]);
+    (async () => {
+      try {
+        const res = await fetch('/api/activities/meta');
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? 'Failed to load form fields');
+        setMeta(data.types ?? []);
+        setType((data.types ?? [])[0]?.key ?? '');
+      } catch (e: any) {
+        setMetaError(e.message);
+      }
+    })();
+  }, []);
 
-  const generatedName = useMemo(() => {
-    const entity = contact?.company_name || contact?.full_name || '';
-    const typeLabel =
-      activityTypeOptions.find((o) => o.key === activityType)?.label || '';
-    const dateStr = activityDate
-      ? new Date(activityDate + 'T00:00:00').toLocaleDateString('en-US')
-      : '';
-    if (!entity || !typeLabel || !dateStr) return '';
-    return `${typeLabel} – ${entity} – ${dateStr} ${nameTimestamp}`;
-  }, [contact, activityType, activityDate, activityTypeOptions, nameTimestamp]);
+  // The company's people default to "everyone", which is the common case for a small startup.
+  useEffect(() => {
+    setPicked([]);
+    setContacts([]);
+    if (!company) return;
+    (async () => {
+      const res = await fetch(`/api/companies/${company.id}/contacts`);
+      const data = await res.json();
+      const list: ContactOpt[] = data.contacts ?? [];
+      setContacts(list);
+      setPicked(list.map((c) => c.id));
+    })();
+  }, [company]);
 
-  const activityName = isEditingName ? nameOverride : generatedName;
+  const active = useMemo(() => meta.find((t) => t.key === type), [meta, type]);
+  const prominent = active?.fields.filter((f) => f.prominent) ?? [];
+  const rest = active?.fields.filter((f) => !f.prominent) ?? [];
+  const coreExtra = (active?.core ?? []).filter((f) => !HANDLED.has(f.key));
 
-  function handleGrantToggle(grantKey: string) {
-    setSelectedGrants((prev) =>
-      prev.includes(grantKey)
-        ? prev.filter((g) => g !== grantKey)
-        : [...prev, grantKey]
+  const set = (k: string, v: unknown) => setValues((s) => ({ ...s, [k]: v }));
+
+  function renderField(f: MetaField) {
+    const v = values[f.key];
+    const common = { id: f.key, style: input };
+    return (
+      <div key={f.key} style={field}>
+        <label htmlFor={f.key} style={label}>
+          {f.label}{f.required && <span style={{ color: 'var(--red-600, #b3261e)' }}> *</span>}
+        </label>
+        {f.dataType === 'SINGLE_OPTIONS' || f.dataType === 'RADIO' ? (
+          <select {...common} value={String(v ?? '')} onChange={(e) => set(f.key, e.target.value)}>
+            <option value="">—</option>
+            {f.options.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+          </select>
+        ) : f.dataType === 'MULTIPLE_OPTIONS' || f.dataType === 'CHECKBOX' ? (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {f.options.map((o) => {
+              const on = Array.isArray(v) && (v as string[]).includes(o.key);
+              return (
+                <button
+                  key={o.key}
+                  type="button"
+                  onClick={() => {
+                    const cur = Array.isArray(v) ? (v as string[]) : [];
+                    set(f.key, on ? cur.filter((x) => x !== o.key) : [...cur, o.key]);
+                  }}
+                  style={{
+                    padding: '6px 11px', borderRadius: 999, fontSize: 13, cursor: 'pointer',
+                    border: `1px solid ${on ? 'var(--teal-700, #0f766e)' : 'var(--border-strong)'}`,
+                    background: on ? 'var(--accent-tint, #e6f4f1)' : 'var(--surface)',
+                    color: on ? 'var(--teal-700, #0f766e)' : 'var(--text)', fontWeight: on ? 600 : 400,
+                  }}
+                >
+                  {o.label}
+                </button>
+              );
+            })}
+          </div>
+        ) : f.dataType === 'LARGE_TEXT' ? (
+          <textarea {...common} rows={3} value={String(v ?? '')} onChange={(e) => set(f.key, e.target.value)} />
+        ) : (
+          <input
+            {...common}
+            type={f.dataType === 'DATE' ? 'date' : f.dataType === 'NUMERICAL' ? 'number' : 'text'}
+            value={String(v ?? '')}
+            onChange={(e) => set(f.key, e.target.value)}
+          />
+        )}
+      </div>
     );
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setErrorMsg('');
-    setSuccessMsg('');
-    setSheetWarning('');
+  const missing = (active?.required ?? []).filter((k) => {
+    const v = values[k];
+    return v == null || v === '' || (Array.isArray(v) && v.length === 0);
+  });
+  const canSave = Boolean(company && type && values.activity_date) && missing.length === 0 && !saving;
 
-    // Validate
-    if (!contact) return setErrorMsg('Please select a contact.');
-    if (!activityType) return setErrorMsg('Please select an activity type.');
-    if (!activityDate) return setErrorMsg('Please select a date.');
-    if (selectedGrants.length === 0) return setErrorMsg('Please select at least one grant.');
-    if (!activityName) return setErrorMsg('Activity name could not be generated. Please fill in Contact, Activity Type, and Date.');
-    if (isReferral && !referredTo)
-      return setErrorMsg('Please select a referred-to contact.');
-    if (isReferral && !referralType)
-      return setErrorMsg('Please select a referral type.');
-
-    setSubmitting(true);
-
+  async function save() {
+    if (!company) return;
+    setSaving(true);
+    setResult(null);
     try {
-      // Create activity in GHL
-      const actRes = await fetch('/api/activities/create', {
+      const res = await fetch('/api/activities/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contact_id: contact.id,
-          activity_name: activityName,
-          activity_date: activityDate,
-          activity_type: activityType,
-          activity_notes: activityNotes,
-          activity_owner: user.userName,
-          program__grant_association: selectedGrants,
-          referral_type: isReferral ? referralType : '',
-          referred_to_id: isReferral ? referredTo?.id : undefined,
+          type,
+          companyId: company.id,
+          contactIds: picked,
+          referredToContactId: type === 'introduction_referral' && referredTo ? referredTo : undefined,
+          values,
+          actor,
         }),
       });
-
-      if (!actRes.ok) {
-        const err = await actRes.json();
-        throw new Error(err.error || 'Failed to create activity');
+      const data = await res.json();
+      if (!res.ok) {
+        setResult({ ok: false, text: data.error ?? 'Failed to log activity', detail: data.errors });
+        return;
       }
-
-      const actData = await actRes.json();
-
-      // Trigger sheet append (non-blocking for enrichment)
-      try {
-        const sheetRes = await fetch('/api/sheets/append', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contact_id: contact.id,
-            activity_name: activityName,
-            activity_date: activityDate,
-            activity_type: activityType,
-            activity_notes: activityNotes,
-            activity_owner: user.userName,
-            program__grant_association: selectedGrants,
-            referral_type: isReferral ? referralType : '',
-            referred_to_id: isReferral ? referredTo?.id : undefined,
-          }),
-        });
-
-        const sheetData = await sheetRes.json();
-        if (!sheetRes.ok) {
-          setSheetWarning(`Activity saved to GHL but sheet write failed: ${sheetData.error || 'Unknown error'}`);
-        } else if (sheetData.appendCount === 0) {
-          setSheetWarning(`Activity saved to GHL but no sheet rows were written. Debug: ${JSON.stringify(sheetData.debug || sheetData.errors || [])}`);
-        } else {
-          setSuccessMsg(`Activity created: ${activityName} (${sheetData.appendCount} sheet row(s) written)`);
-        }
-      } catch (sheetErr: any) {
-        setSheetWarning(`Activity saved to GHL but sheet write failed: ${sheetErr.message}`);
+      // A saved record whose company link failed is NOT a success — it is invisible to reporting.
+      const broken = (data.links ?? []).filter((l: any) => l.status === 'failed');
+      const skipped = (data.skipped ?? []).map((s: any) => `${s.key}: ${s.reason}`);
+      setResult(
+        broken.length
+          ? { ok: false, text: 'Saved, but a link failed — this activity may not show up in reporting.', detail: broken.map((b: any) => `${b.key}: ${b.reason}`) }
+          : { ok: true, text: `Logged “${data.activityName}”.`, detail: skipped.length ? skipped : undefined },
+      );
+      if (!broken.length) {
+        setValues({ activity_date: today() });
+        setReferredTo('');
+        onSaved(company.id);
       }
-
-      if (!successMsg) setSuccessMsg(`Activity created: ${activityName}`);
-
-      // Reset form but keep contact pre-filled
-      setActivityType('');
-      setActivityDate(new Date().toISOString().split('T')[0]);
-      setSelectedGrants([]);
-      setActivityNotes('');
-      setReferredTo(null);
-      setReferralType('');
-      setNameOverride('');
-      setIsEditingName(false);
-
-      onSuccess?.();
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Something went wrong');
+    } catch (e: any) {
+      setResult({ ok: false, text: e.message ?? 'Failed to log activity' });
     } finally {
-      setSubmitting(false);
+      setSaving(false);
     }
   }
 
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {/* Contact */}
-      <ContactSearch label="Contact *" value={contact} onChange={setContact} />
+  if (metaError) {
+    return <div style={{ padding: 16, color: 'var(--red-600, #b3261e)', fontSize: 14 }}>Couldn’t load the form: {metaError}</div>;
+  }
 
-      {/* Activity Type */}
-      <div>
-        <label className="block text-sm font-medium text-black mb-1">
-          Activity Type *
-        </label>
-        <select
-          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-[#f8b932] focus:border-[#f8b932]"
-          value={activityType}
-          onChange={(e) => setActivityType(e.target.value)}
-        >
-          <option value="">Select activity type...</option>
-          {activityTypeOptions.map((o) => (
-            <option key={o.key} value={o.key}>
-              {o.label}
-            </option>
-          ))}
-        </select>
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={field}>
+        <span style={label}>Company *</span>
+        <CompanySearch value={company} onChange={setCompany} />
       </div>
 
-      {/* Referral fields — shown directly under Activity Type when referral is selected */}
-      {isReferral && (
-        <div className="space-y-4 pl-4 border-l-2 border-[#f8b932]">
-          <ContactSearch
-            label="Referred To *"
-            value={referredTo}
-            onChange={setReferredTo}
-          />
-
-          <div>
-            <label className="block text-sm font-medium text-black mb-1">
-              Referral Type *
-            </label>
-            <select
-              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-[#f8b932] focus:border-[#f8b932]"
-              value={referralType}
-              onChange={(e) => setReferralType(e.target.value)}
+      <div style={field}>
+        <span style={label}>Activity type *</span>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {meta.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => { setType(t.key); setShowMore(false); }}
+              style={{
+                padding: '7px 13px', borderRadius: 999, fontSize: 13.5, cursor: 'pointer',
+                border: `1px solid ${t.key === type ? 'var(--teal-700, #0f766e)' : 'var(--border-strong)'}`,
+                background: t.key === type ? 'var(--accent-tint, #e6f4f1)' : 'var(--surface)',
+                color: t.key === type ? 'var(--teal-700, #0f766e)' : 'var(--text)',
+                fontWeight: t.key === type ? 600 : 400,
+              }}
             >
-              <option value="">Select referral type...</option>
-              {referralTypeOptions.map((o) => (
-                <option key={o.key} value={o.key}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {contacts.length > 0 && (
+        <div style={field}>
+          <span style={label}>Who took part</span>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {contacts.map((c) => {
+              const on = picked.includes(c.id);
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => setPicked((p) => (on ? p.filter((x) => x !== c.id) : [...p, c.id]))}
+                  style={{
+                    padding: '6px 11px', borderRadius: 999, fontSize: 13, cursor: 'pointer',
+                    border: `1px solid ${on ? 'var(--teal-700, #0f766e)' : 'var(--border-strong)'}`,
+                    background: on ? 'var(--accent-tint, #e6f4f1)' : 'var(--surface)',
+                    color: on ? 'var(--teal-700, #0f766e)' : 'var(--text)', fontWeight: on ? 600 : 400,
+                  }}
+                >
+                  {c.name}
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
 
-      {/* Activity Date */}
-      <div>
-        <label className="block text-sm font-medium text-black mb-1">
-          Activity Date *
-        </label>
-        <input
-          type="date"
-          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-[#f8b932] focus:border-[#f8b932]"
-          value={activityDate}
-          onChange={(e) => setActivityDate(e.target.value)}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
+        <div style={field}>
+          <label htmlFor="activity_date" style={label}>Date *</label>
+          <input
+            id="activity_date"
+            type="date"
+            style={input}
+            value={String(values.activity_date ?? '')}
+            onChange={(e) => set('activity_date', e.target.value)}
+          />
+        </div>
+        {prominent.map(renderField)}
+      </div>
+
+      {type === 'introduction_referral' && contacts.length > 0 && (
+        <div style={field}>
+          <label htmlFor="referredTo" style={label}>Referred to (a contact, if they are one)</label>
+          <select id="referredTo" style={input} value={referredTo} onChange={(e) => setReferredTo(e.target.value)}>
+            <option value="">—</option>
+            {contacts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+      )}
+
+      <div style={field}>
+        <label htmlFor="activity_notes" style={label}>Notes</label>
+        <textarea
+          id="activity_notes"
+          rows={3}
+          style={input}
+          value={String(values.activity_notes ?? '')}
+          onChange={(e) => set('activity_notes', e.target.value)}
         />
       </div>
 
-      {/* Grant / Program */}
-      <div>
-        <label className="block text-sm font-medium text-black mb-1">
-          Grant / Program *
-        </label>
-        <div className="space-y-1">
-          {grantOptions.map((g) => (
-            <label key={g.key} className="flex items-center gap-2 text-sm text-black">
-              <input
-                type="checkbox"
-                checked={selectedGrants.includes(g.key)}
-                onChange={() => handleGrantToggle(g.key)}
-                className="rounded border-gray-300 text-[#f8b932] focus:ring-[#f8b932]"
-              />
-              {g.label}
-            </label>
-          ))}
-        </div>
-      </div>
-
-      {/* Activity Name (auto-generated) */}
-      <div>
-        <label className="block text-sm font-medium text-black mb-1">
-          Activity Name
-        </label>
-        {isEditingName ? (
-          <input
-            type="text"
-            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-[#f8b932] focus:border-[#f8b932]"
-            value={nameOverride}
-            onChange={(e) => setNameOverride(e.target.value)}
-          />
-        ) : (
-          <div className="flex items-center gap-2">
-            <div className="flex-1 bg-gray-50 border border-gray-200 rounded-md px-3 py-2 text-sm text-black">
-              {generatedName || 'Will auto-generate as you fill in fields...'}
+      {(rest.length > 0 || coreExtra.length > 0) && (
+        <div>
+          <button
+            type="button"
+            onClick={() => setShowMore((s) => !s)}
+            style={{ border: 0, background: 'none', padding: 0, cursor: 'pointer', fontSize: 13, color: 'var(--gray-500)' }}
+          >
+            {showMore ? '− Fewer fields' : `+ More fields (${rest.length + coreExtra.length})`}
+          </button>
+          {showMore && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginTop: 12 }}>
+              {[...rest, ...coreExtra].map(renderField)}
             </div>
-            <button
-              type="button"
-              className="text-xs text-[#f8b932] hover:text-[#e0a020] font-medium"
-              onClick={() => {
-                setNameOverride(generatedName);
-                setIsEditingName(true);
-              }}
-            >
-              Edit
-            </button>
-          </div>
+          )}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <button
+          type="button"
+          disabled={!canSave}
+          onClick={save}
+          style={{
+            padding: '10px 20px', borderRadius: 9, border: 0, fontSize: 14, fontWeight: 600,
+            cursor: canSave ? 'pointer' : 'not-allowed', background: canSave ? 'var(--brand, #f8b932)' : 'var(--gray-150, #eceef1)',
+            color: canSave ? 'var(--charcoal, #23272b)' : 'var(--gray-450, #98a1ab)',
+          }}
+        >
+          {saving ? 'Logging…' : 'Log activity'}
+        </button>
+        {!company && <span style={{ fontSize: 13, color: 'var(--gray-500)' }}>Pick a company first.</span>}
+        {company && missing.length > 0 && (
+          <span style={{ fontSize: 13, color: 'var(--gray-500)' }}>
+            Still needed: {missing.map((k) => active?.fields.find((f) => f.key === k)?.label ?? k).join(', ')}
+          </span>
         )}
       </div>
 
-      {/* Activity Notes */}
-      <div>
-        <label className="block text-sm font-medium text-black mb-1">
-          Activity Notes
-        </label>
-        <textarea
-          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-[#f8b932] focus:border-[#f8b932]"
-          rows={3}
-          value={activityNotes}
-          onChange={(e) => setActivityNotes(e.target.value)}
-          placeholder="Optional notes..."
-        />
-      </div>
-
-      {/* Messages */}
-      {errorMsg && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-md text-sm">
-          {errorMsg}
+      {result && (
+        <div style={{
+          padding: '10px 13px', borderRadius: 9, fontSize: 13.5,
+          background: result.ok ? 'var(--accent-tint, #e6f4f1)' : 'var(--brand-tint, #fdf3dd)',
+          color: 'var(--text)', border: '1px solid var(--border)',
+        }}>
+          <div style={{ fontWeight: 600 }}>{result.text}</div>
+          {result.detail?.length ? (
+            <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+              {result.detail.map((d) => <li key={d}>{d}</li>)}
+            </ul>
+          ) : null}
         </div>
       )}
-      {successMsg && (
-        <div className="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded-md text-sm">
-          {successMsg}
-        </div>
-      )}
-      {sheetWarning && (
-        <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 px-3 py-2 rounded-md text-sm">
-          {sheetWarning}
-        </div>
-      )}
-
-      {/* Submit */}
-      <button
-        type="submit"
-        disabled={submitting}
-        className="w-full bg-[#f8b932] text-black py-2 px-4 rounded-md text-sm font-medium hover:bg-[#e0a020] disabled:bg-[#f8b932]/50 disabled:cursor-not-allowed"
-      >
-        {submitting ? 'Saving...' : 'Log Activity'}
-      </button>
-    </form>
+    </div>
   );
 }

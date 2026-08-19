@@ -1,115 +1,95 @@
-// components/ActivityList.tsx — Dashboard table of logged activities
-import { useState, useEffect } from 'react';
-import ActivityRow from './ActivityRow';
+// components/ActivityList.tsx — a company's activity timeline.
+//
+// Shows ALL types, not just the manually logged ones: an ingested appointment, a form-fed grant or
+// metrics snapshot and a hand-logged phone call are the same kind of thing here. The company link
+// comes from the association graph, so this is the real "what has happened with this client" view.
 
-interface Activity {
+import { useEffect, useState } from 'react';
+
+export interface ActivitySummary {
   id: string;
-  activity_name: string;
-  activity_type: string;
-  activity_date: string;
-  activity_owner: string;
-  program__grant_association: string[];
-  contact_name?: string;
+  type: string;
+  typeLabel: string;
+  name: string;
+  date: string;
+  owner: string;
+  notes: string;
+  details: Array<{ key: string; label: string; value: string }>;
 }
 
-interface ActivityListProps {
-  refreshKey: number;
-}
+const TYPE_TONE: Record<string, string> = {
+  intake: 'var(--accent-tint, #e6f4f1)',
+  technical_assistance: 'var(--brand-tint, #fdf3dd)',
+  introduction_referral: 'var(--violet-100, #ece9fd)',
+  workshop_event: 'var(--gray-150, #eceef1)',
+  grant: 'var(--brand-tint, #fdf3dd)',
+  metrics: 'var(--gray-150, #eceef1)',
+};
 
-export default function ActivityList({ refreshKey }: ActivityListProps) {
-  const [activities, setActivities] = useState<Activity[]>([]);
-  const [loading, setLoading] = useState(true);
+export default function ActivityList({ companyId, refreshKey }: { companyId: string; refreshKey: number }) {
+  const [rows, setRows] = useState<ActivitySummary[]>([]);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   useEffect(() => {
-    loadActivities();
-  }, [refreshKey]);
-
-  async function loadActivities() {
-    setLoading(true);
-    setError('');
-    try {
-      const res = await fetch('/api/activities/list');
-      if (!res.ok) throw new Error('Failed to load activities');
-      const data = await res.json();
-      setActivities(data.activities ?? []);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleDelete(id: string) {
-    if (deleteConfirm !== id) {
-      setDeleteConfirm(id);
+    if (!companyId) {
+      setRows([]);
       return;
     }
+    (async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const res = await fetch(`/api/activities/list?companyId=${encodeURIComponent(companyId)}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? 'Failed to load activities');
+        setRows(data.activities ?? []);
+      } catch (e: any) {
+        setError(e.message);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [companyId, refreshKey]);
 
-    try {
-      const res = await fetch(`/api/activities/delete?id=${id}`, {
-        method: 'DELETE',
-      });
-      if (!res.ok) throw new Error('Failed to delete activity');
-      setActivities((prev) => prev.filter((a) => a.id !== id));
-      setDeleteConfirm(null);
-    } catch (err: any) {
-      setError(err.message);
-    }
-  }
-
-  function handleEdit(id: string) {
-    // TODO: Open edit form pre-populated with activity data
-    alert('Edit functionality coming soon');
-  }
-
-  if (loading) {
-    return <div className="text-sm text-gray-500 py-4">Loading activities...</div>;
-  }
-
-  if (error) {
-    return (
-      <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-md text-sm">
-        {error}
-      </div>
-    );
-  }
-
-  if (activities.length === 0) {
-    return <div className="text-sm text-gray-500 py-4">No activities logged yet.</div>;
-  }
+  if (!companyId) return null;
+  if (loading) return <div style={{ fontSize: 13, color: 'var(--gray-500)' }}>Loading timeline…</div>;
+  if (error) return <div style={{ fontSize: 13, color: 'var(--red-600, #b3261e)' }}>{error}</div>;
+  if (!rows.length) return <div style={{ fontSize: 13, color: 'var(--gray-500)' }}>Nothing logged for this company yet.</div>;
 
   return (
-    <div className="overflow-x-auto">
-      {deleteConfirm && (
-        <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-3 py-2 rounded-md text-sm mb-2">
-          Click Delete again to confirm. This cannot be undone.
-        </div>
-      )}
-      <table className="w-full text-left">
-        <thead>
-          <tr className="border-b border-gray-200">
-            <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">Name</th>
-            <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">Type</th>
-            <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">Contact</th>
-            <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">Date</th>
-            <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">Grant(s)</th>
-            <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">Logged By</th>
-            <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {activities.map((a) => (
-            <ActivityRow
-              key={a.id}
-              activity={a}
-              onEdit={handleEdit}
-              onDelete={handleDelete}
-            />
-          ))}
-        </tbody>
-      </table>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {rows.map((a) => (
+        <details
+          key={a.id}
+          style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}
+        >
+          <summary style={{ padding: '10px 13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', listStyle: 'none' }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--gray-500)', minWidth: 88 }}>{a.date || '—'}</span>
+            <span style={{
+              fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase',
+              background: TYPE_TONE[a.type] ?? 'var(--gray-100)', borderRadius: 999, padding: '2px 8px',
+            }}>
+              {a.typeLabel}
+            </span>
+            <span style={{ fontSize: 13.5, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</span>
+            {a.owner && <span style={{ fontSize: 12, color: 'var(--gray-500)' }}>{a.owner}</span>}
+          </summary>
+          <div style={{ padding: '0 13px 12px', fontSize: 13, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {a.notes && <div style={{ whiteSpace: 'pre-wrap' }}>{a.notes}</div>}
+            {a.details.length > 0 && (
+              <dl style={{ margin: 0, display: 'grid', gridTemplateColumns: 'minmax(140px, max-content) 1fr', gap: '4px 14px' }}>
+                {a.details.map((d) => (
+                  <div key={d.key} style={{ display: 'contents' }}>
+                    <dt style={{ color: 'var(--gray-500)' }}>{d.label}</dt>
+                    <dd style={{ margin: 0 }}>{d.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+          </div>
+        </details>
+      ))}
     </div>
   );
 }

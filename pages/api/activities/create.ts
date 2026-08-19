@@ -1,96 +1,37 @@
-// pages/api/activities/create.ts — Create GHL Custom Object record
+// pages/api/activities/create.ts — log one activity.
+//
+// Thin on purpose: every rule (validation, coercion, read-back, associations, audit) lives in
+// lib/activities/create so the API, a future webhook and any script all behave identically.
+
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { ghlRequest, GHL_LOCATION_ID } from '@/lib/ghl';
-
-const GHL_CUSTOM_OBJECT_ID = process.env.GHL_CUSTOM_OBJECT_ID!;
-
-// Association definition IDs (from GHL)
-const ACTIVITY_CONTACT_ASSOC_ID = '69cfd43a7dde13295d11fe26';
-const REFERRAL_CONTACT_ASSOC_ID = '69cfe156dd8fc9d773987042';
+import { createActivity, ActivityValidationError } from '@/lib/activities/create';
+import { SOURCE_FIELD } from '@/lib/activities/upsert';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
+  const { type, companyId, contactIds, referredToContactId, values, actor } = req.body ?? {};
   try {
-    const {
-      contact_id,
-      activity_name,
-      activity_date,
-      activity_type,
-      activity_notes,
-      activity_owner,
-      program__grant_association,
-      referral_type,
-      referred_to_id,
-    } = req.body;
-
-    const finalName = activity_name || `${activity_type} – ${activity_date}`;
-
-    // Step 1: Create the record
-    const data = await ghlRequest<any>({
-      method: 'POST',
-      path: `/objects/${GHL_CUSTOM_OBJECT_ID}/records`,
-      body: {
-        locationId: GHL_LOCATION_ID,
-        properties: {
-          activity_name: finalName,
-          activity_date,
-          activity_type,
-          activity_notes: activity_notes || '',
-          appointment_id: '',
-          activity_owner,
-          program__grant_association: Array.isArray(program__grant_association)
-            ? program__grant_association
-            : [program__grant_association],
-          referral_type: referral_type
-            ? (Array.isArray(referral_type) ? referral_type : [referral_type])
-            : [],
-        },
+    const result = await createActivity(
+      {
+        type: String(type ?? ''),
+        companyId: String(companyId ?? ''),
+        contactIds: Array.isArray(contactIds) ? contactIds.map(String) : [],
+        referredToContactId: referredToContactId ? String(referredToContactId) : undefined,
+        // Stamp the source so a hand-logged record is distinguishable from an ingested one — both
+        // in the timeline and in any report that needs to know where a number came from.
+        values: { ...((values ?? {}) as Record<string, unknown>), [SOURCE_FIELD]: 'Manual' },
       },
-    });
-
-    const recordId = data.record?.id ?? data.id;
-
-    // Step 2: Associate primary contact (contact is FIRST, activity is SECOND)
-    if (recordId && contact_id) {
-      try {
-        await ghlRequest<any>({
-          method: 'POST',
-          path: '/associations/relations',
-          body: {
-            locationId: GHL_LOCATION_ID,
-            associationId: ACTIVITY_CONTACT_ASSOC_ID,
-            firstRecordId: contact_id,
-            secondRecordId: recordId,
-          },
-        });
-      } catch (err) {
-        console.warn('Failed to associate primary contact:', err);
-      }
-    }
-
-    // Step 3: Associate referred-to contact (contact is FIRST, activity is SECOND)
-    if (recordId && referred_to_id) {
-      try {
-        await ghlRequest<any>({
-          method: 'POST',
-          path: '/associations/relations',
-          body: {
-            locationId: GHL_LOCATION_ID,
-            associationId: REFERRAL_CONTACT_ASSOC_ID,
-            firstRecordId: referred_to_id,
-            secondRecordId: recordId,
-          },
-        });
-      } catch (err) {
-        console.warn('Failed to associate referred-to contact:', err);
-      }
-    }
-
-    res.status(200).json({ success: true, record: data });
+      { actor },
+    );
+    // A record that saved but couldn't be linked to its company is NOT a success: it is invisible
+    // to every funder report. Say so loudly rather than showing a green tick.
+    const brokenLinks = result.links.filter((l) => l.status === 'failed');
+    res.status(200).json({ success: brokenLinks.length === 0, ...result });
   } catch (error: any) {
+    if (error instanceof ActivityValidationError) {
+      return res.status(400).json({ error: 'Incomplete activity', errors: error.errors });
+    }
     console.error('Activity create error:', error);
     res.status(500).json({ error: error.message ?? 'Failed to create activity' });
   }

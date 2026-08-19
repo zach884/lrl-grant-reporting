@@ -258,3 +258,37 @@ export const changeLog = pgTable(
 );
 
 export type ChangeLogRow = typeof changeLog.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Activity source claims (Sprint B) — the idempotency ledger for activity ingestion.
+//
+// WHY A TABLE AND NOT JUST A GHL SEARCH: measured live 2026-08-19, a newly created record takes
+// ~12 SECONDS to become findable through the object search endpoint (a direct GET works
+// immediately — it is the search index that lags). Webhook retries and double form submissions
+// arrive in far less than that, so a search-based find-or-create returns "not found" and creates a
+// duplicate. Duplicate activities double-count in funder reports.
+//
+// So each source event claims its row here FIRST, under a unique constraint: exactly one caller
+// wins the claim and creates the record; everyone else reads the winner's record id. Postgres is
+// immediately consistent, which is precisely what GHL's search is not.
+// ---------------------------------------------------------------------------
+
+export const activitySourceClaims = pgTable(
+  'activity_source_claims',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    /** Which adapter: 'Appointment' | 'Form' | 'Wix Attendance' | 'Opportunity Stage' | 'Manual'. */
+    source: text('source').notNull(),
+    /** The source system's own id for the event (appointment id, submission id, …). */
+    sourceRecordId: text('source_record_id').notNull(),
+    /** The activity record this event produced. NULL while the create is still in flight. */
+    activityRecordId: text('activity_record_id'),
+    claimedAt: timestamp('claimed_at', { withTimezone: true }).notNull().defaultNow(),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+  },
+  (t) => ({
+    uq: unique('activity_source_claims_uq').on(t.source, t.sourceRecordId),
+  }),
+);
+
+export type ActivitySourceClaimRow = typeof activitySourceClaims.$inferSelect;

@@ -53,6 +53,35 @@ export async function listAssociationDefs(client: GhlClient = ghl()): Promise<As
     }));
 }
 
+// Association ids are location-scoped and opaque, so hardcoding them (as the v1 activity route did)
+// breaks silently the moment an association is recreated. Resolve by KEY instead — the key is the
+// stable name we chose (`company_activity`, `activity_contact`, …). Cached per process with the same
+// 10-min TTL as the field catalogs; definitions change about once a month.
+const ASSOC_TTL_MS = 10 * 60 * 1000;
+let assocCache: { at: number; byKey: Map<string, string> } | null = null;
+
+/**
+ * The id of the association definition with this key, or null if the location has no such
+ * association. Callers must treat null as "cannot link" and report it — never fall back to
+ * guessing an id.
+ */
+export async function resolveAssociationId(
+  key: string,
+  client: GhlClient = ghl(),
+  opts: { force?: boolean } = {},
+): Promise<string | null> {
+  if (opts.force || !assocCache || Date.now() - assocCache.at > ASSOC_TTL_MS) {
+    const defs = await listAssociationDefs(client);
+    assocCache = { at: Date.now(), byKey: new Map(defs.map((d) => [d.key, d.id])) };
+  }
+  return assocCache.byKey.get(key) ?? null;
+}
+
+/** Drop the cached association map (after creating an association, or in tests). */
+export function clearAssociationCache(): void {
+  assocCache = null;
+}
+
 /**
  * All contact ids associated with a company (the real-time down-sync fan-out roster).
  * Uses the associations graph filtered to contact links — targeted + instant for
@@ -72,6 +101,57 @@ export async function getAssociatedContactIds(
     .filter((r) => r.secondObjectKey === 'contact')
     .map((r) => r.secondRecordId as string)
     .filter(Boolean);
+}
+
+/**
+ * EVERY relation on a record, paged. The endpoint caps at 100 per call and takes `limit` + `skip`
+ * (`page`/`offset` both 422); `total` is accurate, so we page until we have it.
+ *
+ * Paging matters for companies specifically: the nightly scorer appends a Client Stage record per
+ * scoring event, so a company's relation list grows without bound and a single 100-row call would
+ * eventually push its ACTIVITY links off the end — a timeline that silently loses its oldest rows.
+ * Verified live 2026-08-19: skip works, total is correct, and mixed link types come back together
+ * (the older "unreliable for mixed types" note above did not reproduce).
+ */
+export async function getAllRelations(
+  recordId: string,
+  client: GhlClient = ghl(),
+  opts: { pageSize?: number; max?: number } = {},
+): Promise<any[]> {
+  const pageSize = opts.pageSize ?? 100;
+  const max = opts.max ?? 1000;
+  const out: any[] = [];
+  let skip = 0;
+  let total = Infinity;
+  while (out.length < Math.min(total, max)) {
+    const data = await client.request<any>({
+      path: `/associations/relations/${recordId}`,
+      params: skip ? { limit: pageSize, skip } : { limit: pageSize },
+    });
+    const rels: any[] = data.relations ?? [];
+    if (typeof data.total === 'number') total = data.total;
+    out.push(...rels);
+    if (rels.length < pageSize) break;
+    skip += pageSize;
+  }
+  return out;
+}
+
+/** Ids of records of `objectKey` related to `recordId`, following relations in either direction. */
+export async function getRelatedRecordIds(
+  recordId: string,
+  objectKey: string,
+  client: GhlClient = ghl(),
+): Promise<string[]> {
+  const rels = await getAllRelations(recordId, client);
+  const ids = rels.map((r) =>
+    r.secondObjectKey === objectKey && r.secondRecordId !== recordId
+      ? r.secondRecordId
+      : r.firstObjectKey === objectKey && r.firstRecordId !== recordId
+        ? r.firstRecordId
+        : undefined,
+  );
+  return Array.from(new Set(ids.filter(Boolean) as string[]));
 }
 
 /**

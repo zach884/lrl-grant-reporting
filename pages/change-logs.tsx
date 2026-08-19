@@ -50,7 +50,7 @@ const eyebrow: React.CSSProperties = { fontFamily: 'var(--font-display)', fontWe
 const primaryBtn: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 7, padding: '9px 15px', borderRadius: 8, border: 'none', background: 'var(--brand)', color: 'var(--ink-900)', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 13, cursor: 'pointer' };
 const ghostLink: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 13px', borderRadius: 8, border: '1px solid var(--border-strong)', background: 'var(--surface)', color: 'var(--text-secondary)', fontWeight: 600, fontSize: 13, textDecoration: 'none' };
 
-const actorTone = (kind: string) => ({ sync: { bg: 'var(--accent-tint)', fg: 'var(--teal-700)' }, enricher: { bg: 'var(--brand-tint)', fg: 'var(--yellow-700)' }, scorer: { bg: 'var(--violet-100, #ece9fd)', fg: 'var(--violet-700)' } }[kind] ?? { bg: 'var(--gray-100)', fg: 'var(--gray-500)' });
+const actorTone = (kind: string) => ({ sync: { bg: 'var(--accent-tint)', fg: 'var(--teal-700)' }, enricher: { bg: 'var(--brand-tint)', fg: 'var(--yellow-700)' }, scorer: { bg: 'var(--violet-100, #ece9fd)', fg: 'var(--violet-700)' }, staff: { bg: 'var(--gray-150, #eceef1)', fg: 'var(--text)' } }[kind] ?? { bg: 'var(--gray-100)', fg: 'var(--gray-500)' });
 
 function qs(f: Props['f'], over: Record<string, string | number>): string {
   const p = new URLSearchParams();
@@ -87,7 +87,7 @@ export default function ChangeLogsPage({ rows, hasMore, page, actors, f }: Props
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--gray-500)' }}>Type</span>
             <select name="actorKind" defaultValue={f.actorKind} style={{ ...inputBase }}>
-              <option value="">All</option><option value="sync">Sync</option><option value="enricher">Enricher</option><option value="scorer">Scorer</option>
+              <option value="">All</option><option value="sync">Sync</option><option value="enricher">Enricher</option><option value="scorer">Scorer</option><option value="staff">Staff</option>
             </select>
           </label>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
