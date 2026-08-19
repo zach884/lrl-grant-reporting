@@ -292,3 +292,41 @@ export const activitySourceClaims = pgTable(
 );
 
 export type ActivitySourceClaimRow = typeof activitySourceClaims.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Activity routing rules (Sprint B) — which SOURCE thing produces which activity type.
+//
+// Config-as-data, deliberately: Zach expects to create new calendars and calendar groups (the
+// existing reporting workflow is fragile, so new work goes on new calendars). Adding one must never
+// need a deploy. A source thing with no rule produces NOTHING — the personal calendars are used for
+// vendor and partner calls, and inventing activities for those would corrupt the very reports this
+// feeds.
+// ---------------------------------------------------------------------------
+
+export const activityRoutes = pgTable(
+  'activity_routes',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    /** Which adapter this rule belongs to: 'Appointment' | 'Form' | 'Opportunity Stage' | 'Wix Attendance'. */
+    source: text('source').notNull(),
+    /** What the rule matches on: 'calendar' | 'calendar_group' | 'form' | 'pipeline_stage'. */
+    matchKind: text('match_kind').notNull(),
+    /** The id it matches (a GHL calendar id, group id, form id, pipeline stage id). */
+    matchId: text('match_id').notNull(),
+    /** Human label, so the config is readable without cross-referencing GHL. */
+    matchLabel: text('match_label'),
+    /** The activity_type option key to write, e.g. 'intake'. */
+    activityType: text('activity_type').notNull(),
+    /** Optional `program__grant_association` option keys to stamp (funder attribution at ingestion). */
+    program: jsonb('program').$type<string[]>(),
+    /** Optional fixed field values for this route, e.g. { modality: 'one_on_one' }. */
+    defaults: jsonb('defaults').$type<Record<string, unknown>>(),
+    enabled: boolean('enabled').notNull().default(true),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    uq: unique('activity_routes_uq').on(t.source, t.matchKind, t.matchId),
+  }),
+);
+
+export type ActivityRouteRow = typeof activityRoutes.$inferSelect;

@@ -1,4 +1,4 @@
-// scripts-ts/activity-source-fields.ts — add the two SOURCE-KEY fields the ingestion layer needs.
+// scripts-ts/activity-source-fields.ts — the fields the activity INGESTION layer needs.
 //
 // WHY (Sprint B, docs/sprints/activity-tracking.md): every activity source fires more than once for
 // the same real-world event — GHL retries webhooks, forms get resubmitted, nightly syncs re-run. With
@@ -32,9 +32,22 @@ const CORE_FOLDER = 'Activity Info';
 /** One option per ingestion adapter, plus the manual back-up path. */
 const SOURCE_OPTIONS = ['Appointment', 'Form', 'Wix Attendance', 'Opportunity Stage', 'Manual'];
 
+/**
+ * GHL's own appointment statuses. Stored on the activity so a report can re-filter later without
+ * going back to the calendar — and because the team rarely sets "showed" (2 of 140 live
+ * appointments), so the raw status is evidence, not truth.
+ */
+const APPOINTMENT_STATUSES = ['confirmed', 'showed', 'noshow', 'cancelled', 'invalid', 'new'];
+
 const PLAN = [
   { bareKey: 'activity_source', name: '[SYNC] Activity Source', dataType: 'SINGLE_OPTIONS', options: SOURCE_OPTIONS },
   { bareKey: 'source_record_id', name: '[SYNC] Source Record ID', dataType: 'TEXT' as const },
+  { bareKey: 'appointment_status', name: '[SYNC] Appointment Status', dataType: 'SINGLE_OPTIONS', options: APPOINTMENT_STATUSES },
+  // Every GHL appointment carries its OWN Zoom meeting id (verified live: 110 distinct ids across
+  // 110 meetings — not a shared personal room), so this is the join key to Zoom. `past_meetings/{id}`
+  // exists only if the meeting actually happened, which is a better attendance signal than the
+  // status field, and it is also where the AI Companion summary will be fetched from.
+  { bareKey: 'zoom_meeting_id', name: '[SYNC] Zoom Meeting ID', dataType: 'TEXT' as const },
 ];
 
 (async () => {
