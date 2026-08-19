@@ -146,8 +146,8 @@ fields reachable; `activity_owner` hand-typed. Measured evidence: the surviving 
 | 2 | **Idempotency** — source-key fields, claims ledger, `upsertActivity`, noop on re-delivery | ✅ done, verified live |
 | 7 | **Manual exception form** — rebuilt at `/`, company-first | ✅ done, verified live |
 | 3 | **Appointments → Intake / TA** — webhook, calendar→type config, status handling | ✅ done, verified live (`f3d1d6d`) |
-| 4 | **Program acceptance** — new `activity_type` option, opportunity stage→program config | **next** |
-| 5 | **Forms → Referral / Grant / Metrics** — form-submission ingestion + contact-field→activity-field mapping | |
+| 4 | **Program acceptance + grant lifecycle** — 7th `activity_type`, stage→program config | ✅ done, verified live (`388de12`) |
+| 5 | **Forms → Referral / Grant / Metrics** — form ingestion + contact-field→activity-field mapping | **next** |
 | 6 | **Wix attendance → Workshop/Event** — registered vs attended, one record per attendee | |
 | 8 | **Backfill + live verification** — history per source, dry-run → review → apply | |
 | — | Zoom AI Companion notes onto appointment activities | Sprint 5 (feasibility spike open) |
