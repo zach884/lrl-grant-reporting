@@ -169,9 +169,17 @@ Two consequences worth stating:
   while it did qualify. This is a further argument for tagging at creation: that is precisely the
   moment the state is right.
 
-⚠️ **One edge case to keep in mind:** MEDC contracts are sometimes executed with a *backdated* period
-(signed in November, period starting July 1). "New grant ⇒ no historical work" is therefore not
-guaranteed — the honest rule is "work bounded by the period", which is still small and knowable.
+**The backdated-contract case is handled at SETUP** (Zach, 2026-08-19). MEDC contracts are sometimes
+executed with a period that already started (signed in November, period starting July 1). This needs
+no special code path — it is just a non-empty initial scope:
+
+> When a grant is created with `period_start` in the past, the setup flow computes the activities in
+> `[period_start, min(today, period_end)]`, reports the count, **dry-runs** the tagging, and applies
+> on confirm.
+
+Same machinery as the forward path, and the same dry-run → review → apply discipline every batch here
+follows — which matters most at exactly this moment, because it is the one time a rule change touches
+history in bulk. Reports already submitted are unaffected: their runs are snapshotted (see 5 above).
 
 ## Meeting focus from Zoom notes — it fills a real, current gap
 
