@@ -9,9 +9,11 @@
 // inventing activities for those would corrupt the reports this exists to feed. Silence is the safe
 // failure; a fabricated activity is not.
 //
-// A rule can also stamp `program__grant_association`, which is how funder attribution gets decided
-// at ingestion (from the calendar's GROUP — Gateway, LOCAL Program, SAMA…) instead of being
-// reconstructed at report time.
+// A rule can also stamp `program__grant_association`. Read that as ORIGIN ("this meeting was booked
+// on the SAMA calendar"), which is a fact — NOT as grant eligibility, which is a lens and belongs to
+// the report engine. Eligibility depends on company firmographics that often arrive AFTER the
+// meeting (SBSH's CDFI-tract / QCT / rural rules come from the geo enricher), so a tag frozen at
+// ingestion can be computed before its own inputs exist. See docs/sprints/report-engine-design.md.
 
 import { and, eq } from 'drizzle-orm';
 import { getDb, hasDatabase } from '../db';

@@ -317,7 +317,8 @@ export const activityRoutes = pgTable(
     matchLabel: text('match_label'),
     /** The activity_type option key to write, e.g. 'intake'. */
     activityType: text('activity_type').notNull(),
-    /** Optional `program__grant_association` option keys to stamp (funder attribution at ingestion). */
+    /** Optional `program__grant_association` keys — the meeting's ORIGIN, not grant eligibility
+     *  (eligibility is a report-time lens; see docs/sprints/report-engine-design.md). */
     program: jsonb('program').$type<string[]>(),
     /** Optional fixed field values for this route, e.g. { modality: 'one_on_one' }. */
     defaults: jsonb('defaults').$type<Record<string, unknown>>(),

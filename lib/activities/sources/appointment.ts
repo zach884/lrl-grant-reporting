@@ -151,6 +151,7 @@ export async function ingestAppointment(
     appointment_id: appointment.id,
     appointment_status: status || undefined,
     ...(zoomId ? { zoom_meeting_id: zoomId } : {}),
+    // Origin, not eligibility — the report engine computes grant attribution from rules.
     ...(route.program?.length ? { program__grant_association: route.program } : {}),
     ...(modalityFor(route) ? { modality: modalityFor(route) } : {}),
     ...(route.defaults ?? {}),

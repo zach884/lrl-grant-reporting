@@ -88,7 +88,7 @@ describe('ingestAppointment', () => {
     expect(values.activity_date).toBe('2026-08-18T15:30:00-04:00');
   });
 
-  it('stamps the route\'s program, so funder attribution happens at ingestion', async () => {
+  it('stamps the route\'s program as an ORIGIN hint (not eligibility — that is report-time)', async () => {
     mockRoute.mockResolvedValue({ ...ROUTE, program: ['gateway'] });
     await ingestAppointment(appt(), { client, now: NOW });
     expect(mockUpsert.mock.calls[0][1].values.program__grant_association).toEqual(['gateway']);
