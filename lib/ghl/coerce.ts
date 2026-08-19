@@ -34,7 +34,7 @@
 
 import { CustomFieldDef, GhlDataType, GhlFieldOption } from './types';
 import { GhlUnwritableFieldError } from './errors';
-import { fileUrls } from './fileValue';
+import { fileUrls, fileEntries } from './fileValue';
 
 export type WriteMode = 'create' | 'update';
 
@@ -192,6 +192,12 @@ export interface ModifierIntent {
   /** 'options' -> desired is option KEYS · 'files' -> desired is file URLs. */
   kind: 'options' | 'files';
   desired: string[];
+  /**
+   * kind 'files' only: the same files with their names. Needed because re-hosting a file into GHL
+   * changes its url, so only the NAME (`meta.originalname`) can tell "already attached" from
+   * "needs attaching". See lib/ghl/objectWrite.ts.
+   */
+  files?: Array<{ url: string; name?: string }>;
 }
 
 export interface CoerceResult {
@@ -283,7 +289,8 @@ export function coerceObjectProperties(
         break;
       }
       case 'FILE_UPLOAD': {
-        const urls = fileUrls(rawValue);
+        const entries = fileEntries(rawValue);
+        const urls = entries.map((e) => e.url);
         if (urls.length === 0) {
           skipped.push({ key: bareKey, value: rawValue, reason: 'no file url' });
           continue;
@@ -294,7 +301,7 @@ export function coerceObjectProperties(
           skipped.push({ key: bareKey, value: rawValue, reason: 'FILE_UPLOAD at create not verified — set it on update' });
           continue;
         }
-        modifiers[bareKey] = { kind: 'files', desired: urls };
+        modifiers[bareKey] = { kind: 'files', desired: urls, files: entries };
         break;
       }
       case 'NUMERICAL': {

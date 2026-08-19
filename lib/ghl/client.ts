@@ -67,14 +67,16 @@ export class GhlClient {
     return this.config.locationId;
   }
 
-  private headers(hasBody: boolean): Record<string, string> {
+  private headers(hasJsonBody: boolean): Record<string, string> {
     const h: Record<string, string> = {
       Authorization: `Bearer ${this.config.apiKey}`,
       Version: this.config.apiVersion,
       Accept: 'application/json',
       'User-Agent': this.config.userAgent,
     };
-    if (hasBody) h['Content-Type'] = 'application/json';
+    // Only for JSON. A multipart body must NOT get an explicit Content-Type — fetch has to set it
+    // itself so the generated boundary matches (the file-upload endpoint needs this).
+    if (hasJsonBody) h['Content-Type'] = 'application/json';
     return h;
   }
 
@@ -104,6 +106,8 @@ export class GhlClient {
     const method = opts.method ?? 'GET';
     const url = this.buildUrl(opts);
     const hasBody = opts.body !== undefined && opts.body !== null;
+    // FormData passes through untouched (multipart file upload); everything else is JSON.
+    const isMultipart = hasBody && typeof FormData !== 'undefined' && opts.body instanceof FormData;
     const maxAttempts = opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
 
     let attempt = 0;
@@ -115,8 +119,8 @@ export class GhlClient {
         await limiter.acquire();
         const res = await fetch(url, {
           method,
-          headers: this.headers(hasBody),
-          ...(hasBody ? { body: JSON.stringify(opts.body) } : {}),
+          headers: this.headers(hasBody && !isMultipart),
+          ...(hasBody ? { body: isMultipart ? (opts.body as FormData) : JSON.stringify(opts.body) } : {}),
         });
 
         const text = await res.text();

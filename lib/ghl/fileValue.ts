@@ -27,6 +27,49 @@ function urlFromEntry(entry: unknown): string | null {
   return null;
 }
 
+/** A file as stored on a GHL record: where it is, and the name it was uploaded under. */
+export interface FileEntry {
+  url: string;
+  /** GHL's `meta.originalname` — preserved across a re-upload, so it is the stable identity. */
+  name?: string;
+}
+
+function entryFrom(entry: unknown): FileEntry | null {
+  const url = urlFromEntry(entry);
+  if (!url) return null;
+  const name =
+    entry && typeof entry === 'object'
+      ? (entry as any)?.meta?.originalname ?? (entry as any)?.originalname ?? (entry as any)?.meta?.name ?? (entry as any)?.name
+      : undefined;
+  return { url, name: typeof name === 'string' && name.trim() ? name.trim() : undefined };
+}
+
+/**
+ * Every file on a FILE_UPLOAD value as {url, name}, deduped by url.
+ *
+ * The NAME matters for idempotency: re-hosting a file into GHL necessarily changes its url, so url
+ * equality can never tell "already attached" from "needs attaching" and a sync would re-upload
+ * forever. `meta.originalname` survives the round trip, so it is what the write path compares on.
+ */
+export function fileEntries(value: unknown): FileEntry[] {
+  if (value == null || value === '') return [];
+  const out: FileEntry[] = [];
+  const push = (e: FileEntry | null) => {
+    if (e && !out.some((x) => x.url === e.url)) out.push(e);
+  };
+  if (typeof value === 'string') { push(entryFrom(value)); return out; }
+  if (Array.isArray(value)) { for (const v of value) push(entryFrom(v)); return out; }
+  if (typeof value === 'object') {
+    const direct = entryFrom(value);
+    // A bare descriptor {url, meta} vs a uuid-keyed map of them.
+    if (direct) { push(direct); return out; }
+    for (const k of Object.keys(value as Record<string, unknown>).sort()) {
+      push(entryFrom((value as Record<string, unknown>)[k]));
+    }
+  }
+  return out;
+}
+
 /**
  * Every file URL in a GHL FILE_UPLOAD value, in a stable order, deduped.
  * Returns [] for empty/unrecognized values — callers decide whether that's a skip.

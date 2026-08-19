@@ -268,10 +268,11 @@ describe('applyObjectWrite — a rejected property must not take down the batch'
 
     // The unrelated fields must still be written...
     expect(r.written.sort()).toEqual(['county', 'problem']);
-    // ...and the rejection surfaced with GHL's own message, not swallowed.
+    // ...and the failure surfaced rather than being swallowed. A file-link rejection now triggers a
+    // re-host attempt (lib/ghl/fileUpload.ts); here the source is unreachable, so it reports that.
     const bad = r.skipped.find((s) => s.key === 'logo');
     expect(bad).toBeDefined();
-    expect(bad!.reason).toContain("couldn't access the file link");
+    expect(bad!.reason).toMatch(/re-host failed|couldn't access the file link/);
     expect(client.record.problem).toBe('We help manufacturers.');
     expect(client.record.logo).toBeUndefined();
   });
@@ -290,5 +291,80 @@ describe('applyObjectWrite — a rejected property must not take down the batch'
     const coerced = coerceObjectProperties('business', { problem: 'a', county: 'b' }, cat);
     await applyObjectWrite('business', 'biz1', coerced, cat, client);
     expect(client.requests.filter((r: any) => r.method === 'PUT')).toHaveLength(1);
+  });
+});
+
+
+describe('FILE_UPLOAD re-hosting + the provenance guard', () => {
+  const cat: Record<string, CustomFieldDef> = {
+    'business.logo': { id: 'LOGOFIELD', name: 'Logo', fieldKey: 'business.logo', dataType: 'FILE_UPLOAD' },
+  };
+  const SOURCE = 'https://services.leadconnectorhq.com/documents/download/31oTZgey';
+  const HOSTED = 'https://msgsndr-private.storage.googleapis.com/location/L/custom-Field/LOGOFIELD/abc.png';
+  const FILENAME = 'fidelis_logo_color_large.png';
+
+  /** GHL: refuses a documents/download url on attach, accepts a msgsndr-private one, and serves
+   *  the upload endpoint. Mirrors the live behaviour that made re-hosting necessary. */
+  function ghlLike(stored: Record<string, unknown>) {
+    const record: Record<string, unknown> = { ...stored };
+    const calls: string[] = [];
+    const client = {
+      locationId: 'L',
+      calls,
+      async request({ method = 'GET', path, body }: any) {
+        if (String(path).endsWith('/customFields/upload')) {
+          calls.push('upload');
+          return { uploadedFiles: { fidelisLogoColorLarge: HOSTED }, meta: [{ url: HOSTED, originalname: FILENAME, mimetype: 'image/png' }] };
+        }
+        if (method === 'PUT') {
+          const v: any = body.properties.logo;
+          const urls = (v?.add ?? []).map((f: any) => f.url);
+          if (urls.some((u: string) => u.includes('documents/download'))) {
+            calls.push('put:rejected');
+            throw new Error("GHL PUT -> 400: We couldn't access the file link for Logo.");
+          }
+          calls.push('put:accepted');
+          record.logo = urls.map((u: string) => ({ url: u, meta: { originalname: FILENAME } }));
+          return {};
+        }
+        return { record: { properties: record } };
+      },
+    } as any;
+    return { client, calls, record: () => record };
+  }
+
+  it('re-hosts a rejected form-upload link and attaches the hosted url instead', async () => {
+    const g = ghlLike({});
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { 'content-type': 'image/png' } })) as any;
+    try {
+      const coerced = coerceObjectProperties('business', { logo: { u: { url: SOURCE, meta: { originalname: FILENAME } } } }, cat);
+      const r = await applyObjectWrite('business', 'biz1', coerced, cat, g.client);
+
+      expect(g.calls).toEqual(['put:rejected', 'upload', 'put:accepted']);
+      expect(r.written).toEqual(['logo']);   // and verification passed against the HOSTED url
+      expect(r.skipped).toEqual([]);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it('THE GUARD: a second run re-uploads nothing, because the name already matches', async () => {
+    // The record holds the re-hosted file under its original name; the source url still differs.
+    const g = ghlLike({ logo: [{ url: HOSTED, meta: { originalname: FILENAME } }] });
+    const coerced = coerceObjectProperties('business', { logo: { u: { url: SOURCE, meta: { originalname: FILENAME } } } }, cat);
+    const r = await applyObjectWrite('business', 'biz1', coerced, cat, g.client);
+
+    expect(g.calls).toEqual([]);            // no PUT, no upload — nothing to do
+    expect(r.unchanged).toEqual(['logo']);
+    expect(r.written).toEqual([]);
+  });
+
+  it('does NOT re-host a url GHL already accepts', async () => {
+    const g = ghlLike({});
+    const coerced = coerceObjectProperties('business', { logo: HOSTED }, cat);
+    const r = await applyObjectWrite('business', 'biz1', coerced, cat, g.client);
+    expect(g.calls).toEqual(['put:accepted']); // straight through, no upload
+    expect(r.written).toEqual(['logo']);
   });
 });
