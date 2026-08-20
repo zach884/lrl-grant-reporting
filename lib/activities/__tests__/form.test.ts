@@ -141,10 +141,18 @@ describe('ingestFormSubmission — grant', () => {
     });
   });
 
-  it('keys on the OPPORTUNITY, so the form merges with the pipeline\'s grant record', async () => {
+  it('keys on the OPPORTUNITY — id AND source — so it merges with the pipeline\'s grant record', async () => {
     const client = makeClient({ opportunities: [{ id: 'opp7', updatedAt: '2026-08-01' }] });
     await ingestFormSubmission({ contactId: 'c1', formId: GRANT_FORM }, { client });
-    expect(mockUpsert.mock.calls[0][0].sourceRecordId).toBe('opp7:grant');
+    // Identity is (source, source_record_id). Matching only the id finds nothing, because the
+    // pipeline wrote the record under its own source — that would duplicate every grant.
+    expect(mockUpsert.mock.calls[0][0]).toEqual({ source: 'Opportunity Stage', sourceRecordId: 'opp7:grant' });
+  });
+
+  it('falls back to the FORM source when there is no opportunity to key on', async () => {
+    const client = makeClient({ opportunities: [] });
+    await ingestFormSubmission({ contactId: 'c1', formId: GRANT_FORM }, { client, submittedAt: '2026-08-19' });
+    expect(mockUpsert.mock.calls[0][0]).toEqual({ source: 'Form', sourceRecordId: 'c1:2026-08-19' });
   });
 
   it('prefers the most recently touched opportunity when a client has several', async () => {

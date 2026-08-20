@@ -13,15 +13,19 @@
 // IDENTITY, per type:
 //   • Metrics — `<contactId>:<reportingPeriodEnd>`. ONE snapshot per client per half-year, which is
 //     the real-world rule: a resubmission corrects the existing snapshot instead of adding a second.
-//   • Grant   — `<opportunityId>:grant`, the SAME key the Direct Grants pipeline uses, because the
-//     opportunity IS the grant (Zach). The form supplies the detail, the pipeline supplies
-//     `grant_status`, and they converge on one record. With no opportunity to resolve, the
-//     submission is keyed by contact + date and flagged, rather than silently making a second grant.
+//   • Grant   — `<opportunityId>:grant` under the OPPORTUNITY's source, because the opportunity IS
+//     the grant (Zach). The form supplies the detail, the pipeline supplies `grant_status`, and they
+//     converge on ONE record. ⚠️ The identity is (source, source_record_id) — BOTH halves — so the
+//     form must adopt the opportunity's source as well as its id. An earlier cut matched only the id
+//     and would have created 45 duplicate grant records on the first backfill. With no opportunity to
+//     resolve, the submission is keyed by contact + date under `Form` and flagged, rather than
+//     silently inventing a second grant.
 
 import { GhlClient, ghl } from '../../ghl/client';
 import { getContact } from '../../ghl/contacts';
 import { getCatalog } from '../../ghl/catalogCache';
-import { upsertActivity, type UpsertActivityResult } from '../upsert';
+import { upsertActivity, type ActivitySource, type UpsertActivityResult } from '../upsert';
+import { OPPORTUNITY_SOURCE } from './opportunityStage';
 import { resolveRoute } from '../routes';
 import { reportingPeriodFor } from '../reportingPeriod';
 import { ACTIVITIES_OBJECT, activityFieldSet, bareKey, MACHINE_FIELDS } from '../schema';
@@ -139,6 +143,9 @@ export async function ingestFormSubmission(
   const submittedAt = opts.submittedAt ?? new Date();
   let sourceRecordId: string;
   let period: string | undefined;
+  // Which SOURCE owns this record's identity. Normally the form; for a grant it is the opportunity,
+  // so the pipeline's record and this one are the same record.
+  let keySource: ActivitySource = FORM_SOURCE as ActivitySource;
 
   if (route.activityType === 'metrics') {
     const p = reportingPeriodFor(submittedAt);
@@ -155,6 +162,7 @@ export async function ingestFormSubmission(
     // record. Without an opportunity we cannot know which grant this is, so key it by submission and
     // say so rather than inventing a second grant record.
     sourceRecordId = oppId ? `${oppId}:grant` : `${input.contactId}:${String(values.activity_date).slice(0, 10)}`;
+    if (oppId) keySource = OPPORTUNITY_SOURCE as ActivitySource;
     if (!oppId) values.activity_notes = `Submitted with no matching ${pipelineId ? 'Direct Grants ' : ''}opportunity — link it to the grant pipeline record to merge the pipeline's status.`;
   }
   for (const k of Object.keys(values)) if (values[k] === undefined) delete values[k];
@@ -164,11 +172,11 @@ export async function ingestFormSubmission(
   }
 
   if (opts.dryRun) {
-    return { ...base, status: 'ingested', route: routeInfo, copied: Object.keys(values).length, reportingPeriod: period, detail: `would write ${Object.keys(values).length} field(s) for company ${companyId} (key ${sourceRecordId})` };
+    return { ...base, status: 'ingested', route: routeInfo, copied: Object.keys(values).length, reportingPeriod: period, detail: `would write ${Object.keys(values).length} field(s) for company ${companyId} (key ${keySource}/${sourceRecordId})` };
   }
 
   const activity = await upsertActivity(
-    { source: FORM_SOURCE, sourceRecordId },
+    { source: keySource, sourceRecordId },
     { type: route.activityType, companyId, contactIds: [input.contactId], values },
     { ...opts, mode: 'ingest', actorKind: 'sync' },
   );
