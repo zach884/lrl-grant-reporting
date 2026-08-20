@@ -149,7 +149,7 @@ fields reachable; `activity_owner` hand-typed. Measured evidence: the surviving 
 | 4 | **Program acceptance + grant lifecycle** — 7th `activity_type`, stage→program config | ✅ done, verified live (`388de12`) |
 | 5 | **Forms → Grant + Metrics** — Direct Grant Application + Client Reporting Form | ✅ built; awaiting the GHL webhook wiring |
 | 6 | **Wix attendance → Workshop/Event** — registered vs attended, one record per attendee | **next** |
-| 8 | **Backfill + live verification** — history per source, dry-run → review → apply | |
+| 8 | **Backfill + live verification** — history per source, dry-run → review → apply | ✅ done 2026-08-19 — 230 records created, see below |
 | — | Zoom AI Companion notes onto appointment activities | Sprint 5 (feasibility spike open) |
 
 ## Open questions / risks
