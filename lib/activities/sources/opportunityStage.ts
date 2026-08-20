@@ -117,9 +117,16 @@ export async function ingestOpportunity(
   if (!date) return { ...base, status: 'skipped', reason: 'no-date', route: routeInfo };
 
   const programLabel = await programLabels(route.program, client);
+  // Name by what the record IS. An earlier cut called every pipeline-sourced record
+  // "<program> acceptance", which named all 61 Direct Grants records "Program acceptance – …".
+  const who = opp.name ?? companyId;
+  const activityName =
+    route.activityType === 'program_acceptance'
+      ? `${programLabel} acceptance – ${who}`
+      : `${route.matchLabel?.split('·')[0]?.trim() || 'Grant'} – ${who}`;
   const values: Record<string, unknown> = {
     activity_date: date,
-    activity_name: `${programLabel} acceptance – ${opp.name ?? companyId}`,
+    activity_name: activityName,
     ...(route.program?.length ? { program__grant_association: route.program } : {}),
     ...(isDownstream
       ? { activity_notes: `Enrollment inferred from the later stage "${route.matchLabel ?? opp.pipelineStageId}" during backfill; date is the opportunity's creation date, not the exact acceptance date.` }
