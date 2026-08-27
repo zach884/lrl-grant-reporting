@@ -26,6 +26,23 @@ const OPP_SCALARS = new Set<string>(['name', 'status', 'monetaryValue']);
 
 const bare = (key: string, objectKey: string) => key.replace(new RegExp(`^${objectKey.replace('.', '\\.')}\\.`), '');
 
+/**
+ * `written`/`skipped` echo the CALLER'S key shape, always.
+ *
+ * Each writer below re-keys internally (contact scalars go bare, object properties go bare, custom
+ * contact fields stay prefixed), so without this the result mixed both shapes — and the caller has no
+ * way to know which it got. `lib/sync/apply.ts` then looked up `writeVals[k]` with the returned key
+ * and got `undefined` for every object-record field, so the convergence guard's ledger stored an
+ * EMPTY value under a bare key while the guard read a prefixed one. Measured 2026-08-27: 410 of 638
+ * ledger rows held an empty value, which is to say the guard had never once been able to fire on the
+ * company side. Echoing the input keys is what keeps that honest.
+ */
+function keyEchoer(changes: Record<string, unknown>, objectKey: string) {
+  const byBare = new Map<string, string>();
+  for (const k of Object.keys(changes)) byBare.set(bare(k, objectKey), k);
+  return (k: string) => byBare.get(bare(k, objectKey)) ?? k;
+}
+
 async function writeContact(id: string, changes: Record<string, unknown>, catalog: CustomFieldCatalog, client: GhlClient): Promise<WriteResult> {
   const scalars: Record<string, unknown> = {};
   const custom: Record<string, unknown> = {};
@@ -37,9 +54,10 @@ async function writeContact(id: string, changes: Record<string, unknown>, catalo
   if (cc.fields.length) await setContactCustomFields(id, cc.fields, client);
   if (Object.keys(scalars).length) await setContactScalars(id, scalars, client);
   const skippedKeys = new Set(cc.skipped.map((s) => s.key));
+  const echo = keyEchoer(changes, 'contact');
   return {
-    written: [...Object.keys(scalars), ...Object.keys(custom).filter((k) => !skippedKeys.has(k))],
-    skipped: cc.skipped.map((s) => ({ key: s.key, reason: s.reason })),
+    written: [...Object.keys(scalars), ...Object.keys(custom).filter((k) => !skippedKeys.has(k))].map(echo),
+    skipped: cc.skipped.map((s) => ({ key: echo(s.key), reason: s.reason })),
   };
 }
 
@@ -58,7 +76,11 @@ async function writeObjectRecord(objectKey: string, id: string, changes: Record<
   // applyObjectWrite owns the modifier diff (MULTIPLE_OPTIONS / FILE_UPLOAD) + the read-back
   // verification, so `written` only ever contains fields GHL actually stored.
   const report = await applyObjectWrite(objectKey, id, coerced, catalog.byKey, client);
-  return { written: report.written, skipped: [...skipped, ...report.skipped] };
+  const echo = keyEchoer(changes, objectKey);
+  return {
+    written: report.written.map(echo),
+    skipped: [...skipped, ...report.skipped].map((s) => ({ ...s, key: echo(s.key) })),
+  };
 }
 
 async function writeOpportunity(id: string, changes: Record<string, unknown>, catalog: CustomFieldCatalog, client: GhlClient): Promise<WriteResult> {
@@ -74,9 +96,10 @@ async function writeOpportunity(id: string, changes: Record<string, unknown>, ca
   if (cc.fields.length) body.customFields = cc.fields.map((f) => ({ id: f.id, field_value: f.value }));
   if (Object.keys(body).length) await client.request({ method: 'PUT', path: `/opportunities/${id}`, autoLocation: false, body });
   const skippedKeys = new Set(cc.skipped.map((s) => s.key));
+  const echo = keyEchoer(changes, 'opportunity');
   return {
-    written: [...Object.keys(scalars), ...Object.keys(custom).filter((k) => !skippedKeys.has(k))],
-    skipped: cc.skipped.map((s) => ({ key: s.key, reason: s.reason })),
+    written: [...Object.keys(scalars), ...Object.keys(custom).filter((k) => !skippedKeys.has(k))].map(echo),
+    skipped: cc.skipped.map((s) => ({ key: echo(s.key), reason: s.reason })),
   };
 }
 

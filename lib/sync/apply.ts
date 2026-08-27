@@ -186,6 +186,20 @@ export async function syncConnection(
     const guard = await guardChanges(targetId, changes);
     const writeVals = { ...writeValues };
     for (const s of guard.suppressed) delete writeVals[s.key];
+    // A suppressed loop is a CONFIG fault — a field with two owners — so it has to reach a person.
+    // The queue dedups on (kind, record, field), so a storm files one item and bumps its count.
+    if (opts.apply) {
+      for (const l of guard.loops) {
+        await flagForReview({
+          kind: `sync-${l.kind}`,
+          objectType: connection.targetObject, recordId: targetId,
+          recordLabel: await resolveRecordLabel(connection.targetObject, targetId, client),
+          subjectType: 'field', subjectId: l.fieldKey, subjectLabel: l.fieldKey,
+          reason: l.reason,
+          detail: { connection: connection.name ?? null, field: l.fieldKey, from: l.from, to: l.to },
+        });
+      }
+    }
     let written: string[] = [];
     let skipped: Array<{ key: string; reason: string }> = [...heldSkips, ...guard.suppressed];
     if (opts.apply && guard.keep.length) {

@@ -210,6 +210,16 @@ export const syncWriteLedger = pgTable(
     fieldKey: text('field_key').notNull(),
     /** Normalized form of the last value we wrote (for equality comparison). */
     lastValue: text('last_value'),
+    /**
+     * The last few values we wrote, newest first, as `{v, t}` (normalized value + epoch ms).
+     *
+     * `lastValue` alone can only catch A→A ("we wrote this and it didn't stick"). It is structurally
+     * blind to A→B→A, because the one value it remembers is always the OPPOSITE of what a flip-flop
+     * is about to propose — which is how the 2026-08-27 company-name loop got to 319 writes. A short
+     * history makes oscillation visible: proposing a value we ourselves wrote seconds ago means
+     * something moved the field away in between, and that something is the loop.
+     */
+    recent: jsonb('recent').$type<Array<{ v: string; t: number }>>(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({ pk: primaryKey({ columns: [t.recordId, t.fieldKey] }) }),
