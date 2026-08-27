@@ -56,7 +56,7 @@ export interface SourceKey {
 
 export interface UpsertActivityResult extends Partial<CreateActivityResult> {
   recordId: string;
-  outcome: 'created' | 'updated' | 'noop';
+  outcome: 'created' | 'updated' | 'noop' | 'would-create' | 'would-update';
   written: string[];
   skipped: Array<{ key: string; reason: string }>;
 }
@@ -121,6 +121,17 @@ export interface UpsertOptions extends CreateActivityOptions {
    * forward — a wrong date that looks entirely plausible.
    */
   onlyIfAbsent?: string[];
+  /**
+   * Plan only — resolve identity and compute the diff, but write NOTHING: no record, no claim, no
+   * change-log row.
+   *
+   * Ingestion dry-runs used to stop before reaching this function and report the DESIRED field set,
+   * which meant a backfill over 87 appointments printed "would write …" for all 87 whether or not a
+   * single value differed. That makes the house rule's review step decorative — you cannot tell
+   * three real updates from eighty-four no-ops. Planning here reuses the same diff the apply path
+   * uses, so the review says what the apply will actually do.
+   */
+  plan?: boolean;
 }
 
 export async function upsertActivity(
@@ -143,11 +154,14 @@ export async function upsertActivity(
       existingId = found.id;
       existingProps = found.properties;
       // Backfill the ledger so the next delivery skips the lagging search entirely.
-      await resolveClaim(key.source, key.sourceRecordId, found.id);
+      if (!opts.plan) await resolveClaim(key.source, key.sourceRecordId, found.id);
     }
   }
 
   if (!existingId) {
+    // Report the create without claiming it — a claim is a write, and a dry run that consumed the
+    // idempotency key would make the subsequent apply believe the event was already handled.
+    if (opts.plan) return { recordId: '', outcome: 'would-create', written: Object.keys(values), skipped: [] };
     const claim = await claimSourceEvent(key.source, key.sourceRecordId);
     if (claim.status === 'existing' && claim.activityRecordId) {
       existingId = claim.activityRecordId;
@@ -187,6 +201,16 @@ export async function upsertActivity(
     // full ISO reads back as YYYY-MM-DD; a single-select written as a label reads back as a key).
     // null = can't judge → treat as changed and let the read-back verify.
     if (didPersist(def?.dataType, v, before.get(k), def) !== true) changed[k] = v;
+  }
+
+  if (opts.plan) {
+    const fields = Object.keys(changed);
+    return {
+      recordId: existingId,
+      outcome: fields.length ? 'would-update' : 'noop',
+      written: fields,
+      skipped: [],
+    };
   }
 
   const result = Object.keys(changed).length

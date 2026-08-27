@@ -171,14 +171,18 @@ export async function ingestFormSubmission(
     return { ...base, status: 'skipped', reason: 'no-values', detail: 'the contact holds none of this type\'s fields', route: routeInfo };
   }
 
-  if (opts.dryRun) {
-    return { ...base, status: 'ingested', route: routeInfo, copied: Object.keys(values).length, reportingPeriod: period, detail: `would write ${Object.keys(values).length} field(s) for company ${companyId} (key ${keySource}/${sourceRecordId})` };
-  }
-
+  // Dry runs PLAN through upsertActivity (plan:true) rather than stopping short, so a backfill's
+  // review distinguishes real updates from no-ops instead of restating the field count every time.
   const activity = await upsertActivity(
     { source: keySource, sourceRecordId },
     { type: route.activityType, companyId, contactIds: [input.contactId], values },
-    { ...opts, mode: 'ingest', actorKind: 'sync' },
+    { ...opts, mode: 'ingest', actorKind: 'sync', plan: opts.dryRun },
   );
-  return { ...base, status: 'ingested', route: routeInfo, copied: Object.keys(values).length, reportingPeriod: period, activity };
+  return {
+    ...base, status: 'ingested', route: routeInfo, copied: Object.keys(values).length,
+    reportingPeriod: period, activity,
+    ...(opts.dryRun
+      ? { detail: `${activity.outcome}${activity.written.length ? `: ${activity.written.length} field(s)` : ''} for company ${companyId} (key ${keySource}/${sourceRecordId})` }
+      : {}),
+  };
 }

@@ -158,16 +158,20 @@ export async function ingestAppointment(
   };
   for (const k of Object.keys(values)) if (values[k] === undefined) delete values[k];
 
-  if (opts.dryRun) {
-    return { ...base, status: 'ingested', route: routeInfo, detail: `would write ${Object.keys(values).join(', ')} for company ${companyId}` };
-  }
-
+  // A dry run PLANS through the same code path as the apply (upsertActivity, plan:true), so the
+  // review reports would-create / would-update(fields) / noop rather than restating the desired
+  // values for every appointment. Nothing is written — not even the idempotency claim.
   const activity = await upsertActivity(
     { source: APPOINTMENT_SOURCE, sourceRecordId: appointment.id },
     { type: route.activityType, companyId, contactIds: [appointment.contactId], values },
-    { ...opts, mode: 'ingest', actorKind: 'sync' },
+    { ...opts, mode: 'ingest', actorKind: 'sync', plan: opts.dryRun },
   );
-  return { ...base, status: 'ingested', route: routeInfo, activity };
+  return {
+    ...base, status: 'ingested', route: routeInfo, activity,
+    ...(opts.dryRun
+      ? { detail: `${activity.outcome}${activity.written.length ? `: ${activity.written.join(', ')}` : ''} for company ${companyId}` }
+      : {}),
+  };
 }
 
 /** Fetch by id, then ingest. The webhook path. */

@@ -136,10 +136,8 @@ export async function ingestOpportunity(
   delete (values as any).impliesAcceptance; // config flag, not a field
   for (const k of Object.keys(values)) if (values[k] === undefined) delete values[k];
 
-  if (opts.dryRun) {
-    return { ...base, status: 'ingested', route: routeInfo, approximateDate: isDownstream, detail: `would enroll company ${companyId} in ${programLabel} as of ${String(date).slice(0, 10)}` };
-  }
-
+  // Dry runs PLAN through upsertActivity (plan:true) instead of stopping short, so the review shows
+  // would-create / would-update(fields) / noop rather than restating the intent for every row.
   const activity = await upsertActivity(
     { source: OPPORTUNITY_SOURCE, sourceRecordId: enrollmentKey(opp.id, route.program, route.activityType) },
     { type: route.activityType, companyId, contactIds: [opp.contactId], values },
@@ -150,9 +148,15 @@ export async function ingestOpportunity(
       // WHEN an enrollment began is set once. Several stages imply the same enrollment, so without
       // this each advance through the pipeline would push the start date forward.
       onlyIfAbsent: route.activityType === 'program_acceptance' ? ['activity_date', 'activity_name', 'activity_notes'] : [],
+      plan: opts.dryRun,
     },
   );
-  return { ...base, status: 'ingested', route: routeInfo, approximateDate: isDownstream, activity };
+  return {
+    ...base, status: 'ingested', route: routeInfo, approximateDate: isDownstream, activity,
+    ...(opts.dryRun
+      ? { detail: `${activity.outcome}${activity.written.length ? `: ${activity.written.join(', ')}` : ''} — company ${companyId} in ${programLabel} as of ${String(date).slice(0, 10)}` }
+      : {}),
+  };
 }
 
 /** Option KEYS ("local") read badly in a record name; resolve them to their labels ("LOCAL"). */

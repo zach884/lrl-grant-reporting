@@ -168,10 +168,14 @@ describe('ingestOpportunity', () => {
     expect(mockUpsert).not.toHaveBeenCalled();
   });
 
-  it('plans without writing on a dry run', async () => {
+  it('plans through the real code path on a dry run, in plan mode', async () => {
+    // See the same test in appointment.test.ts: a dry run has to reach upsertActivity with
+    // plan:true, or the review can only restate intent and cannot separate updates from no-ops.
     const r = await ingestOpportunity(opp(), { client, dryRun: true });
     expect(r.status).toBe('ingested');
-    expect(r.detail).toMatch(/would enroll/);
-    expect(mockUpsert).not.toHaveBeenCalled();
+    expect(mockUpsert).toHaveBeenCalledTimes(1);
+    expect(mockUpsert.mock.calls[0][2]).toMatchObject({ plan: true });
+    // The enrollment's identity still must not be rewritten by a later stage.
+    expect(mockUpsert.mock.calls[0][2].onlyIfAbsent).toContain('activity_date');
   });
 });

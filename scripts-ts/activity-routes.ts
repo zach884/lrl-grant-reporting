@@ -7,6 +7,21 @@
 //   npx vite-node scripts-ts/activity-routes.ts --set <calendarId> --type intake [--program gateway]
 //   npx vite-node scripts-ts/activity-routes.ts --set-group <groupId> --type technical_assistance
 //   npx vite-node scripts-ts/activity-routes.ts --unset <calendarId>
+//   ... --default modality=one_on_one --default service_topic=coaching     (repeatable)
+//
+// WHY `--default` MATTERS. A Technical Assistance activity is only reportable if it carries a
+// `modality` (1:1 vs Group): Trusted Connector asks for "# businesses supported 1:1" and
+// "# supported through small group TA" as two separate REQUIRED KPIs. Nobody types that field —
+// TA is ingested from appointments — so the calendar has to supply it, which is exactly what the
+// calendar already knows. `route.defaults` is read by the appointment adapter (see
+// lib/activities/sources/appointment.ts, modalityFor + the spread of route.defaults), so this
+// writes config, not code. Values are OPTION KEYS, not labels: `one_on_one` / `group`,
+// `coaching` / `marketing` / `operations` / `finance` / `product_tech` / `other`. A label is a
+// silent no-op.
+//
+// `service_topic` is meant to come from the Zoom AI Companion summary per meeting (see
+// docs/sprints/report-engine-design.md); a route default is the correct interim value, and the
+// enricher will overwrite it per meeting once Zoom is wired.
 //
 // A calendar with NO rule produces NO activity — that is deliberate. Five of the fourteen live
 // calendars are personal links used for vendor and partner calls, and inventing activities for
@@ -36,6 +51,16 @@ const arg = (name: string): string | undefined => {
   const unset = arg('--unset');
   const type = arg('--type');
   const program = arg('--program');
+  // Repeatable: every --default k=v pair, in order.
+  const defaults: Record<string, unknown> = {};
+  for (let i = 0; i < process.argv.length; i += 1) {
+    if (process.argv[i] !== '--default') continue;
+    const pair = process.argv[i + 1] ?? '';
+    const eq = pair.indexOf('=');
+    if (eq <= 0) throw new Error(`--default expects k=v, got ${JSON.stringify(pair)}`);
+    defaults[pair.slice(0, eq).trim()] = pair.slice(eq + 1).trim();
+  }
+  const hasDefaults = Object.keys(defaults).length > 0;
 
   if (unset) {
     await deleteRoute(APPOINTMENT_SOURCE, 'calendar', unset);
@@ -59,9 +84,10 @@ const arg = (name: string): string | undefined => {
       matchLabel: label,
       activityType: type,
       program: program ? program.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
+      defaults: hasDefaults ? defaults : undefined,
       enabled: true,
     });
-    console.log(`routed ${setCal ? 'calendar' : 'group'} ${JSON.stringify(label ?? (setCal ?? setGroup))} → ${type}${program ? ` (program: ${program})` : ''}`);
+    console.log(`routed ${setCal ? 'calendar' : 'group'} ${JSON.stringify(label ?? (setCal ?? setGroup))} → ${type}${program ? ` (program: ${program})` : ''}${hasDefaults ? ` defaults ${JSON.stringify(defaults)}` : ''}`);
     process.exit(0);
   }
 
@@ -83,7 +109,12 @@ const arg = (name: string): string | undefined => {
     console.log(
       String(k.name).slice(0, 40).padEnd(42),
       String(groupName.get(k.groupId) ?? '—').slice(0, 24).padEnd(26),
-      rule ? `${rule.activityType}${via}${rule.program?.length ? ` [${rule.program.join(',')}]` : ''}` : '— not ingested —',
+      rule
+        ? `${rule.activityType}${via}${rule.program?.length ? ` [${rule.program.join(',')}]` : ''}${
+            rule.defaults && Object.keys(rule.defaults).length
+              ? ` {${Object.entries(rule.defaults).map(([k, v]) => `${k}=${v}`).join(' ')}}`
+              : ''}`
+        : '— not ingested —',
     );
   }
   console.log(`\n${routes.length} rule(s) configured. Calendars with no rule produce no activities (by design).`);

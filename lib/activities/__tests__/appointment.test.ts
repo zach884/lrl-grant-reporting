@@ -135,10 +135,20 @@ describe('ingestAppointment', () => {
     ]);
   });
 
-  it('plans without writing on a dry run', async () => {
+  it('plans through the real code path on a dry run, in plan mode', async () => {
+    // A dry run must reach upsertActivity with plan:true rather than stopping short of it. Skipping
+    // it entirely (the previous behaviour) meant the review could only restate the desired values,
+    // so a backfill printed "would write ..." for every appointment and three real updates were
+    // indistinguishable from eighty-four no-ops.
     const r = await ingestAppointment(appt(), { client, now: NOW, dryRun: true });
     expect(r.status).toBe('ingested');
-    expect(mockUpsert).not.toHaveBeenCalled();
+    expect(mockUpsert).toHaveBeenCalledTimes(1);
+    expect(mockUpsert.mock.calls[0][2]).toMatchObject({ plan: true });
+  });
+
+  it('does not pass plan mode on an apply', async () => {
+    await ingestAppointment(appt(), { client, now: NOW });
+    expect(mockUpsert.mock.calls[0][2].plan).toBeFalsy();
   });
 });
 
