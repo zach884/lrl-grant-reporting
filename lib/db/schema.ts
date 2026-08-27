@@ -260,6 +260,51 @@ export const changeLog = pgTable(
 export type ChangeLogRow = typeof changeLog.$inferSelect;
 
 // ---------------------------------------------------------------------------
+// Sync review queue — writes the engine REFUSED to make, held for a human.
+//
+// The contact→company push takes its values from the contact but decides WHERE to write from
+// `contact.businessId`. When someone changes employer, GHL updates `companyName` without
+// necessarily re-pointing `businessId`, so the sync would write the NEW employer's identity over
+// the OLD company's record — all 39 mapped fields, and it looks like a normal update in every log.
+// `lib/sync/identityGuard.ts` refuses those writes; this table is where the refusal goes, because a
+// silent skip is its own failure mode (the association still needs re-pointing by a person).
+//
+// Open items are unique per (subject, counterpart, kind), so a webhook that re-delivers the same
+// mismatch bumps `seen_count` instead of filling the queue with duplicates.
+// ---------------------------------------------------------------------------
+
+export const syncReview = pgTable(
+  'sync_review',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    ts: timestamp('ts', { withTimezone: true }).notNull().defaultNow(),
+    /** 'identity-mismatch' today; the column exists so other refusals can share the queue. */
+    kind: text('kind').notNull(),
+    /** The record whose change was refused (the company we declined to overwrite). */
+    objectType: text('object_type').notNull(),
+    recordId: text('record_id').notNull(),
+    recordLabel: text('record_label'),
+    /** The record the values came from (the contact). */
+    subjectType: text('subject_type'),
+    subjectId: text('subject_id'),
+    subjectLabel: text('subject_label'),
+    reason: text('reason').notNull(),
+    /** Whatever the check compared, for triage without re-reading GHL. */
+    detail: jsonb('detail').$type<Record<string, unknown>>(),
+    /** Repeat deliveries of the same mismatch bump this rather than inserting again. */
+    seenCount: integer('seen_count').notNull().default(1),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    resolvedNote: text('resolved_note'),
+  },
+  (t) => ({
+    openUq: unique('sync_review_open_uq').on(t.kind, t.recordId, t.subjectId),
+    byTs: index('sync_review_ts_idx').on(t.ts),
+  }),
+);
+
+export type SyncReviewRow = typeof syncReview.$inferSelect;
+
+// ---------------------------------------------------------------------------
 // Activity source claims (Sprint B) — the idempotency ledger for activity ingestion.
 //
 // WHY A TABLE AND NOT JUST A GHL SEARCH: measured live 2026-08-19, a newly created record takes

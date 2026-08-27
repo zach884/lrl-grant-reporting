@@ -17,9 +17,16 @@ import type { CustomFieldCatalog } from '../ghl/types';
 import type { GhlClient } from '../ghl/client';
 import type { DryRunConnection } from './dryrun';
 import { resolveRecordLabel, labelFromFields } from '../audit/label';
+import { checkCompanyIdentity, type IdentityCheck } from './identityGuard';
+import { flagForReview } from './reviewQueue';
 
 export interface ApplyChange { fieldKey: string; from: unknown; to: unknown }
-export interface ForwardResult { targetId: string; changes: ApplyChange[]; unchanged: number; written: string[]; skipped: Array<{ key: string; reason: string }> }
+export interface ForwardResult {
+  targetId: string; changes: ApplyChange[]; unchanged: number; written: string[];
+  skipped: Array<{ key: string; reason: string }>;
+  /** Set when the identity gate refused this counterpart entirely (see identityGuard). */
+  blocked?: { reason: string; verdict: string };
+}
 export interface ReverseResult { changes: ApplyChange[]; written: string[]; skipped: Array<{ key: string; reason: string }>; note?: string }
 export interface ApplyResult {
   sourceObject: string;
@@ -78,6 +85,29 @@ function diff(
   return { changes, unchanged, writeValues, rawKeys, skipped };
 }
 
+/**
+ * Identity gate for the contact→company direction.
+ *
+ * The push writes 39 fields into whichever company `contact.businessId` names, using values taken
+ * from the CONTACT. A job change updates `companyName` without necessarily re-pointing `businessId`,
+ * so without this check the sync overwrites the former employer's whole firmographic profile — and
+ * it looks like an ordinary update in the change log. Returns null when the check does not apply
+ * (any direction other than contact→business has no company identity to compare).
+ */
+function identityGate(
+  connection: DryRunConnection,
+  getSource: (k: string) => unknown,
+  getTarget: (k: string) => unknown,
+): IdentityCheck | null {
+  if (connection.sourceObject !== 'contact' || connection.targetObject !== 'business') return null;
+  return checkCompanyIdentity({
+    contactCompanyName: getSource('companyName'),
+    contactWebsite: getSource('website'),
+    companyName: getTarget('name'),
+    companyWebsite: getTarget('website'),
+  });
+}
+
 /** Apply (or, with apply:false, plan) a two-way connection from one source record. */
 export async function syncConnection(
   connection: DryRunConnection,
@@ -113,6 +143,43 @@ export async function syncConnection(
   const forward: ForwardResult[] = [];
   for (const targetId of ids) {
     const target = await readRec(connection.targetObject, targetId, client);
+
+    // Refuse the whole counterpart when the contact no longer belongs to this company. Blocking the
+    // FIELD SET rather than individual fields is deliberate: if the link is wrong, every value is
+    // wrong, and a partial write is the worst outcome of the three.
+    const identity = identityGate(connection, (k) => source.get(k), (k) => target.get(k));
+    if (identity && !identity.ok) {
+      const label = opts.apply ? await resolveRecordLabel(connection.targetObject, targetId, client) : undefined;
+      const subjectLabel = labelFromFields(connection.sourceObject, (k) => source.get(k));
+      if (opts.apply) await logChange({
+        objectType: connection.targetObject, recordId: targetId, actorKind: 'sync',
+        recordLabel: label,
+        actorName: connection.name ?? `${connection.sourceObject}->${connection.targetObject}`,
+        changes: [],
+        applied: false,
+        error: `identity gate: ${identity.reason}`,
+      });
+      // A dry run must not persist a review item — it reports the block in `blocked` instead.
+      if (opts.apply) await flagForReview({
+        kind: 'identity-mismatch',
+        objectType: connection.targetObject, recordId: targetId, recordLabel: label,
+        subjectType: connection.sourceObject, subjectId: sourceRecordId, subjectLabel,
+        reason: identity.reason,
+        detail: {
+          verdict: identity.verdict,
+          contactClaims: identity.contactName, contactDomain: identity.contactDomain,
+          companyIs: identity.companyName, companyDomain: identity.companyDomain,
+          fieldsWithheld: pushRows.length,
+        },
+      });
+      forward.push({
+        targetId, changes: [], unchanged: 0, written: [],
+        skipped: [{ key: '*', reason: `identity gate: ${identity.reason}` }],
+        blocked: { reason: identity.reason, verdict: identity.verdict },
+      });
+      continue;
+    }
+
     const { changes, unchanged, writeValues, rawKeys, skipped: heldSkips } = diff((k) => source.get(k), (k) => target.get(k), pushRows, sourceCatalog, targetCatalog);
     // Convergence guard: drop any change that re-proposes a value we already wrote but that didn't
     // stick (non-converging → would loop). Best-effort; no DB => no suppression.
@@ -146,6 +213,15 @@ export async function syncConnection(
       reverse = { changes: [], written: [], skipped: [], note: `reverse (pull) skipped: ${ids.length} counterparts, ambiguous source-of-truth` };
     } else {
       const target = await readRec(connection.targetObject, ids[0], client);
+      // The same mismatch invalidates the PULL as well: copying a different company's firmographics
+      // onto the contact is the mirror-image corruption, so refuse rather than half-trust the link.
+      const revIdentity = identityGate(connection, (k) => source.get(k), (k) => target.get(k));
+      if (revIdentity && !revIdentity.ok) {
+        return {
+          ...base, counterpartCount: ids.length, forward,
+          reverse: { changes: [], written: [], skipped: [{ key: '*', reason: `identity gate: ${revIdentity.reason}` }], note: `reverse (pull) refused: ${revIdentity.reason}` },
+        };
+      }
       // reverse rows are target→source: swap source/target keys (transform + hold carry over).
       // The reverse SOURCE is the counterpart (targetObject) — canonicalize via targetCatalog; the
       // reverse TARGET is the source record (sourceObject) — coerce/compare via sourceCatalog.
