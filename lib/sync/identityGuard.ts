@@ -84,8 +84,50 @@ export function tokenOverlap(a: string, b: string): number {
 const MIN_TOKEN_OVERLAP = 0.6;
 
 /**
- * True when two normalized names denote the same business: equal, one contained in the other on a
- * word boundary, or a high enough share of tokens in common to survive reordering.
+ * Shortest edit distance between two strings, capped — we only care whether they are CLOSE.
+ * Iterative two-row Levenshtein; the inputs here are company names, so length is trivial.
+ */
+export function editDistance(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a.length || !b.length) return Math.max(a.length, b.length);
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i += 1) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j += 1) {
+      cur[j] = Math.min(
+        prev[j] + 1,
+        cur[j - 1] + 1,
+        prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    }
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+/** Whitespace removed, so a name typed as one word compares to the same name typed as two. */
+const squash = (s: string) => s.replace(/ /g, '');
+
+/**
+ * How long the shorter squashed name must be before containment counts.
+ *
+ * Squashed containment is powerful but blunt — without a floor, "bailey" would match anything
+ * beginning "bailey". Eight characters is enough to be distinctive: it admits "swiftcutz" (9) and
+ * "chemcleantreatment" (18) while excluding "bailey" (6).
+ */
+const MIN_SQUASHED_LEN = 8;
+
+/**
+ * True when two normalized names denote the same business.
+ *
+ * Four ways, in increasing looseness — every one of them earned by a real pair measured against live
+ * data on 2026-08-31, because whitespace and typing are not identity:
+ *   1. equal;
+ *   2. contained on a word boundary — "Motion Sync" in "Motion Sync Technologies Inc";
+ *   3. same tokens reordered — "Wildana's Touch And Taste" is "Touch&Taste by Wildana";
+ *   4. same characters ignoring spaces, or one char out — "JonasPhotography" is "Jonas Photography
+ *      LLC"; "SwiftCutz Barbershop" is "Swift Cutz"; "FiveOneSeven Salon/Spa" is the typo'd
+ *      "FiveOneSeven salo/spa".
  */
 export function namesLookAlike(a: string, b: string): boolean {
   if (!a || !b) return false;
@@ -96,7 +138,19 @@ export function namesLookAlike(a: string, b: string): boolean {
     return true;
   }
   // Reordering is not a difference: "Touch Taste by Wildana" is "Wildana's Touch And Taste".
-  return tokenOverlap(a, b) >= MIN_TOKEN_OVERLAP;
+  if (tokenOverlap(a, b) >= MIN_TOKEN_OVERLAP) return true;
+
+  // Spacing is not a difference either, and neither is a single typo.
+  const sa = squash(a);
+  const sb = squash(b);
+  if (sa === sb) return true;
+  const [ss, sl] = sa.length <= sb.length ? [sa, sb] : [sb, sa];
+  if (ss.length < MIN_SQUASHED_LEN) return false;
+  if (sl.startsWith(ss) || sl.endsWith(ss)) return true;
+  // One mistyped, inserted or dropped character over names this long is a typo, not another
+  // business — "fiveonesevensalonspa" vs "fiveonesevensalospa" is a missing 'n', so the lengths
+  // differ by one and a same-length check would miss it.
+  return Math.abs(sa.length - sb.length) <= 1 && editDistance(sa, sb) <= 1;
 }
 
 export type IdentityVerdict = 'match' | 'renamed' | 'mismatch' | 'no-evidence';

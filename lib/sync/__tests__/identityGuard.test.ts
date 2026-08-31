@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   checkCompanyIdentity, normalizeCompanyName, normalizeDomain, namesLookAlike, tokenOverlap,
+  editDistance,
 } from '../identityGuard';
 
 describe('normalizeDomain', () => {
@@ -70,6 +71,40 @@ describe('namesLookAlike', () => {
     const co = normalizeCompanyName('Bailey & Co');
     expect(co).toBe('bailey');
     expect(namesLookAlike(co, normalizeCompanyName('Bailey & Friends'))).toBe(true);
+  });
+
+  it('ignores spacing — the same name typed as one word or two', () => {
+    // Real pairs from the TC sheet vs GHL, all previously sent to review for no good reason.
+    const alike = (x: string, y: string) =>
+      namesLookAlike(normalizeCompanyName(x), normalizeCompanyName(y));
+    expect(alike('JonasPhotography', 'Jonas Photography LLC')).toBe(true);
+    expect(alike('Chem Clean Treatment Services', 'ChemClean Treatment')).toBe(true);
+    expect(alike('SwiftCutz Barbershop', 'Swift Cutz')).toBe(true);
+  });
+
+  it('tolerates a single typo in a long name', () => {
+    // GHL holds "FiveOneSeven salo/spa" for the sheet's "FiveOneSeven Salon/Spa".
+    expect(namesLookAlike(
+      normalizeCompanyName('FiveOneSeven Salon/Spa'),
+      normalizeCompanyName('FiveOneSeven salo/spa'),
+    )).toBe(true);
+    expect(editDistance('fiveonesevensalonspa', 'fiveonesevensalospa')).toBe(1);
+  });
+
+  it('still refuses the pairs that are genuinely different businesses', () => {
+    const alike = (x: string, y: string) =>
+      namesLookAlike(normalizeCompanyName(x), normalizeCompanyName(y));
+    // These are the review cases the looser rules must NOT swallow.
+    expect(alike("Jessie's Bookkeeping Solutions", 'Bailey & Co')).toBe(false);
+    expect(alike('Free To Be', 'Enlighten Therapy and Wellbeing')).toBe(false);
+    expect(alike('Sports Massage & Bodywork', 'Medical Massage and Rehabililation Therapy LLC')).toBe(false);
+    expect(alike('Solution Consulting Team LLC', 'JENDAMARK USA, LLC')).toBe(false);
+    expect(alike('Top Notch IHS', 'Kem Bushi')).toBe(false);
+  });
+
+  it('short squashed names are not matched by containment', () => {
+    // Without the length floor, "bailey" would swallow anything starting with it.
+    expect(namesLookAlike('bailey', 'baileyfriends')).toBe(false);
   });
 
   it('does not match two businesses that merely share a category word', () => {
