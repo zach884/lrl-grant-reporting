@@ -90,16 +90,90 @@ activity and create a second one. The trade-off is that inserting a row mid-shee
 worth a note in the runbook, and detectable by storing the row's business name alongside the key and
 warning when they disagree.
 
+## The reliable signal is the "|" in the notes, not the date
+
+Zach (8/31), on a 27-row day: *"We do have very busy days but 11 is a lot of intakes."* Correct
+instinct, and the data gives a sharper discriminator than cluster size.
+
+**136 of 375 rows carry the appointment-title separator `|`** — e.g.
+`Intake Meeting with Jay Mitchell | want to…`. Those are workflow rows written from a real
+appointment, so their date and type are trustworthy. They spread over 63 distinct dates, at most 10
+on any one day.
+
+The 7 dates carrying ≥10 rows account for **139 rows (37%)**, and they split cleanly:
+
+| Date | Rows | Notes name a meeting | Notes blank | Verdict |
+|---|---|---|---|---|
+| 2025-09-30 | 27 | **0** | 13 | batch entry — quarter end |
+| 2025-12-31 | 22 | **0** | 2 | batch entry — year end |
+| **2026-01-28** | 10 | **10** | 0 | **a genuinely busy day** |
+| 2026-02-06 | 18 | 2 | 1 | mostly batch |
+| 2026-02-20 | 23 | **0** | 0 | batch entry |
+| 2026-02-24 | 20 | 1 | 0 | mostly batch |
+| 2026-05-22 | 19 | **0** | 0 | batch entry |
+
+So cluster size alone would have thrown away 2026-01-28, which was ten real titled meetings. The
+title marker separates them. And the two largest batches fall on **quarter end and year end**, which
+is what a reporting catch-up looks like.
+
+The 2025-09-30 rows confirm it from the other direction: 13 of 27 have no notes at all, five are the
+same company repeated (Peabody Lane Books), and four are named `Unsure` or `Unknown`.
+
+**Import rule, therefore:**
+
+| Row shape | Count | Treatment |
+|---|---|---|
+| Notes contain `\|` — appointment-derived | **136** | Full confidence. Date and type from the title |
+| No title, attributable company | ~232 | Import with an **approximate-date** flag, exactly as the 52 program-acceptance records already are |
+| Business Name is `Unsure` / `Unknown` / `N/A` | **7** | Skip — no attributable company |
+| No email and no notes | **1** | Skip |
+
+## The 39 unmatched companies are not idea-stage — they are contacts without a company record
+
+Zach asked (8/31) whether they look like idea-stage contacts that never registered a company. Measured:
+
+| Of the 39 | |
+|---|---|
+| Found by the row's **email** on an existing GHL contact | **35** |
+| Found by the owner's name on a contact | 3 |
+| Found as some contact's `companyName` | 0 |
+| No trace in GHL at all | **1** |
+
+So **38 of 39 already exist in GHL as contacts** — they simply have no company record. And they are
+real trading businesses with real owners, not ideas: *Chem Clean Treatment Services (Derrick Walker)*,
+*Jessie's Bookkeeping Solutions (Jessica Wade)*, *Prescription Earth Acupuncture (Melissa Anderson)*.
+
+That makes this easy either way, and the sheet row itself carries **Business Name, Street Address,
+City, ST, Zip, County, Owner Name and Email** — everything a company record needs. So the import can
+create the missing 38 companies from the sheet rather than only attaching activities, which enriches
+GHL instead of just consuming it. The alternative is the bare-contact path (Zach's 8/24 rule), which
+also works since the email resolves.
+
+## Why `Reason for grant` contains AI failure text
+
+Zach (8/31): *"Reason for grant was originally supposed to be calculated from a GHL workflow with a
+ChatGPT step that read the line items on a contact and made a determination of what the grant was
+for."*
+
+That explains it, and it is a **timing bug, not a prompt bug**. The step fires while the contact's
+expense line items are still blank, so the model correctly reports it has nothing to summarise — and
+that apology gets stored as the reason. It matches what the grant analysis found independently: line
+items are filled and approved during review, *after* the application arrives.
+
+The fix is the same trigger the grant snapshot needs: run that step at **agreement execution**, when
+the line items are final and the contract has just merged them. Until then, the importer treats any
+`Reason for grant` matching the failure shape (mentions "line item" and "blank"/"cannot"/"please
+provide") as empty rather than importing the apology as data.
+
 ## Open, for Zach
 
-1. **The 39 unmatched companies** — create company records, or attach to the bare contact (his 8/24
-   rule allows a contact with no company)?
-2. **`Reason for grant` is polluted** — several rows contain an AI failure message rather than a
-   reason ("The passage directs you to generate a very short description…"). Those should import as
-   blank, not as the error text. Worth fixing at the workflow source too.
-3. **The 2025-09-30 batch** — 11+ rows share that date with notes describing what was sent. That looks
-   like a bulk catch-up entry rather than eleven meetings held that day. Import as-is, or date them
-   differently?
+1. **The 38 recoverable companies** — create company records from the sheet's firmographics
+   (recommended: the row has address, county, owner and email), or attach the activities to the bare
+   contact instead?
+2. **The ~232 untitled rows** — import with an approximate-date flag, or hold them back until
+   someone reviews the batches? They are real service events; only their dates are soft.
+3. **Fix the ChatGPT step's trigger** so `Reason for grant` computes at agreement execution rather
+   than at application. Separate from this import, but the same root cause as the grant snapshot.
 
 ## What the sheet says about events — and what it can't
 
