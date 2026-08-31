@@ -38,6 +38,9 @@ const LIMIT = Number(arg('--limit') ?? 0) || 0;
  *  so no new picklist option is needed and nothing has to be written to a live option list. */
 const SHEET_SOURCE = 'Manual';
 
+/** Zach's review decisions, so a judgement made once is recorded rather than re-made each run. */
+interface Decision { companyName?: string; create?: boolean; contactOnly?: boolean; note?: string }
+
 (async () => {
   const { ghl } = await import('../lib/ghl/client');
   const { enumerateAllContacts } = await import('../lib/ghl/contacts');
@@ -45,6 +48,14 @@ const SHEET_SOURCE = 'Manual';
   const { planRow, judgeCompany } = await import('../lib/activities/sources/sheetImport');
   const { upsertActivity } = await import('../lib/activities/upsert');
   const c = ghl();
+
+  const { normalizeCompanyName: normName } = await import('../lib/sync/identityGuard');
+  let decisions: Record<string, Decision> = {};
+  try {
+    decisions = JSON.parse(readFileSync(join(process.cwd(), 'reports/sheet-import-overrides.json'), 'utf8')).decisions ?? {};
+    console.log(`loaded ${Object.keys(decisions).length} review decision(s) from reports/sheet-import-overrides.json`);
+  } catch { console.log('no overrides file — every disagreement will be held for review'); }
+  const decisionFor = (name: string): Decision | undefined => decisions[normName(name)];
 
   const doc = JSON.parse(readFileSync(join(process.cwd(), 'reports/sheet-rows.json'), 'utf8')) as { rows: SheetRow[] };
   let rows = doc.rows;
@@ -135,6 +146,25 @@ const SHEET_SOURCE = 'Manual';
   }
   console.log(`indexed ${biz.length} companies, ${contacts.length} contacts, ${acts.length} activities (${existing.size} company+date+type keys)\n`);
 
+  const toCreate = new Map<string, SheetRow>();
+  const created_companies = new Map<string, string>();
+  /** Create a company from the sheet row's firmographics — the row carries everything a record needs. */
+  async function createCompanyFromRow(row: SheetRow): Promise<string> {
+    const { createBusiness } = await import('../lib/ghl/businesses');
+    // Michigan arrives five ways across these sheets (Michigan / MI / Mi / mi / MICHIGAN); normalize
+    // on the way in rather than leaving the report engine to do it for every new record.
+    const st = String(row.state ?? '').trim();
+    const state = /^(mi|michigan)$/i.test(st) ? 'MI' : st;
+    const extra: Record<string, unknown> = {};
+    if (row.address && row.address !== 'undefined') extra.address = row.address;
+    if (row.city) extra.city = row.city;
+    if (state) extra.state = state;
+    if (row.zip) extra.postalCode = row.zip;
+    const id = await createBusiness(row.business_name.trim(), extra, c);
+    console.log(`   + created company ${JSON.stringify(row.business_name.trim())} → ${id}`);
+    return id;
+  }
+
   // ── plan + apply ────────────────────────────────────────────────────────────────────────────────
   const tally: Record<string, number> = {};
   const bump = (k: string) => { tally[k] = (tally[k] ?? 0) + 1; };
@@ -145,6 +175,30 @@ const SHEET_SOURCE = 'Manual';
     const plan = planRow(row);
     if (plan.skip) { bump(`skip:${plan.skip}`); continue; }
 
+    // A recorded decision short-circuits the cascade — the judgement was already made by a person.
+    const decision = decisionFor(row.business_name);
+    let forcedCompanyId: string | null = null;
+    let contactOnly = false;
+    if (decision) {
+      if (decision.contactOnly) contactOnly = true;
+      else if (decision.companyName) {
+        const want = normName(decision.companyName);
+        const hit = (biz as any[]).find((b) => normName(b.name) === want);
+        if (!hit) { bump('error:override-company-not-found'); review.push({ row: row.row, name: row.business_name, why: `override names "${decision.companyName}" but no such company exists` }); continue; }
+        forcedCompanyId = hit.id;
+      } else if (decision.create) {
+        const want = normName(row.business_name);
+        const hit = (biz as any[]).find((b) => normName(b.name) === want);
+        if (hit) forcedCompanyId = hit.id;
+        else if (!APPLY) { bump('would-create-company'); toCreate.set(want, row); }
+        else {
+          const madeId = created_companies.get(want) ?? await createCompanyFromRow(row);
+          created_companies.set(want, madeId);
+          forcedCompanyId = madeId;
+        }
+      }
+    }
+
     // ── resolution CASCADE. Every signal gets tried before giving up, which the first three
     // versions of this did not do — they made one signal primary and stopped. The sheet's email is
     // frequently a business address (ramanufacturingllc@gmail.com) where GHL holds the person's work
@@ -154,11 +208,17 @@ const SHEET_SOURCE = 'Manual';
       contact = ct;
       if (ct.businessId) break;
     }
-    let companyId: string | null = null;
-    let how = '';
+    let companyId: string | null = forcedCompanyId;
+    let how = forcedCompanyId ? 'override' : '';
+
+    // A contact-only decision needs a contact and nothing else.
+    if (contactOnly) {
+      if (!contact) { bump('skip:contact-only-but-no-contact'); review.push({ row: row.row, name: row.business_name, why: 'marked contact-only but no contact matches the email', email: row.email }); continue; }
+      bump('resolved:contact-only');
+    }
 
     const primaryId = contact?.businessId ?? null;
-    if (primaryId) {
+    if (!companyId && !contactOnly && primaryId) {
       const verdict = judgeCompany(row.business_name, primaryId, bizName.get(primaryId) ?? null, `${contact.firstName ?? ''} ${contact.lastName ?? ''}`);
       if (verdict.kind === 'match') { companyId = verdict.companyId; how = 'email'; }
       else {
@@ -175,14 +235,14 @@ const SHEET_SOURCE = 'Manual';
         continue;
       }
     }
-    if (!companyId) {
+    if (!companyId && !contactOnly) {
       // No usable contact link — fall back to the company NAME, which is how these seven were found:
       // RA Manufacturing LLC, DoughNation Bakery, Mport Media Group, Kim's Konfections, Ivory Lane
       // Boutique, Wise Home Care Services, Kev's Car Care all exist with near-identical names.
       const byName = findCompanyByName(row.business_name);
       if (byName) { companyId = byName; how = contact ? 'name (contact unlinked)' : 'name (no contact matched the email)'; }
     }
-    if (!companyId) {
+    if (!companyId && !contactOnly) {
       bump(contact ? 'hold:create' : 'skip:unresolved');
       review.push({
         row: row.row, name: row.business_name,
@@ -191,25 +251,25 @@ const SHEET_SOURCE = 'Manual';
       });
       continue;
     }
-    bump(`resolved:${how}`);
+    if (how) bump(`resolved:${how}`);
     // Associate the contact we actually matched. Failing that, borrow the company's contact ONLY when
     // it has exactly one — attaching a specific wrong person is worse than attaching nobody, and the
     // company association is what a funder row is built from anyway.
-    const onCompany = contactsForCompany.get(companyId) ?? [];
+    const onCompany = companyId ? contactsForCompany.get(companyId) ?? [] : [];
     const contactId = contact?.id ?? (onCompany.length === 1 ? onCompany[0] : null);
-    const verdict = { kind: 'match' as const, companyId, reason: how };
+    const verdict = { kind: 'match' as const, companyId, reason: how || 'contact-only' };
 
     for (const a of plan.activities) {
       // For a referral the counterparty is part of what makes it a distinct event, so it belongs in
       // the collision key — otherwise three referrals on one day look like one.
       const cp = a.values.counterparty_name ? `|${String(a.values.counterparty_name).toLowerCase()}` : '';
-      const dedupKey = `${verdict.companyId}|${row.date_added}|${a.activityType}${cp}`;
+      const dedupKey = `${verdict.companyId ?? `contact:${contactId}`}|${row.date_added}|${a.activityType}${cp}`;
       if (existing.has(dedupKey)) { bump(`skip:already-in-ghl:${a.activityType}`); continue; }
       bump(`${APPLY ? 'write' : 'would-write'}:${a.activityType}${a.dateConfidence === 'approximate' ? ' (approx date)' : ''}`);
       if (!APPLY) continue;
       const res = await upsertActivity(
         { source: SHEET_SOURCE, sourceRecordId: a.sourceRecordId },
-        { type: a.activityType, companyId: verdict.companyId, contactIds: contactId ? [contactId] : [], values: a.values },
+        { type: a.activityType, ...(verdict.companyId ? { companyId: verdict.companyId } : {}), contactIds: contactId ? [contactId] : [], values: a.values },
         { client: c, mode: 'ingest', actorKind: 'sync', actor: { name: 'activity:sheet-import' }, onlyIfAbsent: ['activity_date'] },
       );
       bump(`outcome:${res.outcome}`);

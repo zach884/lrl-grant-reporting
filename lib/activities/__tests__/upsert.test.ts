@@ -187,10 +187,33 @@ describe('upsertActivity', () => {
     expect(res.outcome).toBe('created');
   });
 
-  it('still refuses an ingested activity with no company', async () => {
+  it('ingests a CONTACT-ONLY activity when there is no company record yet', async () => {
+    // Changed deliberately 2026-08-31. This used to be refused in both modes, on the grounds that an
+    // activity with no company is invisible to reporting. Zach's rule (8/24) is that a contact whose
+    // address is in the right geography counts even before a company exists, and the report engine
+    // resolves its subject as "company if linked, else the contact" — so the record IS reportable.
+    // The spreadsheet import meets these businesses for real; refusing them drops service history.
+    const client = fakeClient();
+    const res = await upsertActivity(key, { ...input, companyId: undefined }, { client });
+    expect(res.outcome).toBe('created');
+    // ...and it linked the contact, not a company.
+    const links = client.requests.filter((r: any) => r.path === '/associations/relations');
+    expect(links.length).toBe(1);
+  });
+
+  it('refuses an activity attached to NOTHING — no company and no contact', async () => {
+    // The rule that survives: attached to neither, a record is worse than none, because someone
+    // believes it was logged.
     const client = fakeClient();
     await expect(
-      upsertActivity(key, { ...input, companyId: '' }, { client }),
+      upsertActivity(key, { ...input, companyId: undefined, contactIds: [] }, { client }),
+    ).rejects.toThrow(/needs a company or at least one contact/);
+  });
+
+  it('still requires a company for MANUAL entry, where a person can go and link one', async () => {
+    const client = fakeClient();
+    await expect(
+      upsertActivity(key, { ...input, companyId: undefined }, { client, mode: 'manual' }),
     ).rejects.toThrow(/companyId is required/);
   });
 

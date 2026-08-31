@@ -211,11 +211,18 @@ export interface ReferredTo {
 export interface ActivityInput {
   type: string;
   /**
-   * The company that PARTICIPATED — required, and the thing reporting aggregates by.
+   * The company that PARTICIPATED — the thing reporting aggregates by.
    * Never the referral counterparty: those are separate associations (see `referredTo`), which is
    * why a service-provider company in the CRM can't inflate a "companies served" count.
+   *
+   * OPTIONAL as of 2026-08-31, and only for `ingest` mode. Zach (8/24): *"For SBSH and TC we often
+   * don't need a company to be created yet. If the contact does not have a company but their address
+   * is in the proper geos then this would also count."* The report engine resolves its subject as
+   * "the company if linked, else the contact itself" (docs/sprints/grant-definitions.md §1), so a
+   * contact-only activity is reportable — which is what made the old blanket rule safe to relax.
+   * A contact is then required in its place: an activity attached to NOTHING is still worthless.
    */
-  companyId: string;
+  companyId?: string;
   /** Contacts who took part. May be empty (a company-level activity). */
   contactIds?: string[];
   /** Referral only: who/what the client was referred TO — contact, company, resource, or several. */
@@ -241,9 +248,13 @@ export type ActivityWriteMode = 'manual' | 'ingest';
 /**
  * Is this input complete enough to write? Returns the reasons it isn't.
  *
- * The company check applies in BOTH modes and is deliberate: an activity with no company is
- * invisible to every funder report, which makes it worse than no record at all — someone believes
- * it was logged.
+ * The company rule differs by mode, as of 2026-08-31. For MANUAL entry a company is still required:
+ * a person filling in a form can go and link one, and an unlinked record is worse than no record
+ * because someone believes it was logged. For INGEST it is not, because the alternative is dropping
+ * real service history — the spreadsheet import meets businesses with no company record yet, and
+ * Zach's rule (8/24) is that a contact whose address is in the right geography counts. What holds in
+ * both modes is that the activity must attach to SOMETHING; report subject resolution is "the company
+ * if linked, else the contact itself".
  */
 export function validateActivityInput(
   input: ActivityInput,
@@ -259,7 +270,17 @@ export function validateActivityInput(
   if (mode === 'manual' && !def.staffLogged) {
     errors.push(`"${def.label}" activities come from a GHL form, not staff entry`);
   }
-  if (!input.companyId) errors.push('companyId is required — an activity with no company cannot be reported on');
+  // A company is required for STAFF entry, where someone can go and link one. For ingestion an
+  // activity may instead hang off the contact alone — the sheet import hits businesses that have no
+  // company record yet, and refusing them would drop real service history. The rule that survives is
+  // that it must attach to SOMETHING: report subject resolution is "company if linked, else contact".
+  if (!input.companyId && !(input.contactIds ?? []).length) {
+    errors.push(mode === 'manual'
+      ? 'companyId is required — an activity with no company cannot be reported on'
+      : 'an activity needs a company or at least one contact — attached to neither it is invisible');
+  } else if (mode === 'manual' && !input.companyId) {
+    errors.push('companyId is required — an activity with no company cannot be reported on');
+  }
   if (!input.values.activity_date) errors.push('activity_date is required');
 
   const set = activityFieldSet(catalog, input.type);

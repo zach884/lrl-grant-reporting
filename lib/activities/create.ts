@@ -130,9 +130,11 @@ export async function createActivity(
   const errors = validateActivityInput(input, catalog, opts.mode ?? 'manual');
   if (errors.length) throw new ActivityValidationError(errors);
 
-  const company = await getBusinessRecord(input.companyId, client);
-  if (!company) throw new ActivityValidationError([`company ${input.companyId} not found`]);
-  const companyName = String(company.properties?.name ?? '') || undefined;
+  // A contact-only activity is allowed in ingest mode (see ActivityInput.companyId), so only look the
+  // company up when there is one to look up.
+  const company = input.companyId ? await getBusinessRecord(input.companyId, client) : null;
+  if (input.companyId && !company) throw new ActivityValidationError([`company ${input.companyId} not found`]);
+  const companyName = String(company?.properties?.name ?? '') || undefined;
 
   const actorName = opts.actor?.name?.trim() || opts.actor?.email?.trim() || 'staff';
   const activityName =
@@ -150,7 +152,7 @@ export async function createActivity(
   const created = await createObjectRecord(ACTIVITIES_OBJECT, values, catalog.byKey, client);
 
   const links: ActivityLinkResult[] = [];
-  links.push(await link(COMPANY_ACTIVITY_KEY, input.companyId, created.recordId, client));
+  if (input.companyId) links.push(await link(COMPANY_ACTIVITY_KEY, input.companyId, created.recordId, client));
   for (const contactId of input.contactIds ?? []) {
     links.push(await link(ACTIVITY_CONTACT_KEY, contactId, created.recordId, client));
   }
