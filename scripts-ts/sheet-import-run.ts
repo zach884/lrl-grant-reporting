@@ -94,7 +94,13 @@ const SHEET_SOURCE = 'Manual';
     const date = String(a.properties?.activity_date ?? '').slice(0, 10);
     if (!type || !date) continue;
     const ids = await getRelatedRecordIds(a.id, 'business', c).catch(() => [] as string[]);
-    for (const id of ids) existing.add(`${id}|${date}|${type}`);
+    // A referral's counterparty is part of its identity, so record BOTH shapes: the bare key for
+    // types where date+type is enough, and the counterparty-qualified key for referrals.
+    const cp = String((a.properties as any)?.counterparty_name ?? '').trim().toLowerCase();
+    for (const id of ids) {
+      existing.add(`${id}|${date}|${type}`);
+      if (cp) existing.add(`${id}|${date}|${type}|${cp}`);
+    }
     await new Promise((r) => setTimeout(r, 120));
   }
   console.log(`indexed ${biz.length} companies, ${contacts.length} contacts, ${acts.length} activities (${existing.size} company+date+type keys)\n`);
@@ -131,7 +137,10 @@ const SHEET_SOURCE = 'Manual';
     }
 
     for (const a of plan.activities) {
-      const dedupKey = `${verdict.companyId}|${row.date_added}|${a.activityType}`;
+      // For a referral the counterparty is part of what makes it a distinct event, so it belongs in
+      // the collision key — otherwise three referrals on one day look like one.
+      const cp = a.values.counterparty_name ? `|${String(a.values.counterparty_name).toLowerCase()}` : '';
+      const dedupKey = `${verdict.companyId}|${row.date_added}|${a.activityType}${cp}`;
       if (existing.has(dedupKey)) { bump(`skip:already-in-ghl:${a.activityType}`); continue; }
       bump(`${APPLY ? 'write' : 'would-write'}:${a.activityType}${a.dateConfidence === 'approximate' ? ' (approx date)' : ''}`);
       if (!APPLY) continue;
@@ -141,7 +150,11 @@ const SHEET_SOURCE = 'Manual';
         { client: c, mode: 'ingest', actorKind: 'sync', actor: { name: 'activity:sheet-import' }, onlyIfAbsent: ['activity_date'] },
       );
       bump(`outcome:${res.outcome}`);
-      if (res.outcome === 'created') { created.push(res.recordId); existing.add(dedupKey); }
+      // Deliberately NOT adding the new key to `existing`. That set exists to avoid colliding with
+      // activities from OTHER sources; per-row idempotency is already guaranteed by the source key.
+      // Adding to it poisoned the run: four distinct referrals for one company on one day (to four
+      // different partners) collapsed into one, and 15 rows were silently dropped on the first apply.
+      if (res.outcome === 'created') created.push(res.recordId);
       await new Promise((r) => setTimeout(r, 320));
     }
   }

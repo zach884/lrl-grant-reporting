@@ -95,6 +95,33 @@ describe('planRow', () => {
     expect(p.activities[0].values.referral_reason).toBe('Needed a CPA');
   });
 
+  it('emits ONE referral per named target, with the counterparty', () => {
+    // The bug this pins: four referral rows for Peabody Lane Books on one day carried no notes and
+    // looked like a duplicated row, until the target columns were read. They were four different
+    // partners, and the first apply collapsed them into one.
+    const p = planRow(row({
+      flags: { flag_referral: true },
+      referral_capital_provider: 'Tanesia Greer (MWF)',
+      referral_sb_partner: 'Shawn Prissle, SBDC',
+      referral_reason: 'Capital access',
+    }));
+    expect(p.activities).toHaveLength(2);
+    expect(p.activities.every((a) => a.activityType === 'introduction_referral')).toBe(true);
+    expect(p.activities.map((a) => a.values.counterparty_name))
+      .toEqual(['Tanesia Greer (MWF)', 'Shawn Prissle, SBDC']);
+    expect(p.activities[0].values.referral_type).toEqual(['Capital Provider']);
+    // No "Ecosystem Partner" option exists yet, so the SB-partner target types as Other but keeps
+    // its name — see funder-field-trace.md §6.6.
+    expect(p.activities[1].values.referral_type).toEqual(['Other']);
+    expect(new Set(p.activities.map((a) => a.sourceRecordId)).size).toBe(2);
+  });
+
+  it('still records a referral that names no target', () => {
+    const p = planRow(row({ flags: { flag_referral: true } }));
+    expect(p.activities).toHaveLength(1);
+    expect(p.activities[0].values.counterparty_name).toBeUndefined();
+  });
+
   it('strips the stored AI apology out of the notes', () => {
     const apology = 'The input contains only blank line item descriptions with no completed items to '
       + 'reference. Please provide the completed line item descriptions.';

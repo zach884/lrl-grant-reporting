@@ -90,6 +90,17 @@ def extract(path, sheet, header_row, spec, source_slug):
             "grant_amount": cell(row, cols.get("grant_amount")),
             "grant_date": cell(row, cols.get("grant_date")),
             "referral_reason": cell(row, cols.get("referral_reason")),
+            # The referral TARGET, which lives in one of three named columns. These are what TC
+            # columns V–AA actually report, and they are what makes two same-day referrals to
+            # different partners distinguishable — without them, four separate referrals for one
+            # company look like one row repeated four times.
+            "referral_capital_provider": cell(row, cols.get("referral_capital_provider")),
+            "referral_sb_partner": cell(row, cols.get("referral_sb_partner")),
+            "referral_other": cell(row, cols.get("referral_other")),
+            "referral_mentor": cell(row, cols.get("referral_mentor")),
+            "referral_other_sbsh": cell(row, cols.get("referral_other_sbsh")),
+            "referral_misbdc": cell(row, cols.get("referral_misbdc")),
+            "referral_smartzone": cell(row, cols.get("referral_smartzone")),
         })
     return out, missing
 
@@ -102,6 +113,9 @@ TC = ("Trusted Connector Report.xlsx", "Cumulative Reporting", 1, {
     "flag_referral": "Referral", "flag_other": "Other",
     "grant_amount": "Direct Grant", "grant_date": "Date Direct",
     "referral_reason": "Reason for Referral", "notes": "Notes",
+    "referral_capital_provider": "Capital Provider Referral",
+    "referral_sb_partner": "Small Buisness Ecosystem Partner Referral",
+    "referral_other": "Other (Name)",
 }, "tc-cumulative")
 
 SBSH = ("SBSH Companies Served Spreadsheet (1).xlsx", "Sheet1", 1, {
@@ -112,6 +126,9 @@ SBSH = ("SBSH Companies Served Spreadsheet (1).xlsx", "Sheet1", 1, {
     "flag_support": "Small Business Support Services", "flag_other": "Other",
     "grant_amount": "Direct Grant", "grant_date": "Date Direct",
     "referral_reason": "Reason for Referral", "notes": "Notes",
+    "referral_mentor": "Mentor Name", "referral_other_sbsh": "Other SBSH (Name)",
+    "referral_misbdc": "MI-SBDC (Name)", "referral_smartzone": "SmartZone (Name)",
+    "referral_other": "Other (Name)",
 }, "sbsh-companies")
 
 def main():

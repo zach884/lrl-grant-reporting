@@ -34,7 +34,33 @@ export interface SheetRow {
   grant_amount?: number | string | null;
   grant_date?: string | null;
   referral_reason?: string | null;
+  /** The referral TARGET, in whichever of the named columns holds it. */
+  referral_capital_provider?: string | null;
+  referral_sb_partner?: string | null;
+  referral_other?: string | null;
+  referral_mentor?: string | null;
+  referral_other_sbsh?: string | null;
+  referral_misbdc?: string | null;
+  referral_smartzone?: string | null;
 }
+
+/**
+ * Referral target column → the `referral_type` option it means, in the order a row is read.
+ *
+ * ⚠️ `referral_sb_partner` maps to `Other` because the object has **no "Ecosystem Partner" option** —
+ * a gap already flagged in funder-field-trace.md §6.6, and one that blocks TC's required KPI 16
+ * ("Referrals to other Small Business Ecosystem Partners") until the option is appended. The
+ * counterparty NAME is preserved either way, so nothing is lost by importing now and re-typing later.
+ */
+const REFERRAL_TARGETS: Array<[keyof SheetRow, string, string]> = [
+  ['referral_capital_provider', 'Capital Provider', 'capital'],
+  ['referral_mentor', 'Mentor', 'mentor'],
+  ['referral_other_sbsh', 'Other SBSH', 'sbsh'],
+  ['referral_misbdc', 'MI-SBDC', 'misbdc'],
+  ['referral_smartzone', 'SmartZone', 'smartzone'],
+  ['referral_sb_partner', 'Other', 'ecosystem'],
+  ['referral_other', 'Other', 'other'],
+];
 
 /** What one row asks us to create. A row can produce more than one. */
 export interface PlannedActivity {
@@ -139,16 +165,40 @@ export function planRow(row: SheetRow): RowPlan {
   const f = row.flags ?? {};
 
   if (f.flag_referral) {
-    activities.push({
-      sourceRecordId: key('referral'),
-      activityType: 'introduction_referral',
-      dateConfidence: confidence,
-      values: {
-        ...base,
-        activity_name: `Referral – ${name}`,
-        ...(row.referral_reason ? { referral_reason: row.referral_reason } : {}),
-      },
-    });
+    // One activity per NAMED target. Four referral rows for one company on one day looked like a
+    // duplicated row until the target columns were read — they were referrals to Tanesia Greer,
+    // Todd Vanappledorn, Tommy Harris and Shawn Prissle. The counterparty is part of the identity.
+    const targets = REFERRAL_TARGETS
+      .map(([field, type, slug]) => ({ name: String(row[field] ?? '').trim(), type, slug }))
+      .filter((t) => t.name);
+    if (targets.length) {
+      for (const t of targets) {
+        activities.push({
+          sourceRecordId: key(`referral:${t.slug}`),
+          activityType: 'introduction_referral',
+          dateConfidence: confidence,
+          values: {
+            ...base,
+            activity_name: `Referral – ${name} → ${t.name}`,
+            referral_type: [t.type],
+            counterparty_name: t.name,
+            ...(row.referral_reason ? { referral_reason: row.referral_reason } : {}),
+          },
+        });
+      }
+    } else {
+      // Flagged as a referral with no target recorded. Still a real event, just unattributed.
+      activities.push({
+        sourceRecordId: key('referral'),
+        activityType: 'introduction_referral',
+        dateConfidence: confidence,
+        values: {
+          ...base,
+          activity_name: `Referral – ${name}`,
+          ...(row.referral_reason ? { referral_reason: row.referral_reason } : {}),
+        },
+      });
+    }
   }
 
   // Group delivery. Zach (8/29): "TA Group for now is like workshops that we run." Those live in Wix
