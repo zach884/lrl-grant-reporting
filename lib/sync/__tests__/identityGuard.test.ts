@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  checkCompanyIdentity, normalizeCompanyName, normalizeDomain, namesLookAlike,
+  checkCompanyIdentity, normalizeCompanyName, normalizeDomain, namesLookAlike, tokenOverlap,
 } from '../identityGuard';
 
 describe('normalizeDomain', () => {
@@ -27,6 +27,14 @@ describe('normalizeCompanyName', () => {
     expect(normalizeCompanyName('Burgess Institute for Entrepreneurship & Innovation (formerly Spartan Innovations)'))
       .toBe('burgess institute for entrepreneurship innovation');
   });
+  it('strips possessives so they do not leave a stray token', () => {
+    // The bug this guards: "Wildana's" → {wildana, s}, and the single letter dropped similarity
+    // against "Touch&Taste by Wildana" below threshold, flagging an obvious match as a mismatch.
+    expect(normalizeCompanyName("Wildana's Touch And Taste")).toBe('wildana touch taste');
+    expect(normalizeCompanyName('Smiling Jim\u2019s Organic Seasonings')).toBe('smiling jim organic seasonings');
+    expect(normalizeCompanyName("Jessie's Bookkeeping Solutions")).toBe('jessie bookkeeping solutions');
+  });
+
   it('never returns empty for a name made only of noise words', () => {
     expect(normalizeCompanyName('The Company')).not.toBe('');
   });
@@ -42,6 +50,34 @@ describe('namesLookAlike', () => {
   });
   it('is false when either side is empty', () => {
     expect(namesLookAlike('', 'acme')).toBe(false);
+  });
+
+  it('sees through reordering, which containment alone cannot', () => {
+    const a = normalizeCompanyName("Wildana's Touch And Taste");
+    const b = normalizeCompanyName('Touch&Taste by Wildana');
+    expect(tokenOverlap(a, b)).toBeGreaterThanOrEqual(0.6);
+    expect(namesLookAlike(a, b)).toBe(true);
+  });
+
+  it('KNOWN LIMITATION: a single distinctive token still matches by containment', () => {
+    // "Bailey & Co" normalizes to just "bailey" — both "&" and "Co" are noise — so it contains-matches
+    // "Bailey & Friends", and GHL holds both businesses. This is the cost of accepting prefix
+    // extension, which is the common rename shape we DO want ("Motion Sync" → "Motion Sync
+    // Technologies Inc"). Documented rather than fixed: tightening containment to require two tokens
+    // would reject "Acme" → "Acme Labs" as well. The mitigation is elsewhere — a wrong match here can
+    // only ever attach to a company the contact already belongs to, and genuine disagreements go to a
+    // review queue instead of being decided automatically.
+    const co = normalizeCompanyName('Bailey & Co');
+    expect(co).toBe('bailey');
+    expect(namesLookAlike(co, normalizeCompanyName('Bailey & Friends'))).toBe(true);
+  });
+
+  it('does not match two businesses that merely share a category word', () => {
+    // The overlap floor does its job where containment does not apply.
+    expect(namesLookAlike(
+      normalizeCompanyName('Jackson Board Game Company'),
+      normalizeCompanyName('Jackson Manufacturing Trade'),
+    )).toBe(false);
   });
 });
 

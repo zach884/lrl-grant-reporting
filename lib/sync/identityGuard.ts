@@ -50,6 +50,11 @@ export function normalizeCompanyName(raw: unknown): string {
     .toLowerCase()
     .replace(/\([^)]*\)/g, ' ')
     .replace(/&/g, ' and ')
+    // Strip possessives BEFORE flattening punctuation. Otherwise "Wildana's" becomes the two tokens
+    // {wildana, s}, and that stray single letter drags similarity down enough to fail an obvious
+    // match — measured 2026-08-31: "Wildana's Touch And Taste" vs "Touch&Taste by Wildana" scored
+    // 0.60 instead of 0.75 and was flagged as a different company.
+    .replace(/['’]s\b/g, '')
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
   if (!base) return '';
@@ -57,13 +62,41 @@ export function normalizeCompanyName(raw: unknown): string {
   return (words.length ? words : base.split(' ')).join(' ');
 }
 
-/** True when one normalized name is a prefix/containment of the other, or they are equal. */
+/** Share of tokens two normalized names have in common (Jaccard). */
+export function tokenOverlap(a: string, b: string): number {
+  const ta = new Set(a.split(' ').filter(Boolean));
+  const tb = new Set(b.split(' ').filter(Boolean));
+  if (!ta.size || !tb.size) return 0;
+  let shared = 0;
+  for (const t of ta) if (tb.has(t)) shared += 1;
+  return shared / (ta.size + tb.size - shared);
+}
+
+/**
+ * Minimum token overlap to call two names the same business.
+ *
+ * 0.6 is chosen against real pairs, not by feel:
+ *   • "Wildana's Touch And Taste" vs "Touch&Taste by Wildana" → 0.75, the SAME business reordered,
+ *     which pure containment cannot see.
+ *   • "Bailey" vs "Bailey & Friends" → 0.5, correctly NOT alike — one distinctive token in common is
+ *     not evidence, and GHL holds both "Bailey & Co" and "Bailey & Friends".
+ */
+const MIN_TOKEN_OVERLAP = 0.6;
+
+/**
+ * True when two normalized names denote the same business: equal, one contained in the other on a
+ * word boundary, or a high enough share of tokens in common to survive reordering.
+ */
 export function namesLookAlike(a: string, b: string): boolean {
   if (!a || !b) return false;
   if (a === b) return true;
   const [short, long] = a.length <= b.length ? [a, b] : [b, a];
   // Containment only counts on a word boundary, so "acme" matches "acme labs" but not "acmedical".
-  return long === short || long.startsWith(`${short} `) || long.endsWith(` ${short}`) || long.includes(` ${short} `);
+  if (long === short || long.startsWith(`${short} `) || long.endsWith(` ${short}`) || long.includes(` ${short} `)) {
+    return true;
+  }
+  // Reordering is not a difference: "Touch Taste by Wildana" is "Wildana's Touch And Taste".
+  return tokenOverlap(a, b) >= MIN_TOKEN_OVERLAP;
 }
 
 export type IdentityVerdict = 'match' | 'renamed' | 'mismatch' | 'no-evidence';
