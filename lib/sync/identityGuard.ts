@@ -64,12 +64,12 @@ export function normalizeCompanyName(raw: unknown): string {
 
 /** Share of tokens two normalized names have in common (Jaccard). */
 export function tokenOverlap(a: string, b: string): number {
-  const ta = new Set(a.split(' ').filter(Boolean));
-  const tb = new Set(b.split(' ').filter(Boolean));
-  if (!ta.size || !tb.size) return 0;
-  let shared = 0;
-  for (const t of ta) if (tb.has(t)) shared += 1;
-  return shared / (ta.size + tb.size - shared);
+  // Arrays rather than Set iteration: the tsconfig target predates downlevelIteration.
+  const ta = Array.from(new Set(a.split(' ').filter(Boolean)));
+  const tb = Array.from(new Set(b.split(' ').filter(Boolean)));
+  if (!ta.length || !tb.length) return 0;
+  const shared = ta.filter((t) => tb.includes(t)).length;
+  return shared / (ta.length + tb.length - shared);
 }
 
 /**
