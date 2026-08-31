@@ -119,6 +119,27 @@ is what a reporting catch-up looks like.
 The 2025-09-30 rows confirm it from the other direction: 13 of 27 have no notes at all, five are the
 same company repeated (Peabody Lane Books), and four are named `Unsure` or `Unknown`.
 
+### Wednesdays corroborate the classifier
+
+Zach (8/31): *"Intake meetings are always on Wednesdays. Referrals are all over the place."* That is a
+free, independent check on the notes-based classification — and it holds:
+
+| Day of week for the 84 rows whose notes say "Intake Meeting" | |
+|---|---|
+| **Wednesday** | **80** |
+| Friday | 2 |
+| Thursday | 1 |
+| Monday | 1 |
+
+95%. Two independent signals — the appointment title in the notes, and the day of the week — agree,
+which is the strongest evidence available that the classifier is reading real intake meetings rather
+than pattern-matching noise. The four exceptions are worth an eyeball, not a rule.
+
+It also gives a date-repair option for batch-entered intake rows (snap to the nearest Wednesday), but
+Zach's call (8/31) is that **approximate dates are acceptable for history that has already been
+reported**, so that stays available and unbuilt. Likewise the idea of scraping calendars for intake
+dates and email for referral dates — noted, not needed.
+
 **Import rule, therefore:**
 
 | Row shape | Count | Treatment |
@@ -128,26 +149,45 @@ same company repeated (Peabody Lane Books), and four are named `Unsure` or `Unkn
 | Business Name is `Unsure` / `Unknown` / `N/A` | **7** | Skip — no attributable company |
 | No email and no notes | **1** | Skip |
 
-## The 39 unmatched companies are not idea-stage — they are contacts without a company record
+## Resolve the company by EMAIL, never by name — only 9 businesses actually need creating
 
-Zach asked (8/31) whether they look like idea-stage contacts that never registered a company. Measured:
+An earlier pass matched companies by normalized name and reported 39 unmatched rows. Zach checked the
+examples and found some of them **do** have company records, which was correct: name matching was
+producing false negatives. Re-resolved using the house rule the appointment adapter already follows —
+email → contact → `contact.businessId`:
 
-| Of the 39 | |
+| Over all 375 TC rows | |
 |---|---|
-| Found by the row's **email** on an existing GHL contact | **35** |
-| Found by the owner's name on a contact | 3 |
-| Found as some contact's `companyName` | 0 |
-| No trace in GHL at all | **1** |
+| `email → contact → businessId` | **345** |
+| name match (fallback) | 17 |
+| email finds a contact, but it has no company | 9 |
+| nothing resolves | 4 |
 
-So **38 of 39 already exist in GHL as contacts** — they simply have no company record. And they are
-real trading businesses with real owners, not ideas: *Chem Clean Treatment Services (Derrick Walker)*,
-*Jessie's Bookkeeping Solutions (Jessica Wade)*, *Prescription Earth Acupuncture (Melissa Anderson)*.
+So **13 rows / 9 distinct businesses** genuinely need a company record — not 39. The three examples
+show exactly why names failed:
 
-That makes this easy either way, and the sheet row itself carries **Business Name, Street Address,
-City, ST, Zip, County, Owner Name and Email** — everything a company record needs. So the import can
-create the missing 38 companies from the sheet rather than only attaching activities, which enriches
-GHL instead of just consuming it. The alternative is the bare-contact path (Zach's 8/24 rule), which
-also works since the email resolves.
+| Sheet row | GHL company | Why the name missed |
+|---|---|---|
+| Chem Clean Treatment Services | **ChemClean Treatment** | no space, and "Services" dropped |
+| Prescription Earth Acupuncture + Herba… | Prescription Earth Acupuncture + Herbal Medicine | truncated in the sheet |
+| Jessie's Bookkeeping Solutions | **Bailey & Co** | ⚠️ *different business entirely* |
+
+**Never match these sheets on company name.** Email is the reliable key, and it is also what every
+other adapter uses, so the importer inherits the same behaviour for free.
+
+⚠️ **But that third row is a warning, not a win.** The email resolves to a contact whose `businessId`
+points at *Bailey & Co* while the sheet says *Jessie's Bookkeeping Solutions*. One of the two is
+wrong — either the contact is linked to the wrong company, or the person has changed business. This is
+the same class of problem `lib/sync/identityGuard.ts` exists for, so the importer should apply the
+same comparison: **when the sheet's business name and the resolved company disagree beyond a fuzzy
+tolerance, flag for review rather than silently attaching the activity to the wrong company.**
+Attaching service history to the wrong business is a reporting error no reviewer would catch.
+
+The 9 businesses needing records: Heart Flo Yoga · The Frame Studios · Carrie Joers - Self Employed ·
+Engraved F0r You · SheVinci · Tip Top Restaurant · Blue Entity, LLC · Machine Ai Solutions LLC ·
+Fizzy Aquatics LLC. The sheet row carries Business Name, Street Address, City, ST, Zip, County, Owner
+Name and Email, so creating them from the sheet is straightforward — and *Carrie Joers - Self
+Employed* is a good example of the bare-contact case Zach described on 8/24.
 
 ## Why `Reason for grant` contains AI failure text
 
@@ -167,13 +207,16 @@ provide") as empty rather than importing the apology as data.
 
 ## Open, for Zach
 
-1. **The 38 recoverable companies** — create company records from the sheet's firmographics
-   (recommended: the row has address, county, owner and email), or attach the activities to the bare
-   contact instead?
-2. **The ~232 untitled rows** — import with an approximate-date flag, or hold them back until
-   someone reviews the batches? They are real service events; only their dates are soft.
+1. ~~The unmatched companies~~ — **RESOLVED:** resolve by email, and only **9** businesses need a
+   company record (listed above). Create them from the sheet's firmographics.
+2. ~~The untitled rows~~ — **RESOLVED (Zach, 8/31):** approximate dates are fine for history already
+   reported. Import with the approximate-date flag. Catch-up rows are Alex writing up meeting notes
+   after the fact, which is normal practice, not a data fault.
 3. **Fix the ChatGPT step's trigger** so `Reason for grant` computes at agreement execution rather
    than at application. Separate from this import, but the same root cause as the grant snapshot.
+4. **⚠️ NEW — the name/company disagreements.** Rows where the sheet's business name and the
+   email-resolved company differ (Jessie's Bookkeeping Solutions → Bailey & Co) need a review pass
+   before import, because attaching history to the wrong business is invisible afterwards.
 
 ## What the sheet says about events — and what it can't
 
