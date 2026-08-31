@@ -64,9 +64,39 @@ const SHEET_SOURCE = 'Manual';
     if (b.length < 100) break;
   }
   const bizName = new Map<string, string>(biz.map((b: any) => [b.id, String(b.name ?? '')]));
+  // Name index over every company, for the fallback when the sheet's email is not the one GHL holds.
+  const { normalizeCompanyName, namesLookAlike } = await import('../lib/sync/identityGuard');
+  const bizByNorm = new Map<string, string[]>();
+  for (const b of biz as any[]) {
+    const k = normalizeCompanyName(b.name);
+    if (!k) continue;
+    const a = bizByNorm.get(k) ?? [];
+    a.push(b.id);
+    bizByNorm.set(k, a);
+  }
+  /** Find a company by name: exact normalized first, then the fuzzy comparison. One hit or nothing —
+   *  two candidates is ambiguous and must never be guessed at. */
+  const findCompanyByName = (name: string): string | null => {
+    const k = normalizeCompanyName(name);
+    if (!k) return null;
+    const exact = bizByNorm.get(k);
+    if (exact?.length === 1) return exact[0];
+    if (exact && exact.length > 1) return null;
+    const hits: string[] = [];
+    // Array.from: the tsconfig target predates downlevelIteration, so Maps are not directly iterable.
+    for (const [nk, ids] of Array.from(bizByNorm.entries())) if (namesLookAlike(k, nk)) hits.push(...ids);
+    return hits.length === 1 ? hits[0] : null;
+  };
+  // Contacts per company, so a borrowed association is only ever made when it is unambiguous.
+  const contactsForCompany = new Map<string, string[]>();
   const contacts = await enumerateAllContacts(c);
   const byEmail = new Map<string, any[]>();
   for (const ct of contacts as any[]) {
+    if (ct.businessId) {
+      const a = contactsForCompany.get(ct.businessId) ?? [];
+      a.push(ct.id);
+      contactsForCompany.set(ct.businessId, a);
+    }
     if (!ct.email) continue;
     const k = String(ct.email).trim().toLowerCase();
     const a = byEmail.get(k) ?? [];
@@ -115,26 +145,59 @@ const SHEET_SOURCE = 'Manual';
     const plan = planRow(row);
     if (plan.skip) { bump(`skip:${plan.skip}`); continue; }
 
-    // email → contact → the company it currently belongs to
+    // ── resolution CASCADE. Every signal gets tried before giving up, which the first three
+    // versions of this did not do — they made one signal primary and stopped. The sheet's email is
+    // frequently a business address (ramanufacturingllc@gmail.com) where GHL holds the person's work
+    // address (robert@ramfg-usa.com), so an email miss says nothing about whether the company exists.
     let contact: any = null;
     for (const ct of byEmail.get(String(row.email ?? '').trim().toLowerCase()) ?? []) {
       contact = ct;
       if (ct.businessId) break;
     }
-    if (!contact) { bump('skip:no-contact'); review.push({ row: row.row, name: row.business_name, why: 'no contact for this email', email: row.email }); continue; }
+    let companyId: string | null = null;
+    let how = '';
 
-    const primaryId = contact.businessId ?? null;
-    const verdict = judgeCompany(row.business_name, primaryId, primaryId ? bizName.get(primaryId) ?? null : null, `${contact.firstName ?? ''} ${contact.lastName ?? ''}`);
-    if (verdict.kind !== 'match') {
-      bump(`hold:${verdict.kind}`);
+    const primaryId = contact?.businessId ?? null;
+    if (primaryId) {
+      const verdict = judgeCompany(row.business_name, primaryId, bizName.get(primaryId) ?? null, `${contact.firstName ?? ''} ${contact.lastName ?? ''}`);
+      if (verdict.kind === 'match') { companyId = verdict.companyId; how = 'email'; }
+      else {
+        // The contact belongs somewhere else. The sheet may still name a company that exists — that is
+        // the former-company case — but which of the two is right is a human's call, not a score's.
+        bump('hold:review');
+        review.push({
+          row: row.row, name: row.business_name, why: verdict.reason,
+          contact: `${contact.firstName ?? ''} ${contact.lastName ?? ''}`.trim(),
+          contactPrimary: bizName.get(primaryId) ?? null,
+          alsoExistsByName: findCompanyByName(row.business_name) ? bizName.get(findCompanyByName(row.business_name)!) : null,
+          activities: plan.activities.map((a) => a.activityType),
+        });
+        continue;
+      }
+    }
+    if (!companyId) {
+      // No usable contact link — fall back to the company NAME, which is how these seven were found:
+      // RA Manufacturing LLC, DoughNation Bakery, Mport Media Group, Kim's Konfections, Ivory Lane
+      // Boutique, Wise Home Care Services, Kev's Car Care all exist with near-identical names.
+      const byName = findCompanyByName(row.business_name);
+      if (byName) { companyId = byName; how = contact ? 'name (contact unlinked)' : 'name (no contact matched the email)'; }
+    }
+    if (!companyId) {
+      bump(contact ? 'hold:create' : 'skip:unresolved');
       review.push({
-        row: row.row, name: row.business_name, why: verdict.reason,
-        contact: `${contact.firstName ?? ''} ${contact.lastName ?? ''}`.trim(),
-        contactPrimary: primaryId ? bizName.get(primaryId) : null,
-        activities: plan.activities.map((a) => a.activityType),
+        row: row.row, name: row.business_name,
+        why: contact ? 'contact exists but has no company, and no company matches the name' : 'no contact for this email and no company matches the name',
+        email: row.email, owner: row.owner_name,
       });
       continue;
     }
+    bump(`resolved:${how}`);
+    // Associate the contact we actually matched. Failing that, borrow the company's contact ONLY when
+    // it has exactly one — attaching a specific wrong person is worse than attaching nobody, and the
+    // company association is what a funder row is built from anyway.
+    const onCompany = contactsForCompany.get(companyId) ?? [];
+    const contactId = contact?.id ?? (onCompany.length === 1 ? onCompany[0] : null);
+    const verdict = { kind: 'match' as const, companyId, reason: how };
 
     for (const a of plan.activities) {
       // For a referral the counterparty is part of what makes it a distinct event, so it belongs in
@@ -146,7 +209,7 @@ const SHEET_SOURCE = 'Manual';
       if (!APPLY) continue;
       const res = await upsertActivity(
         { source: SHEET_SOURCE, sourceRecordId: a.sourceRecordId },
-        { type: a.activityType, companyId: verdict.companyId, contactIds: [contact.id], values: a.values },
+        { type: a.activityType, companyId: verdict.companyId, contactIds: contactId ? [contactId] : [], values: a.values },
         { client: c, mode: 'ingest', actorKind: 'sync', actor: { name: 'activity:sheet-import' }, onlyIfAbsent: ['activity_date'] },
       );
       bump(`outcome:${res.outcome}`);
