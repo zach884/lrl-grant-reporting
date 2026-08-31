@@ -16,6 +16,7 @@
 // report noop is broken.
 
 import { GhlClient, ghl } from '../ghl/client';
+import { GhlApiError } from '../ghl/errors';
 import { getCatalog } from '../ghl/catalogCache';
 import { writeRecordFields } from '../ghl/writeRecord';
 import { didPersist } from '../ghl/objectWrite';
@@ -185,7 +186,34 @@ export async function upsertActivity(
   // Don't rewrite the identity of a record we already wrote.
   const { [SOURCE_FIELD]: _s, [SOURCE_ID_FIELD]: _i, ...updatable } = values;
   const catalog = await getCatalog(ACTIVITIES_OBJECT, { client });
-  const before = await readRecordFields(ACTIVITIES_OBJECT, existingId, client);
+
+  // The claim can outlive its record: deleting an activity in GHL leaves the claims ledger pointing
+  // at a dead id, and reading it 404s. Without this, that source event could NEVER be re-ingested —
+  // every future delivery would throw on the same missing record. Deleting a bad activity and
+  // letting it re-ingest is a thing people actually do, so a stale claim self-heals: release it and
+  // fall through to the create path, which claims again cleanly.
+  let before: Awaited<ReturnType<typeof readRecordFields>>;
+  try {
+    before = await readRecordFields(ACTIVITIES_OBJECT, existingId, client);
+  } catch (e) {
+    const gone = e instanceof GhlApiError && (e.status === 404 || e.status === 400);
+    if (!gone || opts.plan) {
+      if (gone && opts.plan) return { recordId: '', outcome: 'would-create', written: Object.keys(values), skipped: [] };
+      throw e;
+    }
+    await releaseClaim(key.source, key.sourceRecordId);
+    const claim = await claimSourceEvent(key.source, key.sourceRecordId);
+    const ingestOpts: CreateActivityOptions = { mode: 'ingest', actorKind: 'sync', ...opts };
+    if (!ingestOpts.actor) ingestOpts.actor = { name: adapterName(key.source) };
+    try {
+      const created = await createActivity({ ...input, values }, ingestOpts);
+      await resolveClaim(key.source, key.sourceRecordId, created.recordId);
+      return { ...created, outcome: 'created' };
+    } catch (err) {
+      await releaseClaim(key.source, key.sourceRecordId);
+      throw err;
+    }
+  }
 
   // Diff HERE, not in the writer. `writeRecordFields` sends every scalar it is given (only modifier
   // fields diff internally), so handing it the full desired state would rewrite an unchanged record

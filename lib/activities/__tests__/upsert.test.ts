@@ -7,6 +7,7 @@ vi.mock('../../audit/log', () => ({ logChange: vi.fn(async () => {}) }));
 
 import { logChange } from '../../audit/log';
 import { upsertActivity, findActivityBySource, SOURCE_FIELD, SOURCE_ID_FIELD } from '../upsert';
+import { GhlApiError } from '../../ghl/errors';
 import { clearAssociationCache } from '../../ghl/associations';
 import { ACTIVITIES_OBJECT } from '../schema';
 import type { CustomFieldDef } from '../../ghl/types';
@@ -223,5 +224,64 @@ describe('findActivityBySource', () => {
     const client = fakeClient();
     expect(await findActivityBySource({ source: 'Appointment', sourceRecordId: '' }, client)).toBeNull();
     expect(client.requests.length).toBe(0);
+  });
+});
+
+describe('a claim that outlived its record', () => {
+  /**
+   * Someone deletes a bad activity in GHL by hand. The claims ledger (or the search index) still
+   * points at the dead id, so reading it 404s. Before this was handled, that source event could
+   * never be ingested again — every future delivery threw on the same missing record, and the
+   * meeting silently stopped existing for reporting purposes.
+   */
+  function clientWithGhost() {
+    const base = fakeClient();
+    const inner = base.request.bind(base);
+    base.request = async (args: any) => {
+      const { method = 'GET', path } = args;
+      // The source lookup finds a record that has since been deleted.
+      if (method === 'POST' && path === `/objects/${ACTIVITIES_OBJECT}/records/search`) {
+        return { records: [{ id: 'ghost', properties: { [SOURCE_ID_FIELD]: 'appt-123' } }], total: 1 };
+      }
+      if (method === 'GET' && path === `/objects/${ACTIVITIES_OBJECT}/records/ghost`) {
+        throw new GhlApiError({ status: 404, body: { message: 'Record not found' }, method, path, attempts: 1 });
+      }
+      return inner(args);
+    };
+    return base;
+  }
+
+  it('recovers by creating a fresh record instead of throwing forever', async () => {
+    const client = clientWithGhost();
+    const res = await upsertActivity(key, input, { client });
+    expect(res.outcome).toBe('created');
+    expect(res.recordId).not.toBe('ghost');
+    const stored = client.records.get(res.recordId);
+    expect(stored[SOURCE_ID_FIELD]).toBe('appt-123');
+  });
+
+  it('reports would-create on a dry run, without writing', async () => {
+    const client = clientWithGhost();
+    const before = client.records.size;
+    const res = await upsertActivity(key, input, { client, plan: true });
+    expect(res.outcome).toBe('would-create');
+    expect(client.records.size).toBe(before);
+  });
+
+  it('still surfaces a genuine error rather than masking it as a create', async () => {
+    // A 500 is not "the record is gone" — it must propagate, or a transient outage would quietly
+    // duplicate every activity it touched.
+    const client = fakeClient();
+    const inner = client.request.bind(client);
+    client.request = async (args: any) => {
+      if (args.method === 'POST' && args.path === `/objects/${ACTIVITIES_OBJECT}/records/search`) {
+        return { records: [{ id: 'ghost', properties: { [SOURCE_ID_FIELD]: 'appt-123' } }], total: 1 };
+      }
+      if ((args.method ?? 'GET') === 'GET' && args.path === `/objects/${ACTIVITIES_OBJECT}/records/ghost`) {
+        throw new GhlApiError({ status: 500, body: {}, method: 'GET', path: args.path, attempts: 3 });
+      }
+      return inner(args);
+    };
+    await expect(upsertActivity(key, input, { client })).rejects.toThrow(/500/);
   });
 });
