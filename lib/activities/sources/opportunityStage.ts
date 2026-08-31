@@ -145,9 +145,21 @@ export async function ingestOpportunity(
       ...opts,
       mode: 'ingest',
       actorKind: 'sync',
-      // WHEN an enrollment began is set once. Several stages imply the same enrollment, so without
-      // this each advance through the pipeline would push the start date forward.
-      onlyIfAbsent: route.activityType === 'program_acceptance' ? ['activity_date', 'activity_name', 'activity_notes'] : [],
+      // WHEN something happened is set ONCE, for every type this adapter produces. Several stages
+      // map to the same record, so without this each advance through the pipeline pushes the date
+      // forward — a wrong date that looks entirely plausible.
+      //
+      // This was originally applied to program_acceptance only, and grants were left unprotected.
+      // Measured 2026-08-31, before the nightly sweep was scheduled: a single sweep would have
+      // rewritten `activity_date` on ALL 50 grant activities to the latest stage-change moment.
+      // That field is the funder's "Date Direct Grant Awarded" (Trusted Connector column S), so the
+      // real award dates would have been replaced by the date the sweep happened to run.
+      //
+      // Names and notes stay updatable for grants on purpose: a record's name can legitimately be
+      // improved (see the pipeline-naming change in b44ba4d), whereas its date cannot.
+      onlyIfAbsent: route.activityType === 'program_acceptance'
+        ? ['activity_date', 'activity_name', 'activity_notes']
+        : ['activity_date'],
       plan: opts.dryRun,
     },
   );

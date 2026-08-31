@@ -155,6 +155,24 @@ describe('ingestOpportunity', () => {
     expect(input.values.grant_status).toBe('Receipts Received');
   });
 
+  it("never lets a later stage move a GRANT's date", async () => {
+    // Four stages route to `grant`, so without onlyIfAbsent every advance through the pipeline
+    // rewrites activity_date to the latest stage-change moment. That field is the funder's "Date
+    // Direct Grant Awarded" (TC column S). Measured 2026-08-31: one sweep would have rewritten the
+    // date on all 50 grant activities. Names stay updatable; the date does not.
+    mockRoute.mockResolvedValue({
+      source: OPPORTUNITY_SOURCE, matchKind: 'pipeline_stage', matchId: 'stage-receipts',
+      matchLabel: 'Direct Grant · Receipts Received', activityType: 'grant', enabled: true,
+      defaults: { grant_status: 'Receipts Received' },
+    });
+    await ingestOpportunity(opp({ pipelineStageId: 'stage-receipts' }), { client });
+    const opts = mockUpsert.mock.calls[0][2];
+    expect(opts.onlyIfAbsent).toContain('activity_date');
+    // ...but a grant's name and notes may still be corrected.
+    expect(opts.onlyIfAbsent).not.toContain('activity_name');
+    expect(opts.onlyIfAbsent).not.toContain('activity_notes');
+  });
+
   it('ingests nothing for an unrouted stage', async () => {
     mockRoute.mockResolvedValue(null);
     const r = await ingestOpportunity(opp({ pipelineStageId: 'stage-closed-lost' }), { client });

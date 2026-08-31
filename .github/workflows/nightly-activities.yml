@@ -1,0 +1,94 @@
+name: Nightly activity ingest (backstop)
+
+# Backstop for activity ingestion. Five nightly workflows existed and NONE of them ingested
+# activities, so capture depended entirely on a GHL webhook firing or someone running a script by
+# hand. The 2026-08-27 incident showed why that is not good enough: GHL paused the "Contact Changed"
+# workflow after a storm of failures, and a paused workflow is silent. Reporting data cannot depend
+# on a delivery mechanism that can switch itself off.
+#
+# 09:15 UTC — after nightly-reconcile (07:00), which keeps contact↔company links in step. Activity
+# ingestion resolves a company through `contact.businessId`, so running after reconcile means a
+# newly-linked contact is resolvable on the same night rather than the next one.
+#
+# Both steps are idempotent: identity is (source, source_record_id) and `upsertActivity` diffs before
+# writing, so a clean night reports all `noop` and writes nothing. Re-running is always safe.
+#
+# ── WHAT THIS DELIBERATELY DOES *NOT* SWEEP ────────────────────────────────────────────────────────
+#
+# FORMS — both kinds are excluded, for different reasons, and neither is an oversight:
+#
+#   • metrics — the activity's identity is `<contactId>:<reportingPeriodEnd>`, and the reporting
+#     period is derived from WHEN THE FORM WAS SUBMITTED. A sweep only knows "now", so it would file
+#     a client's March answers under the period the sweep happens to run in. That is a wrong number
+#     that looks entirely plausible, which is the failure mode this project treats as worst. Metrics
+#     needs the webhook (which knows the submission moment) or an explicit
+#     `form-ingest-run.ts metrics --submitted <date>`.
+#
+#   • grant — the form resolves the contact's Direct Grants opportunity to decide which grant record
+#     to merge onto. A contact's grant fields hold only their LATEST application, so once anyone
+#     receives a second grant, a nightly sweep would merge the new application's numbers onto
+#     whichever opportunity it resolves — potentially overwriting the first grant's detail. No
+#     contact has two grants today, so this is a standing hazard rather than a live bug, and grants
+#     are the one type whose capture design is still open (see docs/sprints/grant-definitions.md).
+#     Sweeping them nightly would bake in a decision we have deliberately not made.
+#
+# Both stay manual, dry-run first, until their capture path is settled.
+
+on:
+  schedule:
+    # 09:15 UTC = 5:15am EDT / 4:15am EST. Cron is UTC.
+    - cron: '15 9 * * *'
+  workflow_dispatch:
+    inputs:
+      days:
+        description: 'Appointment look-back window in days'
+        required: false
+        default: '7'
+
+jobs:
+  activities:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+
+      - name: Appointments → Intake / TA (apply, live)
+        # A 7-day window, not one: it has to cover a webhook that was down for a few days, and a
+        # re-ingested appointment is a noop. Only calendars WITH a routing rule are read, so
+        # personal calendars are never touched (they are used for vendor and partner calls).
+        # Cancelled and not-yet-held appointments are skipped as first-class outcomes, not errors.
+        run: npx vite-node scripts-ts/appointment-ingest-run.ts --days ${{ github.event.inputs.days || '7' }} --apply
+        env:
+          GHL_TARGET: live
+          GHL_MAX_RPS: 3
+          GHL_API_KEY: ${{ secrets.GHL_API_KEY }}
+          GHL_LOCATION_ID: ${{ secrets.GHL_LOCATION_ID }}
+          GHL_CUSTOM_OBJECT_ID: ${{ secrets.GHL_CUSTOM_OBJECT_ID }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Opportunity stages → Program acceptance / Grant status (apply, live)
+        # Backstop for the "Opportunity Stage changed" webhook. Enrollment dates use onlyIfAbsent,
+        # so a sweep can never push an existing enrollment's start date forward — the failure that
+        # live testing caught during phase 4.
+        run: npx vite-node scripts-ts/opportunity-ingest-run.ts --apply
+        env:
+          GHL_TARGET: live
+          GHL_MAX_RPS: 3
+          GHL_API_KEY: ${{ secrets.GHL_API_KEY }}
+          GHL_LOCATION_ID: ${{ secrets.GHL_LOCATION_ID }}
+          GHL_CUSTOM_OBJECT_ID: ${{ secrets.GHL_CUSTOM_OBJECT_ID }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Upload activity ingest report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: activity-ingest-report
+          path: reports/
+          if-no-files-found: ignore
+          retention-days: 14
