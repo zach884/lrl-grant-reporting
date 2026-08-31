@@ -175,7 +175,58 @@ show exactly why names failed:
 **Never match these sheets on company name.** Email is the reliable key, and it is also what every
 other adapter uses, so the importer inherits the same behaviour for free.
 
-⚠️ **But that third row is a warning, not a win.** The email resolves to a contact whose `businessId`
+### A person can have more than one company — and name similarity cannot decide which
+
+Zach (8/31): *"Jessica Wade has 2 companies. Her primary is now Bailey & Co. But before it was
+something else and that old company is not in the system but should be for reporting purposes with the
+activities associated."*
+
+That is the real shape of the problem, and it means `contact.businessId` is a **point-in-time value**:
+it names the company the contact belongs to *now*, not the one that was served when the activity
+happened. So resolution has to be email → contact → primary, then a **check that the primary is
+plausibly the same business the sheet names**.
+
+I built that check as a fuzzy name comparison and validated it against the nine examples Zach
+corrected by hand — all nine resolved correctly, including `Tip Top Restaurant` → `Tip Top Restaraunt`
+(misspelled in GHL) and `Engraved F0r You` → `Engraved For You`. It then flagged 17 rows where the
+sheet's business disagreed with the contact's primary.
+
+**Reviewing those 17 mostly refuted the hypothesis.** Roughly 13 are the *same* business under a
+different name, not a former one:
+
+| Sheet | Contact's primary in GHL | Really? |
+|---|---|---|
+| Wildana's Touch And Taste | Touch&Taste by Wildana | same, reordered |
+| RASTA | RASTA SENSE LLC | same, extended |
+| Motion Sync | Motion Sync Technologies Inc | same, extended |
+| Nemecek Consulting DBA Altiplano Reserve | Altiplano Reserve | same, the DBA |
+| SwiftCutz Barbershop | Swift Cutz | same, spacing |
+| Smiling Jims | Smiling Jim's Organic Seasonings | same, extended |
+| The Artful Eye, Carrie Joers | The Artful Eye, LLC | same |
+| **Jessie's Bookkeeping Solutions** | **Bailey & Co** | **genuinely different** |
+| **Solution Consulting Team LLC** | **JENDAMARK USA, LLC** | looks like a job change |
+| **Le Vintage Rose LLC** | **The Little Pink Chapel LLC** | plausibly a second business |
+
+One concrete defect found on the way: possessives break the tokenizer. `Wildana's` becomes
+`{wildana, s}`, and that stray single-letter token drops the similarity from 0.75 to 0.60 — below
+threshold — which is why an obvious match was flagged. Worth fixing, but fixing it does not rescue the
+approach.
+
+**The conclusion is a design decision, not a tuning problem.** No similarity threshold can separate
+"renamed / DBA / reordered" from "different business", because both look identical to a string
+comparison — `Motion Sync` → `Motion Sync Technologies` is a rename while
+`Solution Consulting Team` → `JENDAMARK USA` is a job change, and only a human knows which. So:
+
+- **Resolve by email → `businessId`.** That covers **309 of 375 rows** outright.
+- **28 more** resolve by name where the contact simply isn't linked to an existing company.
+- **Do not automate the disagreements.** The ~17 rows where the sheet's business and the contact's
+  primary differ go to a **review list** — a human confirms rename-vs-former-company. Seventeen rows
+  out of 375 is entirely tractable, and it is the same principle already applied elsewhere in this
+  project: never invent a company, surface it instead (`lib/ghl/resourceRelations.ts`).
+- Only after review does anything get created — and the genuine former companies **do** need creating,
+  because their activity history has nowhere else correct to attach.
+
+⚠️ **The original warning still stands, and this is why it matters.** The email resolves to a contact whose `businessId`
 points at *Bailey & Co* while the sheet says *Jessie's Bookkeeping Solutions*. One of the two is
 wrong — either the contact is linked to the wrong company, or the person has changed business. This is
 the same class of problem `lib/sync/identityGuard.ts` exists for, so the importer should apply the
@@ -183,11 +234,14 @@ same comparison: **when the sheet's business name and the resolved company disag
 tolerance, flag for review rather than silently attaching the activity to the wrong company.**
 Attaching service history to the wrong business is a reporting error no reviewer would catch.
 
-The 9 businesses needing records: Heart Flo Yoga · The Frame Studios · Carrie Joers - Self Employed ·
-Engraved F0r You · SheVinci · Tip Top Restaurant · Blue Entity, LLC · Machine Ai Solutions LLC ·
-Fizzy Aquatics LLC. The sheet row carries Business Name, Street Address, City, ST, Zip, County, Owner
-Name and Email, so creating them from the sheet is straightforward — and *Carrie Joers - Self
-Employed* is a good example of the bare-contact case Zach described on 8/24.
+An earlier draft listed 9 businesses as needing records — Heart Flo Yoga, Blue Entity, Machine Ai
+Solutions, Engraved F0r You, SheVinci, Tip Top Restaurant among them. **All of those exist in GHL**;
+Zach checked them by hand. They were false negatives from matching on name, and the corrected resolver
+finds every one. Only **The Frame Studios** appears genuinely absent, plus whichever of the review
+list turn out to be real former companies.
+
+When a company does need creating, the sheet row supplies everything a record needs: Business Name,
+Street Address, City, ST, Zip, County, Owner Name and Email.
 
 ## Why `Reason for grant` contains AI failure text
 
@@ -207,8 +261,10 @@ provide") as empty rather than importing the apology as data.
 
 ## Open, for Zach
 
-1. ~~The unmatched companies~~ — **RESOLVED:** resolve by email, and only **9** businesses need a
-   company record (listed above). Create them from the sheet's firmographics.
+1. ~~The unmatched companies~~ — **RESOLVED, and the answer changed twice.** Resolve by email
+   (309/375 outright, +28 by name where the contact is unlinked). Do **not** automate the ~17
+   disagreements — they go to a review list, because no threshold separates a rename from a former
+   company. Genuine former companies get created from the sheet's firmographics after review.
 2. ~~The untitled rows~~ — **RESOLVED (Zach, 8/31):** approximate dates are fine for history already
    reported. Import with the approximate-date flag. Catch-up rows are Alex writing up meeting notes
    after the fact, which is normal practice, not a data fault.
