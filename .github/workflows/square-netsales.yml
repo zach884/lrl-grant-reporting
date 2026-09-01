@@ -27,10 +27,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+
+      # Fail fast, and fail legibly. Square reports a wrong location and a bad token
+      # both as AUTHENTICATION_ERROR, so a bare 401/403 from the main step does not say
+      # which secret is at fault (that ambiguity cost four runs on 2026-09-01). This
+      # resolves the token to a merchant and asserts the location is readable before we
+      # spend 20s on npm ci.
+      - name: Preflight Square credentials
+        env:
+          SQUARE_ACCESS_TOKEN: ${{ secrets.SQUARE_ACCESS_TOKEN }}
+          SQUARE_LOCATION_ID: ${{ secrets.SQUARE_LOCATION_ID }}
+        run: python3 scripts/preflight-square.py
+
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
       - run: npm ci
       - name: Pull Square Net Sales -> GHL (apply, live)

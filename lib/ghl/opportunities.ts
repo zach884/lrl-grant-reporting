@@ -1,14 +1,24 @@
 // lib/ghl/opportunities.ts — create/update the monthly Cafe Fuel sales opportunity.
 //
 // Verified live 2026-08-04 against the Cafe Fuel Sales pipeline:
-//   - POST /opportunities/            create (locationId required in body)
-//   - PUT  /opportunities/{id}        partial update (preserves contact/pipeline/stage)
-//   - DATE custom field writes as customFields:[{ id, field_value:"YYYY-MM-DD" }]
-//     (the epoch-number form is rejected 400). Stored as midnight-UTC epoch.
-//   - search endpoint returns the date as fieldValueDate (epoch ms); single GET as
-//     fieldValue ("YYYY-MM-DD"). We read back via search for the epoch cross-check.
+// - POST /opportunities/ create (locationId required in body)
+// - PUT /opportunities/{id} partial update (preserves contact/pipeline/stage)
+// - DATE custom field writes as customFields:[{ id, field_value:"YYYY-MM-DD" }]
+//   (the epoch-number form is rejected 400). Stored as midnight-UTC epoch.
+// - search endpoint returns the date as fieldValueDate (epoch ms); single GET as
+//   fieldValue ("YYYY-MM-DD"). Both shapes are handled below.
+//
+// READ-BACK CONSISTENCY (fixed 2026-09-01)
+// GET /opportunities/search is Elasticsearch-backed and eventually consistent. Verifying
+// through it immediately after a create returns nothing for a second or two, which made the
+// 1 Sep 2026 run post the correct August figure and then exit 1 with
+// "opportunity not found on read-back". GET /opportunities/{id} is strongly consistent, so
+// verification now prefers it whenever the upsert handed back an id, and only falls back to
+// the search index (with retries) when there is no id to read.
 
 import { GhlClient, ghl } from './client';
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 // ---- Cafe Fuel constants (overridable via env for portability) -----------
 export const CAFE_FUEL = {
@@ -42,7 +52,26 @@ export interface MonthlyOpp {
   id: string;
   name: string;
   monetaryValue: number;
+  /** From the search endpoint (fieldValueDate). Null when only the ISO form came back. */
   dateEpochMs: number | null;
+  /** From the single-GET endpoint (fieldValue). Null when only the epoch form came back. */
+  dateISO: string | null;
+}
+
+/**
+ * Normalise one opportunity payload. The reporting-month date field arrives as an epoch
+ * number from /opportunities/search and as a "YYYY-MM-DD" string from /opportunities/{id},
+ * so keep whichever we were given rather than guessing a conversion.
+ */
+function mapOpp(o: any): MonthlyOpp {
+  let epoch: number | null = null;
+  let iso: string | null = null;
+  for (const cf of o.customFields ?? []) {
+    if (cf.id !== CAFE_FUEL.dateFieldId) continue;
+    if (typeof cf.fieldValueDate === 'number') epoch = cf.fieldValueDate;
+    if (typeof cf.fieldValue === 'string' && cf.fieldValue) iso = cf.fieldValue;
+  }
+  return { id: o.id, name: o.name, monetaryValue: o.monetaryValue, dateEpochMs: epoch, dateISO: iso };
 }
 
 /** Read all opportunities in the Cafe Fuel pipeline (small; single page suffices). */
@@ -52,13 +81,27 @@ export async function listCafeFuelOpps(client: GhlClient = ghl()): Promise<Month
     params: { location_id: client.locationId, pipeline_id: CAFE_FUEL.pipelineId, limit: 100 },
     autoLocation: false,
   });
-  return (res.opportunities ?? []).map((o: any): MonthlyOpp => {
-    let epoch: number | null = null;
-    for (const cf of o.customFields ?? []) {
-      if (cf.id === CAFE_FUEL.dateFieldId && typeof cf.fieldValueDate === 'number') epoch = cf.fieldValueDate;
-    }
-    return { id: o.id, name: o.name, monetaryValue: o.monetaryValue, dateEpochMs: epoch };
-  });
+  return (res.opportunities ?? []).map(mapOpp);
+}
+
+/**
+ * Read one opportunity by id. Strongly consistent, unlike the search index, so this is the
+ * right call for verifying a write that just happened. Returns null on 404.
+ */
+export async function getOpportunityById(
+  id: string, client: GhlClient = ghl(),
+): Promise<MonthlyOpp | null> {
+  try {
+    const res = await client.request<any>({
+      path: `/opportunities/${id}`,
+      autoLocation: false,
+    });
+    const opp = res.opportunity ?? res;
+    return opp && opp.id ? mapOpp(opp) : null;
+  } catch (err: any) {
+    if (err && err.status === 404) return null;
+    throw err;
+  }
 }
 
 /** Find the opportunity for a month — match on the reporting-month date first, name second. */
@@ -67,9 +110,11 @@ export async function findMonthlyOpportunity(
 ): Promise<MonthlyOpp | null> {
   const opps = await listCafeFuelOpps(client);
   const targetEpoch = lastDayEpochMs(year, month);
+  const targetISO = lastDayOfMonthISO(year, month);
   const targetName = opportunityName(year, month).toLowerCase();
   return (
     opps.find((o) => o.dateEpochMs === targetEpoch) ??
+    opps.find((o) => o.dateISO === targetISO) ??
     opps.find((o) => (o.name ?? '').toLowerCase() === targetName) ??
     null
   );
@@ -136,27 +181,90 @@ export interface VerifyResult {
   ok: boolean;
   expectedEpochMs: number;
   actualEpochMs: number | null;
+  expectedISO: string;
+  actualISO: string | null;
   expectedValue: number;
   actualValue: number | null;
+  /** How the record was read back: "GET /opportunities/{id}" or "search". */
+  via: string;
+  attempts: number;
   message: string;
 }
 
-/** Read the opportunity back via the search endpoint and assert value + date landed. */
+export interface VerifyOptions {
+  /** Id returned by the upsert. When present, verification reads the record directly. */
+  id?: string;
+  /** Read-back attempts before giving up (default 5). */
+  attempts?: number;
+  /** Delay between attempts, ms (default 2000). */
+  delayMs?: number;
+}
+
+/**
+ * Read the opportunity back and assert value + reporting-month date landed.
+ *
+ * Prefers GET /opportunities/{id} (strongly consistent) when an id is available. Falls back
+ * to the search index, retrying, because that index lags a write by a second or more and a
+ * bare single read produced a false "not found" on 2026-09-01.
+ */
 export async function verifyMonthlyOpportunity(
-  year: number, month: number, expectedValue: number, client: GhlClient = ghl(),
+  year: number,
+  month: number,
+  expectedValue: number,
+  client: GhlClient = ghl(),
+  opts: VerifyOptions = {},
 ): Promise<VerifyResult> {
-  const opp = await findMonthlyOpportunity(year, month, client);
+  const maxAttempts = Math.max(1, opts.attempts ?? 5);
+  const delayMs = opts.delayMs ?? 2000;
+
+  let opp: MonthlyOpp | null = null;
+  let via = 'search';
+  let attempts = 0;
+
+  for (let i = 1; i <= maxAttempts; i++) {
+    attempts = i;
+    if (opts.id) {
+      opp = await getOpportunityById(opts.id, client);
+      via = `GET /opportunities/${opts.id}`;
+    }
+    if (!opp) {
+      opp = await findMonthlyOpportunity(year, month, client);
+      via = opts.id ? `search (after GET ${opts.id} missed)` : 'search';
+    }
+    if (opp) break;
+    if (i < maxAttempts) await sleep(delayMs);
+  }
+
   const expectedEpochMs = lastDayEpochMs(year, month);
+  const expectedISO = lastDayOfMonthISO(year, month);
   const expectedVal = Math.round(expectedValue * 100) / 100;
   const actualEpochMs = opp?.dateEpochMs ?? null;
+  const actualISO = opp?.dateISO ?? null;
   const actualValue = opp?.monetaryValue ?? null;
-  const dateOk = actualEpochMs === expectedEpochMs;
+
+  // Compare whichever representation the endpoint gave us. Requiring both would fail
+  // every time, since neither endpoint returns both shapes.
+  const dateOk =
+    actualISO != null ? actualISO === expectedISO
+    : actualEpochMs != null ? actualEpochMs === expectedEpochMs
+    : false;
   const valOk = actualValue != null && Math.abs(actualValue - expectedVal) < 0.005;
   const ok = !!opp && dateOk && valOk;
+
+  const dateDetail = dateOk
+    ? 'ok'
+    : actualISO != null ? `expected ${expectedISO} got ${actualISO}`
+    : `expected ${expectedEpochMs} got ${actualEpochMs}`;
+
   return {
-    ok, expectedEpochMs, actualEpochMs, expectedValue: expectedVal, actualValue,
-    message: !opp ? 'opportunity not found on read-back'
-      : ok ? 'verified: value + reporting-month date match'
-      : `mismatch — date ${dateOk ? 'ok' : `expected ${expectedEpochMs} got ${actualEpochMs}`}; value ${valOk ? 'ok' : `expected ${expectedVal} got ${actualValue}`}`,
+    ok,
+    expectedEpochMs, actualEpochMs,
+    expectedISO, actualISO,
+    expectedValue: expectedVal, actualValue,
+    via, attempts,
+    message: !opp
+      ? `opportunity not found on read-back via ${via} after ${attempts} attempt(s)`
+      : ok ? `verified via ${via}: value + reporting-month date match`
+      : `mismatch via ${via} — date ${dateDetail}; value ${valOk ? 'ok' : `expected ${expectedVal} got ${actualValue}`}`,
   };
 }
