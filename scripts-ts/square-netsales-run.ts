@@ -1,13 +1,13 @@
 // scripts-ts/square-netsales-run.ts — pull Square Net Sales for a month and
 // create/update the Cafe Fuel monthly opportunity in GHL. Mirrors reconcile-run.ts.
 //
-//   npx vite-node scripts-ts/square-netsales-run.ts                      # DRY-RUN, most recent completed month
-//   npx vite-node scripts-ts/square-netsales-run.ts --month 2026-07      # DRY-RUN, a specific month
-//   npx vite-node scripts-ts/square-netsales-run.ts --apply --yes        # APPLY (writes to GHL) — needs --yes
+//   npx vite-node scripts-ts/square-netsales-run.ts                       # DRY-RUN, most recent completed month
+//   npx vite-node scripts-ts/square-netsales-run.ts --month 2026-07       # DRY-RUN, a specific month
+//   npx vite-node scripts-ts/square-netsales-run.ts --apply --yes         # APPLY (writes to GHL) — needs --yes
 //   npx vite-node scripts-ts/square-netsales-run.ts --month 2026-07 --apply --yes
 //
-// Flags: --month YYYY-MM (default: last completed month) --apply (default dry-run) --yes (confirm writes)
-//        --timestamp closed_at|created_at (default closed_at) --tz America/Detroit --force (allow unfinished month)
+// Flags: --month YYYY-MM (default: last completed month)  --apply (default dry-run)  --yes (confirm writes)
+//        --timestamp closed_at|created_at (default closed_at)  --tz America/Detroit  --force (allow unfinished month)
 // Reads Square + GHL creds from .env.local. Target GHL via GHL_TARGET=live|sandbox (default live).
 // Always prints the full Net Sales breakdown so you can calibrate against the Square Dashboard.
 
@@ -57,7 +57,7 @@ async function main() {
   }
 
   console.log(`\n=== Square Net Sales -> GHL :: ${range.label} ===`);
-  console.log(`timezone=${tz}  bucket=${timestampField}  window=[${range.startAt}, ${range.endAt})  mode=${apply ? 'APPLY' : 'DRY-RUN'}`);
+  console.log(`timezone=${tz} bucket=${timestampField} window=[${range.startAt}, ${range.endAt}) mode=${apply ? 'APPLY' : 'DRY-RUN'}`);
 
   const { summary } = await getMonthlyNetSales(year, month, { timezone: tz, timestampField });
   const c = summary.currency;
@@ -65,22 +65,34 @@ async function main() {
   console.log(`  Gross sales        ${money(summary.grossSales, c)}`);
   console.log(`  - Discounts/comps  ${money(summary.discounts, c)}`);
   console.log(`  ----------------------------`);
-  console.log(`  NET SALES          ${money(summary.netSales, c)}   <- opportunity value`);
+  console.log(`  NET SALES          ${money(summary.netSales, c)}  <- opportunity value`);
   console.log(`  (line-item check)  ${money(summary.lineItemNetSalesCheck, c)}`);
   console.log(`  memo: tax ${money(summary.tax, c)} · tips ${money(summary.tips, c)} · svc ${money(summary.serviceCharges, c)} · total collected ${money(summary.totalCollected, c)}`);
 
   const client = ghl();
   const upsert = await upsertMonthlyOpportunity({ year, month, monetaryValue: summary.netSales, dryRun: !apply, client });
-  console.log(`\nGHL opportunity: ${apply ? upsert.action.toUpperCase() : 'would ' + upsert.action}${upsert.id ? ` (id ${upsert.id})` : ''} -> "${upsert.name}"  value ${money(upsert.monetaryValue, c)}  date ${upsert.dateISO}`);
+  console.log(`\nGHL opportunity: ${apply ? upsert.action.toUpperCase() : 'would ' + upsert.action}${upsert.id ? ` (id ${upsert.id})` : ''} -> "${upsert.name}" value ${money(upsert.monetaryValue, c)} date ${upsert.dateISO}`);
 
   if (!apply) {
     console.log('DRY-RUN — no GHL writes made. Re-run with --apply --yes to write.');
     console.log('payload:', JSON.stringify(upsert.payload));
     return;
   }
-  const v = await verifyMonthlyOpportunity(year, month, summary.netSales, client);
+
+  // Read the write back. Pass the id so verification uses GET /opportunities/{id}, which is
+  // strongly consistent; /opportunities/search lags a write by a second or more and produced
+  // a false "not found" on 2026-09-01 after a perfectly good create.
+  const v = await verifyMonthlyOpportunity(year, month, summary.netSales, client, { id: upsert.id });
   console.log(`verify: ${v.ok ? 'OK' : 'FAILED'} — ${v.message}`);
-  if (!v.ok) process.exit(1);
+  if (!v.ok) {
+    console.error(
+      `\nNOTE: the GHL write itself reported ${upsert.action} success` +
+      (upsert.id ? ` for opportunity ${upsert.id}` : '') +
+      `. Check the opportunity in the Cafe Fuel Sales pipeline before assuming the figure is missing — ` +
+      `a verify failure alone does not mean nothing was written.`,
+    );
+    process.exit(1);
+  }
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
