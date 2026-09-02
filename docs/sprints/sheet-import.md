@@ -325,7 +325,7 @@ Measured 2026-09-02 over 708 activities:
 | of those, notes describe a referral or intro | 17 |
 | … company already has an intake → left alone | 6 |
 | … **promoted to `intake`** | 11 |
-| of those, notes are an executed grant contract | 32 (all 32 companies already have a grant activity) |
+| of those, notes are an executed grant contract | 32 TA-typed (53 records across all slots); every one of those companies already has a grant activity |
 | of those, **no notes at all** — unclassifiable either way | 74 (31 with no intake on file) |
 | accelerator **cohort interviews** typed as TA | 37 🙋 |
 
@@ -371,6 +371,36 @@ whole population rather than a sample. Three consequences:
 
 There is still **no field for a contract document on the activity object** — see
 funder-field-trace.md §6. The link lives in the notes because that is the only place it fits.
+
+### Two engine defects this pass exposed
+
+Neither was reachable before, because the import could not re-touch its own records at all.
+
+**The dedup rule blocked every correction.** *"Skip when an activity of the same type already exists
+for that company on that date"* also matched the records this import created, so a re-run skipped 400
+of its own rows before reaching the upsert — the relabelled notes could never land. The index now
+holds the source KEYS on each dedup slot, so a collision with someone else's record is still a skip
+(that is the point: not duplicating an appointment-derived intake, and not duplicating one sheet's row
+from the other sheet) while a collision with only this row's own record falls through to the upsert.
+Measured after the change: **0 creates**, 247 noops — the fix opened the correction path without
+opening a duplication path.
+
+**`didPersist` could never accept a multi-select.** `MULTIPLE_OPTIONS` compared the sent array
+verbatim against the stored one, unlike `SINGLE_OPTIONS`, which resolves through the option catalog.
+A multi-select is written by LABEL and read back by KEY, so `['Mentor']` vs stored `['mentor']` was
+permanently unequal: **57 referral records reported dirty and were rewritten on every run**, forever. Both
+sides now resolve. That is the same shape as the company-name loop — a comparison that can never be
+satisfied, driving a write that never settles — and it is the second time it has cost real churn.
+
+### The final plan, measured
+
+| | |
+|---|---|
+| grant-contract notes relabelled | 53 |
+| promoted `technical_assistance` → `intake` | 11 |
+| records created | **0** |
+| noop | 247 |
+| held for review (unchanged from before) | 13 |
 
 ### Open, and deliberately not decided here
 

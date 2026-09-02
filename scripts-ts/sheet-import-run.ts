@@ -141,7 +141,27 @@ interface Decision { companyName?: string; create?: boolean; contactOnly?: boole
     acts.push(...r);
     if (r.length < 100) break;
   }
-  const existing = new Set<string>();
+  /**
+   * dedup key → the source keys of the activities sitting on it.
+   *
+   * A bare Set of keys made this import unable to CORRECT anything. The rule "skip when an activity
+   * of the same type already exists for that company on that date" also matched the records this
+   * import itself created, so a re-run skipped 400 of its own rows before reaching the upsert — which
+   * is why the relabelled grant-contract notes never landed. Holding the source keys separates the
+   * two cases: a collision with SOMEONE ELSE'S record is still a skip (that is the point of the
+   * rule — not duplicating an appointment-derived intake, and not duplicating one sheet's row from
+   * the other sheet), while a collision with only this row's OWN record falls through to the upsert,
+   * which noops or updates. Per-row idempotency was always guaranteed by the source key.
+   */
+  const existingBy = new Map<string, Set<string>>();
+  const noteKey = (k: string, srcId: string) => {
+    const set = existingBy.get(k) ?? new Set<string>();
+    set.add(srcId);
+    existingBy.set(k, set);
+  };
+  /** Is this key occupied by a record that is NOT the one this row owns? */
+  const takenByOther = (k: string, mine: string) =>
+    Array.from(existingBy.get(k) ?? []).some((id) => id !== mine);
   /**
    * company id → the source keys of every intake already logged for it, which is the second half of
    * Zach's rule-1 test (*"unless we have already logged an intake meeting with the company"*).
@@ -162,8 +182,10 @@ interface Decision { companyName?: string; create?: boolean; contactOnly?: boole
     const cp = String((a.properties as any)?.counterparty_name ?? '').trim().toLowerCase();
     const srcId = String((a.properties as any)?.source_record_id ?? '');
     for (const id of ids) {
-      existing.add(`${id}|${date}|${type}`);
-      if (cp) existing.add(`${id}|${date}|${type}|${cp}`);
+      noteKey(`${id}|${date}|${type}`, srcId);
+      if (cp) {
+        noteKey(`${id}|${date}|${type}|${cp}`, srcId);
+      }
       if (type === 'intake') {
         const set = intakeKeysByCompany.get(id) ?? new Set<string>();
         set.add(srcId);
@@ -172,7 +194,7 @@ interface Decision { companyName?: string; create?: boolean; contactOnly?: boole
     }
     await new Promise((r) => setTimeout(r, 120));
   }
-  console.log(`indexed ${biz.length} companies, ${contacts.length} contacts, ${acts.length} activities (${existing.size} company+date+type keys, ${intakeKeysByCompany.size} companies with an intake)\n`);
+  console.log(`indexed ${biz.length} companies, ${contacts.length} contacts, ${acts.length} activities (${existingBy.size} company+date+type keys, ${intakeKeysByCompany.size} companies with an intake)\n`);
 
   const toCreate = new Map<string, SheetRow>();
   const created_companies = new Map<string, string>();
@@ -317,7 +339,7 @@ interface Decision { companyName?: string; create?: boolean; contactOnly?: boole
       // the collision key — otherwise three referrals on one day look like one.
       const cp = a.values.counterparty_name ? `|${String(a.values.counterparty_name).toLowerCase()}` : '';
       const dedupKey = `${verdict.companyId ?? `contact:${contactId}`}|${row.date_added}|${a.activityType}${cp}`;
-      if (existing.has(dedupKey)) { bump(`skip:already-in-ghl:${a.activityType}`); continue; }
+      if (takenByOther(dedupKey, a.sourceRecordId)) { bump(`skip:already-in-ghl:${a.activityType}`); continue; }
       // Plan through the SAME upsert the apply uses, rather than returning here. A dry run that stops
       // short can only say "would-write: 393" whether or not one field differs, which makes the
       // review step decorative — the mistake already fixed in the appointment and form adapters.
@@ -333,10 +355,10 @@ interface Decision { companyName?: string; create?: boolean; contactOnly?: boole
         updates.push({ row: row.row, name: row.business_name, type: a.activityType, recordId: res.recordId, fields: res.written });
       }
       if (!APPLY) { await new Promise((r) => setTimeout(r, 90)); continue; }
-      // Deliberately NOT adding the new key to `existing`. That set exists to avoid colliding with
-      // activities from OTHER sources; per-row idempotency is already guaranteed by the source key.
-      // Adding to it poisoned the run: four distinct referrals for one company on one day (to four
-      // different partners) collapsed into one, and 15 rows were silently dropped on the first apply.
+      // Deliberately NOT adding the new key to `existingBy`. That index exists to avoid colliding
+      // with activities this row does not own; per-row idempotency is already guaranteed by the
+      // source key. Adding to it poisoned the run: four distinct referrals for one company on one day
+      // (to four different partners) collapsed into one, and 15 rows were silently dropped.
       if (res.outcome === 'created') created.push(res.recordId);
       await new Promise((r) => setTimeout(r, 320));
     }

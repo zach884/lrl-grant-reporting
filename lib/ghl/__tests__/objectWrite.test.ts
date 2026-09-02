@@ -173,6 +173,31 @@ describe('didPersist', () => {
     expect(didPersist('MULTIPLE_OPTIONS', ['1'], null)).toBe(false); // the wipe-to-null case
   });
 
+  it('resolves a multi-select LABEL against the stored KEY', () => {
+    // A multi-select is written by label and read back by key. Comparing them verbatim can never
+    // succeed, so the field reported "not persisted" on every re-delivery and every re-delivery
+    // rewrote it — 57 referral records permanently dirty until this resolved both sides.
+    const def = {
+      id: 'r', name: 'Referral Type', fieldKey: 'custom_objects.activities.referral_type',
+      dataType: 'MULTIPLE_OPTIONS' as const,
+      options: [
+        { key: 'mentor', label: 'Mentor' },
+        { key: 'capital_provider', label: 'Capital Provider' },
+        { key: 'other', label: 'Other' },
+      ],
+    } as unknown as CustomFieldDef;
+    expect(didPersist('MULTIPLE_OPTIONS', ['Mentor'], ['mentor'], def)).toBe(true);
+    expect(didPersist('MULTIPLE_OPTIONS', ['Capital Provider'], ['capital_provider'], def)).toBe(true);
+    expect(didPersist('MULTIPLE_OPTIONS', ['Mentor'], ['other'], def)).toBe(false);
+    // …and a genuine difference is still a difference.
+    expect(didPersist('MULTIPLE_OPTIONS', ['Mentor', 'Other'], ['mentor'], def)).toBe(false);
+  });
+
+  it('still compares verbatim when there is no catalog to resolve against', () => {
+    expect(didPersist('MULTIPLE_OPTIONS', ['Mentor'], ['Mentor'])).toBe(true);
+    expect(didPersist('MULTIPLE_OPTIONS', ['Mentor'], ['mentor'])).toBe(false);
+  });
+
   it('accepts a file url found among the stored files', () => {
     const stored = { 'uuid-a': { url: 'https://x.test/a.png' } };
     expect(didPersist('FILE_UPLOAD', ['https://x.test/a.png'], stored)).toBe(true);
