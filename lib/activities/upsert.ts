@@ -184,7 +184,16 @@ export async function upsertActivity(
   }
 
   // Don't rewrite the identity of a record we already wrote.
-  const { [SOURCE_FIELD]: _s, [SOURCE_ID_FIELD]: _i, ...updatable } = values;
+  //
+  // `activity_type` is the exception, and it is added deliberately. It is the object's discriminator
+  // but it is still a VALUE, not identity — and a record CAN be misclassified. Until now only
+  // `create.ts` ever wrote it, so an adapter that improved its classification rule could correct a
+  // record's name and notes but never its type: the 19 sheet rows Zach identified on 9/2 as intakes
+  // ("anytime you see notes about referrals or intros to be made… assume it was an intake meeting")
+  // would have been renamed to "Intake – …" while still typed as technical assistance, which is worse
+  // than leaving them alone. A caller's explicit `values.activity_type` still wins.
+  const { [SOURCE_FIELD]: _s, [SOURCE_ID_FIELD]: _i, ...rest } = values;
+  const updatable: Record<string, unknown> = { activity_type: input.type, ...rest };
   const catalog = await getCatalog(ACTIVITIES_OBJECT, { client });
 
   // The claim can outlive its record: deleting an activity in GHL leaves the claims ledger pointing

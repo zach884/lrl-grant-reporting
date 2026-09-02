@@ -45,7 +45,7 @@ interface Decision { companyName?: string; create?: boolean; contactOnly?: boole
   const { ghl } = await import('../lib/ghl/client');
   const { enumerateAllContacts } = await import('../lib/ghl/contacts');
   const { getRelatedRecordIds } = await import('../lib/ghl/associations');
-  const { planRow, judgeCompany } = await import('../lib/activities/sources/sheetImport');
+  const { planRow, judgeCompany, mentionsReferralOrIntro } = await import('../lib/activities/sources/sheetImport');
   const { upsertActivity } = await import('../lib/activities/upsert');
   const c = ghl();
 
@@ -62,6 +62,18 @@ interface Decision { companyName?: string; create?: boolean; contactOnly?: boole
   if (SLUG) rows = rows.filter((r) => r.source_slug === SLUG);
   if (PRE2026) rows = rows.filter((r) => (r.date_added ?? '') < '2026-01-01');
   if (LIMIT) rows = rows.slice(0, LIMIT);
+
+  // A decision key that matches nothing is silent by nature — the row falls through to the cascade
+  // and looks like an ordinary unresolved row. That is what happened with "the frame studios":
+  // normalizeCompanyName strips "the", so the real key is "frame studios" and the override never
+  // fired, so the company was never created. Warn loudly instead of failing quietly.
+  const sheetKeys = new Set(doc.rows.map((r) => normName(r.business_name)));
+  const orphanKeys = Object.keys(decisions).filter((k) => !sheetKeys.has(k));
+  if (orphanKeys.length) {
+    console.log(`⚠️  ${orphanKeys.length} override key(s) match NO sheet row — they will do nothing:`);
+    for (const k of orphanKeys) console.log(`      ${JSON.stringify(k)}`);
+    console.log('    Keys must be the normalizeCompanyName() form (noise words stripped, possessives removed).');
+  }
 
   console.log(`rows to consider: ${rows.length}${PRE2026 ? '  (pre-2026 slice)' : ''}`);
   console.log(APPLY ? 'MODE: APPLY\n' : 'MODE: DRY RUN (pass --apply to write)\n');
@@ -130,6 +142,16 @@ interface Decision { companyName?: string; create?: boolean; contactOnly?: boole
     if (r.length < 100) break;
   }
   const existing = new Set<string>();
+  /**
+   * company id → the source keys of every intake already logged for it, which is the second half of
+   * Zach's rule-1 test (*"unless we have already logged an intake meeting with the company"*).
+   *
+   * The KEYS are stored rather than a bare count so the rule is stable across re-runs. If this held
+   * only "has an intake", then a row promoted to intake on one run would, on the next, see its own
+   * record as the pre-existing intake and demote itself back to technical assistance — the record
+   * flipping type every run. Excluding the row's own key breaks that cycle.
+   */
+  const intakeKeysByCompany = new Map<string, Set<string>>();
   for (const a of acts) {
     const type = String(a.properties?.activity_type ?? '');
     const date = String(a.properties?.activity_date ?? '').slice(0, 10);
@@ -138,13 +160,19 @@ interface Decision { companyName?: string; create?: boolean; contactOnly?: boole
     // A referral's counterparty is part of its identity, so record BOTH shapes: the bare key for
     // types where date+type is enough, and the counterparty-qualified key for referrals.
     const cp = String((a.properties as any)?.counterparty_name ?? '').trim().toLowerCase();
+    const srcId = String((a.properties as any)?.source_record_id ?? '');
     for (const id of ids) {
       existing.add(`${id}|${date}|${type}`);
       if (cp) existing.add(`${id}|${date}|${type}|${cp}`);
+      if (type === 'intake') {
+        const set = intakeKeysByCompany.get(id) ?? new Set<string>();
+        set.add(srcId);
+        intakeKeysByCompany.set(id, set);
+      }
     }
     await new Promise((r) => setTimeout(r, 120));
   }
-  console.log(`indexed ${biz.length} companies, ${contacts.length} contacts, ${acts.length} activities (${existing.size} company+date+type keys)\n`);
+  console.log(`indexed ${biz.length} companies, ${contacts.length} contacts, ${acts.length} activities (${existing.size} company+date+type keys, ${intakeKeysByCompany.size} companies with an intake)\n`);
 
   const toCreate = new Map<string, SheetRow>();
   const created_companies = new Map<string, string>();
@@ -170,6 +198,8 @@ interface Decision { companyName?: string; create?: boolean; contactOnly?: boole
   const bump = (k: string) => { tally[k] = (tally[k] ?? 0) + 1; };
   const review: any[] = [];
   const created: string[] = [];
+  /** Records an existing row would CHANGE, so a re-run's review shows corrections, not just creates. */
+  const updates: Array<{ row: number; name: string; type: string; recordId: string; fields: string[] }> = [];
 
   for (const row of rows) {
     const plan = planRow(row);
@@ -259,20 +289,50 @@ interface Decision { companyName?: string; create?: boolean; contactOnly?: boole
     const contactId = contact?.id ?? (onCompany.length === 1 ? onCompany[0] : null);
     const verdict = { kind: 'match' as const, companyId, reason: how || 'contact-only' };
 
+    // ── RULE 1 (Zach, 9/2) ──────────────────────────────────────────────────────────────────────
+    // "anytime you see notes about referrals or intros to be made, I would say its safe to assume it
+    // was an intake meeting, unless we have already logged an intake meeting with the company."
+    //
+    // This lives here, not in `planRow`, because the exception is about GHL's contents rather than
+    // the row's: only the runner knows whether the company already has an intake. The source key is
+    // deliberately LEFT ALONE — the `:ta` suffix names the row's one-on-one SLOT, not the type it
+    // resolves to, so a promotion updates the existing record instead of orphaning it and creating a
+    // second one. (A source-key change is a migration, not a refactor; that lesson cost 7 duplicates.)
+    if (mentionsReferralOrIntro(row.notes)) {
+      for (const a of plan.activities) {
+        if (a.activityType !== 'technical_assistance') continue;
+        if (a.values.modality === 'group') continue; // a workshop is not somebody's intake
+        const priorIntakes = verdict.companyId ? intakeKeysByCompany.get(verdict.companyId) : undefined;
+        const otherIntake = Array.from(priorIntakes ?? []).some((k) => k !== a.sourceRecordId);
+        if (otherIntake) { bump('rule1:held-intake-already-logged'); continue; }
+        a.activityType = 'intake';
+        a.values.activity_name = `Intake – ${String(row.business_name).trim()}`;
+        delete (a.values as Record<string, unknown>).modality;
+        bump('rule1:promoted-to-intake');
+      }
+    }
+
     for (const a of plan.activities) {
       // For a referral the counterparty is part of what makes it a distinct event, so it belongs in
       // the collision key — otherwise three referrals on one day look like one.
       const cp = a.values.counterparty_name ? `|${String(a.values.counterparty_name).toLowerCase()}` : '';
       const dedupKey = `${verdict.companyId ?? `contact:${contactId}`}|${row.date_added}|${a.activityType}${cp}`;
       if (existing.has(dedupKey)) { bump(`skip:already-in-ghl:${a.activityType}`); continue; }
-      bump(`${APPLY ? 'write' : 'would-write'}:${a.activityType}${a.dateConfidence === 'approximate' ? ' (approx date)' : ''}`);
-      if (!APPLY) continue;
+      // Plan through the SAME upsert the apply uses, rather than returning here. A dry run that stops
+      // short can only say "would-write: 393" whether or not one field differs, which makes the
+      // review step decorative — the mistake already fixed in the appointment and form adapters.
+      // Now that this import RE-runs to correct records (rule 1, the grant-contract notes), knowing
+      // which records would actually change is the whole point of the review.
       const res = await upsertActivity(
         { source: SHEET_SOURCE, sourceRecordId: a.sourceRecordId },
         { type: a.activityType, ...(verdict.companyId ? { companyId: verdict.companyId } : {}), contactIds: contactId ? [contactId] : [], values: a.values },
-        { client: c, mode: 'ingest', actorKind: 'sync', actor: { name: 'activity:sheet-import' }, onlyIfAbsent: ['activity_date'] },
+        { client: c, mode: 'ingest', actorKind: 'sync', actor: { name: 'activity:sheet-import' }, onlyIfAbsent: ['activity_date'], plan: !APPLY },
       );
       bump(`outcome:${res.outcome}`);
+      if (res.outcome === 'would-update') {
+        updates.push({ row: row.row, name: row.business_name, type: a.activityType, recordId: res.recordId, fields: res.written });
+      }
+      if (!APPLY) { await new Promise((r) => setTimeout(r, 90)); continue; }
       // Deliberately NOT adding the new key to `existing`. That set exists to avoid colliding with
       // activities from OTHER sources; per-row idempotency is already guaranteed by the source key.
       // Adding to it poisoned the run: four distinct referrals for one company on one day (to four
@@ -283,6 +343,15 @@ interface Decision { companyName?: string; create?: boolean; contactOnly?: boole
   }
 
   console.log('OUTCOMES:', JSON.stringify(tally, null, 1));
+  if (updates.length) {
+    console.log(`\n${updates.length} EXISTING record(s) would change:`);
+    const byField: Record<string, number> = {};
+    for (const u of updates) for (const f of u.fields) byField[f] = (byField[f] ?? 0) + 1;
+    for (const [f, n] of Object.entries(byField).sort((a, b) => b[1] - a[1])) console.log(`   ${String(n).padStart(4)}  ${f}`);
+    writeFileSync(join(process.cwd(), 'reports/sheet-import-updates.json'),
+      JSON.stringify({ generatedAt: new Date().toISOString(), count: updates.length, updates }, null, 1));
+    console.log('   → reports/sheet-import-updates.json');
+  }
   const path = join(process.cwd(), 'reports/sheet-import-review.json');
   writeFileSync(path, JSON.stringify({ generatedAt: new Date().toISOString(), count: review.length, review }, null, 1));
   console.log(`\n${review.length} row(s) held for review → reports/sheet-import-review.json`);

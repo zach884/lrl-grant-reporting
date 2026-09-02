@@ -83,29 +83,70 @@ export interface RowPlan {
 const UNUSABLE_NAMES = new Set(['unsure', 'unknown', 'n/a', 'na', 'none', '']);
 
 /**
+ * The executed direct-grant agreement, when a row's notes are one.
+ *
+ * Zach (9/2): *"The document link is for grants given. The document is the contract executed
+ * outlining the reason for grant and terms."* A GHL workflow dropped that link into the same notes
+ * column that elsewhere holds meeting write-ups, so the two have to be told apart before anything
+ * downstream reads the notes as a description of a meeting.
+ *
+ * Measured 2026-09-02: 55 rows carry such a link and **all 55 carry a grant amount** — so this
+ * recognises the whole population rather than sampling it. 23 of them also carry a ` | `, because the
+ * workflow appended its ChatGPT "reason for grant" step, which returned commentary about its own
+ * prompt instead of a reason. That trailing text is not content and is dropped.
+ */
+export function grantContractUrl(notes: string | null | undefined): string | null {
+  const first = String(notes ?? '').split('|')[0].trim();
+  return /^https?:\/\/\S*leadconnectorhq\.com\/proposals\//i.test(first) ? first : null;
+}
+
+/**
  * A row written from a real GHL appointment carries the appointment TITLE in its notes, separated by
  * a pipe: `Intake Meeting with Jay Mitchell | wants to…`. That marker is the only reliable signal of
  * whether the date can be trusted.
  *
- * Measured 2026-08-31: 136 of 375 TC rows carry it, spread over 63 dates with at most 10 on any one
- * day. The rows WITHOUT it cluster on 27-, 23- and 22-row days — including a quarter end and a year
- * end — which is Alex writing up notes after the fact. Crucially, cluster SIZE is the wrong test:
+ * ⚠️ A pipe alone is NOT the signal. A grant row's notes are `<contract url> | <ChatGPT commentary>`,
+ * which the first version of this function read as a titled appointment and stamped `exact` — 23 rows
+ * given a confident date they never earned. A grant contract says nothing about when a meeting
+ * happened, so those rows are approximate like any other hand-entered one.
+ *
+ * Measured 2026-08-31: 136 of 375 TC rows carry a pipe, spread over 63 dates with at most 10 on any
+ * one day. The rows WITHOUT it cluster on 27-, 23- and 22-row days — including a quarter end and a
+ * year end — which is Alex writing up notes after the fact. Crucially, cluster SIZE is the wrong test:
  * 2026-01-28 has 10 rows and all 10 are titled, a genuinely busy day that a size filter would throw
  * away.
  */
 export function dateConfidence(notes: string | null | undefined): 'exact' | 'approximate' {
+  if (grantContractUrl(notes)) return 'approximate';
   return String(notes ?? '').includes('|') ? 'exact' : 'approximate';
 }
 
-/**
- * Is this 1:1 row an intake meeting rather than general assistance?
- *
- * The notes name the appointment, so this reads the title rather than guessing. Corroborated two
- * ways: of the 80 in-range rows matching this, 63 have a GHL intake activity on the exact same date;
- * and 80 of the 84 matches fall on a Wednesday, which is when LRL runs intakes.
- */
 export function looksLikeIntake(notes: string | null | undefined): boolean {
   return /intake\s+(meeting|call)|initial\s+meeting/i.test(String(notes ?? ''));
+}
+
+/**
+ * Do the notes describe a referral made or an introduction offered?
+ *
+ * Zach (9/2): *"anytime you see notes about referrals or intros to be made, I would say its safe to
+ * assume it was an intake meeting, unless we have already logged an intake meeting with the company."*
+ * The reasoning is process, not text: LRL makes its referrals out of the first conversation, so a
+ * write-up that hands the client onward is describing an intake even when nobody typed the word.
+ *
+ * The second half of the rule — *unless we have already logged an intake* — cannot be answered from a
+ * row, so it is not answered here. `planRow` reports the signal and the CALLER, which knows what is
+ * already in GHL, decides. See `sheet-import-run.ts`.
+ *
+ * ⚠️ A cohort interview is excluded. "Great intro call with Aaron" is an accelerator screening, not a
+ * referral and not an intake, and it is the one phrasing that trips the wording.
+ */
+export function mentionsReferralOrIntro(notes: string | null | undefined): boolean {
+  const t = String(notes ?? '');
+  if (/cohort interview/i.test(t)) return false;
+  if (grantContractUrl(t)) return false;
+  // `\brefer…\b` with the suffixes spelled out rather than a bare `\brefer` prefix, so "reference"
+  // and "referee" do not count as a referral.
+  return /\breferr?(als|al|ed|ing|s)?\b|introduc(e|ed|ing|tion)|\bintro\b|put (him|her|them) in touch/i.test(t);
 }
 
 /**
@@ -116,14 +157,27 @@ export function looksLikeIntake(notes: string | null | undefined): boolean {
 export function isAiFailureText(text: string | null | undefined): boolean {
   const t = String(text ?? '');
   if (t.length < 40) return false;
-  return /line[- ]item/i.test(t) && /(blank|no content|cannot|could not|please (supply|provide))/i.test(t);
+  if (!/line[- ]item/i.test(t)) return false;
+  // Two shapes of the same failure. The first is the model saying it had nothing to read; the second
+  // is the model narrating the instructions it was given ("The text states that descriptions of line
+  // items are used to create a direct grant agreement…"). Neither is a reason for a grant.
+  return /(blank|no content|cannot|could not|please (supply|provide))/i.test(t)
+    || /\b(the (text|document|passage|instructions)|these instructions)\b/i.test(t);
 }
 
 /** Trim the AI apology out, and mark a hand-entered date so a reader knows not to trust the day. */
 function buildNotes(row: SheetRow, confidence: 'exact' | 'approximate'): string | undefined {
   const parts: string[] = [];
   const notes = String(row.notes ?? '').trim();
-  if (notes && !isAiFailureText(notes)) parts.push(notes);
+  const contract = grantContractUrl(notes);
+  if (contract) {
+    // Say what the link IS. A bare URL in a notes field reads as a meeting write-up to anyone
+    // skimming the record, and the ChatGPT commentary the workflow appended after it is dropped
+    // entirely — there is no field for a contract on the activity object yet (funder-field-trace §6).
+    parts.push(`Executed direct-grant agreement: ${contract}`);
+  } else if (notes && !isAiFailureText(notes)) {
+    parts.push(notes);
+  }
   if (confidence === 'approximate') {
     parts.push(`[imported from ${row.source_slug} row ${row.row}; date approximate — entered after the fact]`);
   } else {

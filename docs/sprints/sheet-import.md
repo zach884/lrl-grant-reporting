@@ -291,3 +291,96 @@ open question in `wix-events-phase6.md`. With 47 Wix events it is a one-time cla
 the title and description, the same shape as the readiness tagger: AI proposes, stored as a
 `derivedFrom` value so it recomputes if the event text changes, and reviewable before it counts.
 Two buckets only: tech/innovation, or networking/mentorship.
+
+---
+
+## Correction pass — intake vs technical assistance (9/2)
+
+Zach, after reviewing the imported records:
+
+> *"How are we displaying the difference between a TA Intake Meeting and a TA coaching/mentoring type
+> call? Because I think a lot of these are intake type meetings. And I am losing that in GHL now that
+> we are importing activities."*
+>
+> *"Anytime you see notes about referrals or intros to be made, I would say it's safe to assume it was
+> an intake meeting, unless we have already logged an intake meeting with the company."*
+>
+> *"The document link is for grants given. The document is the contract executed outlining the reason
+> for grant and terms."*
+
+### What the distinction actually is
+
+`activity_type` — `intake` vs `technical_assistance` — with `modality` and `service_topic` carried
+only by the latter. Nothing about the import merged the two types; what the import could not do was
+*infer* a type the source sheet never recorded. **The TC sheet has no intake column**: an intake and a
+coaching call are both flagged `1:1 Technical Assistance`, so the classification had to be read out of
+the notes. GHL therefore holds more than the sheet did, not less.
+
+Measured 2026-09-02 over 708 activities:
+
+| | |
+|---|---|
+| companies with an intake on file | 80 |
+| sheet-imported `technical_assistance` records | 393 |
+| of those, notes describe a referral or intro | 17 |
+| … company already has an intake → left alone | 6 |
+| … **promoted to `intake`** | 11 |
+| of those, notes are an executed grant contract | 32 (all 32 companies already have a grant activity) |
+| of those, **no notes at all** — unclassifiable either way | 74 (31 with no intake on file) |
+| accelerator **cohort interviews** typed as TA | 37 🙋 |
+
+### Rule 1 — a referral in the notes means an intake
+
+`mentionsReferralOrIntro()` reports the signal; the *"unless we have already logged an intake"*
+exception is answered by `sheet-import-run.ts`, which is the only place that knows what GHL holds.
+
+Two things make the rule safe to re-run:
+
+- **It excludes the row's own record.** `intakeKeysByCompany` stores source KEYS, not a count. Storing
+  only "has an intake" would make a promoted row see *itself* as the pre-existing intake on the next
+  run and demote itself — the record flipping type every run, forever.
+- **The source key does not change.** The `:ta` suffix names the row's one-on-one **slot**, not the
+  type it resolves to, so a promotion UPDATES the record. Encoding the type in the key would have
+  orphaned 11 records and created 11 more; a source-key change is a migration, not a refactor, and
+  that lesson already cost 7 duplicates on this import.
+- **Cohort interviews are excluded.** "Great intro call with Aaron | Sales and Marketing Accelerator
+  Cohort Interview" trips the wording without being a referral. 37 records carry that phrasing — the
+  single largest population the rule would otherwise have mass-misclassified.
+
+This forced a real fix in the engine: **`upsertActivity` could not correct a type.** `activity_type`
+was written only by `create.ts`, so an adapter that improved its classification could rewrite a
+record's name and notes but never its type — the 11 rows would have been renamed to `Intake – …`
+while still typed `technical_assistance`, which is worse than not touching them. `activity_type` is
+now part of the diffed update. It is the discriminator, but it is still a value, and a record can be
+wrong.
+
+### Rule 2 — the proposals link is a grant contract
+
+`grantContractUrl()` recognises it, and all 55 such sheet rows carry a grant amount, so this is the
+whole population rather than a sample. Three consequences:
+
+1. **It must not date-stamp anything `exact`.** `dateConfidence` trusted any pipe, and a contract note
+   is shaped `<url> | <ChatGPT commentary>`. ⚠️ Scope correction: 23 SHEET rows were affected, not 55,
+   and **0 live records** — every one of the 32 that reached GHL is already marked approximate. The
+   bug was real in the code and inert in the data.
+2. **The URL is labelled, not pasted.** `Executed direct-grant agreement: <url>`. A bare URL in a
+   notes field reads as a meeting write-up to anyone skimming the record.
+3. **The trailing commentary is dropped.** `isAiFailureText` caught the model saying it had nothing to
+   read, but not the model narrating its own prompt ("The text states that descriptions of line items
+   are used to create a direct grant agreement…"). Both shapes are now rejected.
+
+There is still **no field for a contract document on the activity object** — see
+funder-field-trace.md §6. The link lives in the notes because that is the only place it fits.
+
+### Open, and deliberately not decided here
+
+- 🙋 **37 accelerator cohort interviews** are typed `technical_assistance`. A cohort interview is a
+  program-selection screening — arguably neither TA nor intake. Needs Zach's call, and possibly its
+  own `activity_type` option.
+- 🙋 **74 sheet TA records have no notes at all**, 31 of them for companies with no intake on file.
+  There is no signal in the source either way; this is information absent from the sheet rather than
+  lost by the import. Recoverable only by scraping calendars, which Zach has already said is not worth
+  it for periods already reported.
+- The 17 rule-1 candidates are **not** flagged `flag_referral` on the sheet — so the referrals those
+  notes describe have no `introduction_referral` record either. Worth a separate pass; TC's KPI 16
+  counts them.

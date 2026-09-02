@@ -4,7 +4,8 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  planRow, dateConfidence, looksLikeIntake, isAiFailureText, judgeCompany, type SheetRow,
+  planRow, dateConfidence, looksLikeIntake, isAiFailureText, judgeCompany,
+  grantContractUrl, mentionsReferralOrIntro, type SheetRow,
 } from '../sources/sheetImport';
 
 const row = (over: Partial<SheetRow> = {}): SheetRow => ({
@@ -172,5 +173,87 @@ describe('judgeCompany', () => {
 
   it('asks for creation when the contact has no company at all', () => {
     expect(judgeCompany('The Frame Studios', null, null).kind).toBe('create');
+  });
+});
+
+// ── the corrections Zach called for on 9/2 ────────────────────────────────────────────────────────
+
+const CONTRACT = 'https://services.leadconnectorhq.com/proposals/document/public/download-pdf?p=location/FgnVVv4smxyBNJKFZgJv/documents/69d7c920';
+
+describe('grantContractUrl', () => {
+  it('recognises an executed direct-grant agreement link', () => {
+    expect(grantContractUrl(CONTRACT)).toBe(CONTRACT);
+  });
+
+  it('keeps only the link when the workflow appended its ChatGPT commentary', () => {
+    const notes = `${CONTRACT} | The text states that descriptions of line items are used to create a direct grant agreement.`;
+    expect(grantContractUrl(notes)).toBe(CONTRACT);
+  });
+
+  it('is not fooled by a meeting write-up that merely mentions a document', () => {
+    expect(grantContractUrl('Sent her the grant agreement to sign | good call')).toBeNull();
+    expect(grantContractUrl(null)).toBeNull();
+  });
+});
+
+describe('dateConfidence, with a grant contract in the notes', () => {
+  it('does NOT trust the pipe inside a contract note', () => {
+    // The regression: `<contract url> | <ChatGPT commentary>` contains a pipe but names no
+    // appointment, and a contract says nothing about when a meeting happened.
+    const notes = `${CONTRACT} | The text states that line item descriptions are used…`;
+    expect(notes).toContain('|');
+    expect(dateConfidence(notes)).toBe('approximate');
+  });
+
+  it('still trusts a real appointment title', () => {
+    expect(dateConfidence('Intake Meeting with Jay Mitchell | wants to expand')).toBe('exact');
+  });
+});
+
+describe('mentionsReferralOrIntro', () => {
+  it('fires on referrals made and introductions offered', () => {
+    expect(mentionsReferralOrIntro('Referred her to Michigan Tribe, sent her our LLC blog')).toBe(true);
+    expect(mentionsReferralOrIntro('Referring to SBDC Tech Team')).toBe(true);
+    expect(mentionsReferralOrIntro('Will make the following referrals: SBDC Tech Team')).toBe(true);
+    expect(mentionsReferralOrIntro('put him in touch with CEED Lending')).toBe(true);
+  });
+
+  it('does not fire on an accelerator cohort interview', () => {
+    // "Great intro call with Aaron" is a screening, not a referral and not an intake. 37 sheet
+    // records carry this phrasing — the one wording that would otherwise be mass-misclassified.
+    expect(mentionsReferralOrIntro('Aaron | Sales and Marketing Accelerator Cohort Interview | Great intro call')).toBe(false);
+  });
+
+  it('does not fire on a grant contract note', () => {
+    expect(mentionsReferralOrIntro(CONTRACT)).toBe(false);
+  });
+
+  it('is quiet on an ordinary write-up', () => {
+    expect(mentionsReferralOrIntro('Reviewed her pricing and cash flow')).toBe(false);
+    expect(mentionsReferralOrIntro(null)).toBe(false);
+  });
+});
+
+describe('isAiFailureText, second shape', () => {
+  it('rejects the model narrating its own prompt', () => {
+    expect(isAiFailureText('The text states that descriptions of line items are used to create a direct grant agreement. It is instructed to be brief.')).toBe(true);
+    expect(isAiFailureText('These instructions state that line item descriptions are used to draft a direct grant agreement for the client.')).toBe(true);
+  });
+
+  it('still accepts a genuine reason that happens to mention line items', () => {
+    expect(isAiFailureText('Grant funds a new espresso machine and signage; line items cover equipment and install.')).toBe(false);
+  });
+});
+
+describe('planRow, with a grant contract in the notes', () => {
+  it('labels the link instead of pasting it, and drops the commentary', () => {
+    const notes = `${CONTRACT} | The text states that descriptions of line items are used to create a direct grant agreement.`;
+    const plan = planRow(row({ notes, grant_amount: 4000 }));
+    const only = plan.activities[0];
+    expect(only.activityType).toBe('technical_assistance');
+    expect(only.dateConfidence).toBe('approximate');
+    expect(only.values.activity_notes).toContain('Executed direct-grant agreement: ');
+    expect(only.values.activity_notes).not.toContain('The text states');
+    expect(only.values.activity_notes).toContain('date approximate');
   });
 });
