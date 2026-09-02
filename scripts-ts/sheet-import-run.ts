@@ -221,7 +221,9 @@ interface Decision { companyName?: string; create?: boolean; contactOnly?: boole
   const review: any[] = [];
   const created: string[] = [];
   /** Records an existing row would CHANGE, so a re-run's review shows corrections, not just creates. */
-  const updates: Array<{ row: number; name: string; type: string; recordId: string; fields: string[] }> = [];
+  // `sheet` is not decoration: row numbers COLLIDE across the two sheets (both have a row 6), so a
+  // review file keyed on the number alone points at the wrong row half the time.
+  const updates: Array<{ sheet: string; row: number; name: string; type: string; recordId: string; fields: string[] }> = [];
 
   for (const row of rows) {
     const plan = planRow(row);
@@ -352,7 +354,7 @@ interface Decision { companyName?: string; create?: boolean; contactOnly?: boole
       );
       bump(`outcome:${res.outcome}`);
       if (res.outcome === 'would-update') {
-        updates.push({ row: row.row, name: row.business_name, type: a.activityType, recordId: res.recordId, fields: res.written });
+        updates.push({ sheet: row.source_slug, row: row.row, name: row.business_name, type: a.activityType, recordId: res.recordId, fields: res.written });
       }
       if (!APPLY) { await new Promise((r) => setTimeout(r, 90)); continue; }
       // Deliberately NOT adding the new key to `existingBy`. That index exists to avoid colliding
