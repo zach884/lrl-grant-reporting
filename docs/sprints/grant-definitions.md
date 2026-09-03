@@ -450,3 +450,66 @@ however good future collection gets:
 - **Grant headline fields: 0/63** — blocks TC KPI 1 and SBSH `Total Dollars Deployed`.
 
 Detail and fixes: `funder-field-trace.md` §6.
+
+---
+
+## 8. RESOLVED 2026-09-02 — the TC-blocking confirmations
+
+Answered by Zach in the Sprint C planning chat. These close **6 of the 10** items in §7 for TC's
+purposes. Sprint plan: `sprint-c-tc-report.md`. The remaining 4 are Gateway/SBSH/i4.0-only and stay open.
+
+| §7 item | Resolution |
+|---|---|
+| **2. TC `small_business()`** | **< 500 employees**, possibly a revenue threshold too. Zach: *"of the companies we are logging activities with, nobody will be even close to 500 employees."* → evaluate where employee count is known, pass through where unknown, and state on the output that the predicate is non-binding in practice. No SBA size-standard table needed. |
+| **3. Grant periods (TC)** | **2024-08-01 → 2027-08-31.** Store as versioned config, never a constant. ⚠️ The TC sheet's rows begin 2025-09-30, so the grant's first ~14 months have no sheet coverage — a known, explainable variance rather than a defect. (SBSH's start stays 2023-12-18; Lenawee's effective date still open.) |
+| **7a. `LOCAL` granularity** | **Every `local` program acceptance dated within the grant period** qualifies a company for TC — not the Fellows Bootcamp alone. Requires the date-scoped `enrolled_in(program, at)` primitive; a bare `local` flag is insufficient. (Whether intake/grant qualify for **SBSH** remains open.) |
+| **10. TC event grain** | **One row per attendee.** ⚠️ Consequence: the row set can no longer double as the business count — **KPI 5 must count distinct businesses across rows**, never row count. Zach also asked how events vs attendees get counted; the answer is in the KPI grains below. |
+| **8a. TC cols M/N/O/P/Q** | Zach, against the real header row: M = *"a workshop inside of a program or for a program"* → `technical_assistance` ∧ `modality=group`. N and O are both *"a defined kind of event in Wix"* → `workshop_event` split by classification bucket. P (Referral) is self-evident → `introduction_referral`. **Q (Other) is always FALSE** — *"because I don't know what that is."* A declared constant, not a derivation. |
+| **1 / TC col K** | **Computed column, nothing stored.** Ordered resolution: SEDI-owned → else `Geographic Area defined in Grant Agreement` (from the HUBZone/OZ value already held) → else COVID → else blank. The three strings are fixed by the sheet's own dropdown (`$AG$5:$AG$7`). This retires ⭐ fix 5 as a schema change. **D2's formal definition for SBSH's gate is still open** — SBSH uses it as a row-selection predicate, which is a stricter use than TC col K. |
+| **9. Bare-contact subjects** | **Option B — create a lightweight company at first service.** Zach expressed no preference; taken as Claude's call and flagged for review. Rationale: every funder row is business-shaped, it yields a stable dedup key, and it guards the double-count hazard ("Jane Smith" in period 1, "Jane's Bakery LLC" in period 2 — both plausible on a cumulative sheet). Applies to TC and SBSH; Gateway/i4.0 unaffected (company-grained by definition). |
+
+### Event classification — the mechanism
+
+**One-time AI pass over the 47 Wix events, classified from the event description** into exactly two
+buckets — **Tech/Innovation** or **Networking/Mentorship** — stored as a recomputing `derivedFrom`
+value, the same pattern as the readiness tagger, individually overridable. Zach, 8/31: *"if the event
+is tech/innovation topic focused it counts for that bucket, if it is more networking or mentorship
+driven it goes in the other."* It is a topic judgement per event, not a maintained field.
+
+**The two KPIs read the same classification at different grains — this is easy to get wrong:**
+
+| KPI | Grain | Target |
+|---|---|---|
+| 3 — *attendees* at technology and innovation events | count **attendees** in the Tech/Innovation bucket | 100 |
+| 6 — networking/mentorship *initiatives* executed | count **events** in the Networking/Mentorship bucket | 12 |
+
+⚠️ **Operational blocker, not an engineering one:** every ENDED Wix event currently reports **0
+attended** — the check-in app is not being used at the door. KPI 3 will report ~zero however well
+phase 6 is built, and attendance for events already held may be unrecoverable. This needs a process
+fix at LRL, starting now.
+
+### 9. Zach 2026-09-02 — historical intake/TA classification retired; the SBSH discriminator
+
+*"They all end up going on the sheet as 1:1 TA for TC anyways."*
+
+**TC col L binds to `intake ∨ (technical_assistance ∧ modality=one_on_one)`.** The funder does not
+distinguish an intake from a coaching call, so the intake/TA split is **not a TC dependency**. The
+8/31 classification work (84 intake / 187 TA from notes text, 95% Wednesday corroboration, 79%
+same-date validation) stands as evidence but is not load-bearing for this report.
+
+**Classification rule for TC-sourced sheet rows — narrowed:** default `1:1 TA`; promote to `intake`
+**only when the notes literally contain "Intake."** This is stricter than the rule shipped in
+`3d3e19e` (which promoted on notes mentioning referrals or intros to be made).
+⬜ **Revisit the 11 promotions** from that commit against the narrower rule.
+
+**SBSH col Z `First Time Served by the Hub` is the discriminator TC lacks.** Zach: *"if that is yes
+and it is 1:1 TA type then it is most likely an intake."* SBSH rows therefore self-classify from the
+sheet. TC rows for the same company + date can **inherit that determination by cross-reference**;
+where none exists and the notes are silent, TC defaults to 1:1 TA.
+
+**No back-classification pass, no date repair, no calendar scraping** — for TC or any other program.
+
+⚠️ **SBSH 2.0 is expected to bring a NEW reporting format.** Do not harden against the current SBSH
+template. Design rule 4 (version the lens and the column set **separately**) is the mitigation: a
+reissued template should be clone-and-bump-the-period, not a rebuild. This is also why SBSH stays out
+of Sprint C — building it now risks building against a template about to be replaced.
