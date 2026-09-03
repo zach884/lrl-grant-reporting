@@ -46,6 +46,7 @@ we can't report, no matter how good the engine is.
 | D7 | **Small business (government definition)** | SBA size standards — **NAICS-keyed**, threshold in employees *or* annual receipts. Inputs: `naics_code` + `fte_current` (36%) or `annual_revenue` (31%) | **evaluable for 317/897 (35%)** | **No SBA size-standard table exists in the system.** Adding one is a self-contained piece of reference data. In practice nearly every company LRL serves is small, so this predicate may be near-vacuous — **⬜ CONFIRM** whether it needs real evaluation or a documented assumption |
 
 | D11 | **Company age** | `business.date_of_incorporation` | 28% | Gateway gates on **< 10 years** (Zach, 8/24). `date_registered_in_michigan` (27%) is a near-twin — **⬜ CONFIRM** which one the funder means |
+| D12 | **BAF award** | `activities.grant_program = Gateway`, from `contact.direct_grant_program = BAF` | — | Zach, 9/3: BAF sits under the Gateway umbrella, so **receiving BAF is itself Gateway eligibility** — an OR against D4/D3/D11, not another filter |
 
 Three more dimensions the four grants need that aren't on the list above:
 
@@ -286,12 +287,27 @@ grants themselves.
 
 ### Company lens
 ```
-naics_in(GATEWAY_31_CODES, depth = 4)              D4
-∧ in_state('MI')                                   D3
-∧ age_years_less_than('date_of_incorporation', 10) D11   (Zach, 8/24)
+(   naics_in(GATEWAY_31_CODES, depth = 4)              D4
+  ∧ in_state('MI')                                     D3
+  ∧ age_years_less_than('date_of_incorporation', 10)   D11   (Zach, 8/24)
+)
+∨ received_baf()                                       D12   (Zach, 9/3)
 ```
 The 31 four-digit codes are the funder's own high-tech list, published on `Sheet1` of its workbook.
 **It belongs in the definition as data** — funders revise these lists.
+
+**The BAF clause is an OR, not a filter.** Zach, 2026-09-03: *"BAF is Gateway. BAF is a funding type
+for grants but it's under the umbrella of Gateway. Every company who gets BAF is eligible for Gateway
+reporting."* So a BAF recipient qualifies **on the strength of the award alone** — no NAICS test, no
+age test. This came up as what looked like a picklist problem (`contact.direct_grant_program` offers
+BAF; `activities.grant_program` does not) and turned out to be an eligibility rule that widens the
+cohort: a BAF company outside the 31 high-tech codes, or over 10 years old, is still a Gateway row.
+
+⚠️ **Consequence for the emit side.** The measured Gateway cohort of 78 was derived from the NAICS ∧
+state ∧ age lens alone, so it is a FLOOR, not the cohort. Any BAF recipient not already in those 78
+is an additional row on `Companies Served`. Re-measure once the grant records carry `grant_program`
+(the backfill in `grant-headline-fields.md` is what populates it), and do not reconcile against 78
+until then.
 
 **Cohort measured:** 88 companies match on NAICS; **78** also have a Michigan address. Of those 78,
 **38 have an incorporation date on file — 36 are under 10 years old and 2 are not** (known ages run
