@@ -219,3 +219,32 @@ already covered.
 - No company attributes (NAICS, address) written onto the activity — asserted by test.
 - 🔴 FTE remains unrecoverable. No Gateway workbook has a Current FTE column, so SBSH column N has no
   history and never will.
+
+## Applied — measured against live, 2026-09-03
+
+Imported oldest-first, one workbook at a time, each preceded by its own dry run.
+
+```
+metrics activities: 0 → 188          (187 imported + the 1 live submission)
+2023-02-28   15      2024-08-31   23      2026-02-28   35
+2023-08-31   25      2025-02-28   27      ────────────────
+2024-02-29   28      2025-08-31   34      2026-08-31    1   LIVE, untouched
+```
+
+187 created, exactly the dry run's prediction. Field population across the 187: **13 of 13 mapped
+fields at 187/187**, except `number_of_new_products_commercialized` (185 — two rows left it blank)
+and `describe_other_funding_received` (36 — only filled when a company reported "Other"). Bank loans:
+**187/187**, the figure that was being dropped entirely a day ago.
+
+**Acceptance, checked against the records rather than the run's own tally:**
+
+| | |
+|---|---|
+| 1. all seven periods, exact values | ✅ present on live, and asserted by test |
+| 2. ≤2 unresolved | 🟡 **27** — see build note 3; every one is a company absent from GHL, reported by name |
+| 3. zero attached to a disagreeing company | ✅ 0 name disagreements, 0 ambiguous name matches, across all seven runs |
+| 4. a re-run reports all `noop` | ✅ verified on Apr 2023 — 15 noop, 0 rewrites |
+| 5. the live 2026-09-02 snapshot untouched | ✅ 1 record, still the only thing in `2026-08-31` |
+| 6. regenerate a Gateway report for two periods | ⬜ needs the report engine; the data it was blocked on now exists |
+
+Independent duplicate audit: **0 company+period pairs holding more than one snapshot.**
