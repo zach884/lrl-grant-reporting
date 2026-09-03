@@ -204,3 +204,102 @@ cohort of 78 is a **floor**, not the cohort, and must be re-measured once `grant
 anyone can report on. If BAF grants are to count for Gateway, `grant_program` has to be the record of
 it — which is an argument for backfilling that one record from the opportunity name and asking Alex to
 set the contact field going forward.
+
+---
+
+## Applied — `activity_date` repaired, and `grant_reason` becomes an enricher (2026-09-03)
+
+Zach settled both open questions:
+
+> *"If we can update Activity_date then we should use close date or status change date for the grant
+> activities. Same for program acceptance though we aren't focusing on that right now."*
+>
+> *"I think we might want to build an enricher for reason for grant on the activity. It could read the
+> line items from the grant activity that get copied over and probably make a pretty strong
+> determination. I am fine with an enricher over a reason for grant because reason for grant on the
+> application won't always be completed or right. And if the line items on the grant change due to an
+> amended agreement I want the grant activity to have the last version of the line items instead of
+> the first."*
+
+### 1. `activity_date` ← `opportunity.lastStatusChangeAt` — done
+
+**57 of 64 rewritten, 7 already correct. A re-run reports all 64 `noop`.**
+
+`lastStatusChangeAt` is the close date — the moment the opportunity's status became won or lost —
+and it is 64/64 populated. `lastStageChangeAt` was deliberately **not** used: it is the last STAGE
+move, which for the 36 records at Closed Won is when receipts were accepted, and it disagrees with the
+close date on 34 of 64.
+
+⚠️ **Scope correction to the finding as first reported.** I said every period-filtered report was wrong
+for those 52 records. Measured: the dates were wrong on 57, but only **5 cross a half-year boundary**
+and therefore change reporting period. The rest moved within the same half-year. The dates still
+mattered — TC col S is a date the funder reads — but the period damage was 5 records, not 52.
+
+Done as its own script (`scripts-ts/grant-activity-date-repair.ts`) with its own dry run, because it
+rewrites a field the ingest path guards. Every write is in the change log with the reason.
+
+🙋 **Program acceptance has the same shape and was NOT touched** — Zach: *"we aren't focusing on that
+right now."* 84 `program_acceptance` records come from the same adapter and very likely carry the same
+frozen ingest date. Worth the same repair when it comes up.
+
+### 2. `grant_reason` — an enricher over the line items, not a field copy
+
+`lib/enrichment/enrichers/grantReason.ts`, a `RecordEnricher` like the resource tagger.
+
+**Why the line items beat the application text, measured:**
+
+| Source | Coverage | |
+|---|---|---|
+| `contact.please_do_into_detail…` (the application) | **17/64** | what was *requested*, frozen at submission |
+| approved line items on the activity | **54/64** | what was *contractually agreed*, and moves with an amendment |
+
+The amendment case Zach raised is handled by *when* the enricher runs, not by anything inside it: it
+reads whatever the activity currently holds, so re-running after the line items change yields the new
+reason. Which stage triggers the field copy is what decides which version is on the record.
+
+The enricher deliberately does **not** read the application text. Two sources for one field is how a
+record ends up with a reason nobody can trace; the line items win, and the applicant's own words stay
+on the contact for anyone who wants them.
+
+**The hazard is the padding.** The form fills all ten slots: 49 of 64 records carry ten, and the tail
+reads `$0 / [n_a] / "N/A" / vendor "N/A"`. Handing that to a model invites it to invent a use for
+nothing, so a slot counts only with a positive amount AND a non-placeholder description. 10 tests pin
+that, including every placeholder spelling seen on live.
+
+**Sample dry run (5 records), unedited:**
+
+```
+Beautifully Savvy LLC      5 items $4,168   conf 0.9
+   Funded product photography services, manufacturing equipment, and inventory
+   supplies including raw materials and packaging for a personal care product line.
+RPG Broadcast Consulting   1 item  $5,935   conf 0.6
+   Funded the purchase of an enclosed trailer for general working capital purposes.
+Sandhill Cr…               5 items $8,888   conf 0.9
+   Funded brewing equipment for operational use.
+RJ's                       2 items $11,300  conf 0.9
+   Funded a slushy machine and bench seating for a party section.
+1 Source Solutions LLC     4 items $5,170   conf 0.6
+   Funded marketing consulting services and vehicle wraps for branding purposes,
+   along with operational equipment.
+```
+
+No dollar figures, no vendor names, no outcome claims, no praise — all four are prompt rules, because
+this text goes to a funder. Confidence is recorded as provenance, and Low is flagged to verify.
+
+### 🔴 A third field is silently dropped: item 3's expense category
+
+Found while reading the line items: **`contact.expense_category_item3` is missing an underscore.** The
+activity expects `expense_category_item_3`, so it key-matches nothing and is dropped on **every**
+submission — the exact failure mode as the bank-loan field. It is visible in the data on every record:
+item 3 always arrives with an amount, description and vendor but no category.
+
+This one needs no new field. Both fields exist; only the key differs — so it belongs in the alias map
+this brief already proposes for `grant_program` and `grant_reason`:
+
+```
+contact.direct_grant_program        -> activities.grant_program        (value map: BAF -> Gateway)
+contact.expense_category_item3      -> activities.expense_category_item_3
+```
+
+The enricher tolerates the gap today (amount + description + vendor is plenty to reason from), so
+nothing is blocked — but the category is a funder-reportable classification and should not stay lost.
