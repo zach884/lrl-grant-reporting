@@ -26,10 +26,14 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { GatewayRow } from '../lib/activities/sources/gatewayMetrics';
 
-for (const l of readFileSync(join(process.cwd(), '.env.local'), 'utf8').split('\n')) {
-  const m = l.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
-  if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
-}
+// Local dev reads .env.local; in CI (GitHub Actions) the secrets arrive as real env vars and the
+// file does not exist — an unguarded readFileSync ENOENTs the whole run before it starts.
+try {
+  for (const l of readFileSync(join(process.cwd(), '.env.local'), 'utf8').split('\n')) {
+    const m = l.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
+    if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+  }
+} catch { /* no .env.local (CI) — env is already populated */ }
 if (!process.env.GHL_TARGET) process.env.GHL_TARGET = 'live';
 
 const arg = (n: string) => { const i = process.argv.indexOf(n); return i >= 0 ? process.argv[i + 1] : undefined; };

@@ -8,8 +8,17 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { ghl } from '../lib/ghl/client';
-function env(){const t=readFileSync(join(process.cwd(),'.env.local'),'utf8');
- for(const l of t.split('\n')){const m=l.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);if(m&&process.env[m[1]]===undefined)process.env[m[1]]=m[2].replace(/^["']|["']$/g,'');}}
+// Local dev reads .env.local; in CI (GitHub Actions) the secrets arrive as real env vars and the
+// file does not exist — an unguarded readFileSync ENOENTs the whole run before it starts.
+function env(){
+  try {
+    const t = readFileSync(join(process.cwd(), '.env.local'), 'utf8');
+    for (const l of t.split('\n')) {
+      const m = l.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
+      if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+    }
+  } catch { /* no .env.local (CI) — env is already populated */ }
+}
 
 const HEADLINE = ['award_amount','award_date','grant_program','grant_reason'];
 const REASON_KEY = 'please_do_into_detail_on_how_you_will_specifically_utilize_the_funds_if_awarded_a_direct_grant';

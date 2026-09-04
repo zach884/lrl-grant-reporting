@@ -3,8 +3,17 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ghl } from '../lib/ghl/client';
-function env(){const t=readFileSync(join(process.cwd(),'.env.local'),'utf8');
- for(const l of t.split('\n')){const m=l.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);if(m&&process.env[m[1]]===undefined)process.env[m[1]]=m[2].replace(/^["']|["']$/g,'');}}
+// Local dev reads .env.local; in CI (GitHub Actions) the secrets arrive as real env vars and the
+// file does not exist — an unguarded readFileSync ENOENTs the whole run before it starts.
+function env(){
+  try {
+    const t = readFileSync(join(process.cwd(), '.env.local'), 'utf8');
+    for (const l of t.split('\n')) {
+      const m = l.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
+      if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+    }
+  } catch { /* no .env.local (CI) — env is already populated */ }
+}
 const EXPECTED=['2023-02-28','2023-08-31','2024-02-29','2024-08-31','2025-02-28','2025-08-31','2026-02-28'];
 async function main(){
   env(); process.env.GHL_TARGET='live';

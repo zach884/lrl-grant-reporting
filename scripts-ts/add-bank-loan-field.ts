@@ -33,12 +33,16 @@ const SIBLINGS = [
   'other_funding_received_in_the_last_6_months',
 ];
 
+// Local dev reads .env.local; in CI (GitHub Actions) the secrets arrive as real env vars and the
+// file does not exist — an unguarded readFileSync ENOENTs the whole run before it starts.
 function env() {
-  const t = readFileSync(join(process.cwd(), '.env.local'), 'utf8');
-  for (const l of t.split('\n')) {
-    const m = l.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
-    if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
-  }
+  try {
+    const t = readFileSync(join(process.cwd(), '.env.local'), 'utf8');
+    for (const l of t.split('\n')) {
+      const m = l.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
+      if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+    }
+  } catch { /* no .env.local (CI) — env is already populated */ }
 }
 
 async function main() {
