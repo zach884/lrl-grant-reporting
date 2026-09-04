@@ -189,3 +189,102 @@ describe('ingestFormSubmission — refusals', () => {
     expect(mockUpsert).not.toHaveBeenCalled();
   });
 });
+
+// ── FIELD_ALIASES ─────────────────────────────────────────────────────────────────────────────────
+// The declared exceptions to key-matching. Three silent drops were found in two days by mapping
+// funder columns and asking where each would land; these pin the two that are aliases (the third,
+// bank_loans, was a missing FIELD and now key-matches).
+
+import { FIELD_ALIASES, translateAliasValue } from '../sources/form';
+
+/** Build the (contact catalog, customFields) pair the mapper expects. */
+function contactWith(pairs: Array<[bareKey: string, value: unknown]>) {
+  const byId: Record<string, { fieldKey: string }> = {};
+  const customFields = pairs.map(([k, value], i) => {
+    byId[`f${i}`] = { fieldKey: `contact.${k}` };
+    return { id: `f${i}`, value };
+  });
+  return { contact: { customFields }, byId };
+}
+
+describe('FIELD_ALIASES', () => {
+  it('stays small, and every entry explains itself', () => {
+    // If this table grows, the right fix is renaming the contact field, not extending the exceptions.
+    expect(FIELD_ALIASES.length).toBeLessThanOrEqual(5);
+    for (const a of FIELD_ALIASES) {
+      expect(a.from).toBeTruthy();
+      expect(a.to).toBeTruthy();
+      expect(a.from).not.toBe(a.to); // an alias for a pair that already matches is dead config
+      expect(a.note.length).toBeGreaterThan(20);
+    }
+  });
+
+  it('carries item 3 of the expense line items across the missing underscore', () => {
+    const { contact, byId } = contactWith([['expense_category_item3', 'inventory_supplies']]);
+    const out = mapContactValuesToActivity(contact, byId, new Set(['expense_category_item_3']));
+    expect(out).toEqual({ expense_category_item_3: 'inventory_supplies' });
+  });
+
+  it('maps direct_grant_program onto grant_program', () => {
+    const { contact, byId } = contactWith([['direct_grant_program', 'sbsh']]);
+    const out = mapContactValuesToActivity(contact, byId, new Set(['grant_program']));
+    expect(out).toEqual({ grant_program: 'SBSH' });
+  });
+
+  it('translates BAF to Gateway, because BAF sits under the Gateway umbrella', () => {
+    // Zach, 2026-09-03. Not a lossy fold: a BAF grant IS a Gateway grant, and grant-definitions.md
+    // records the eligibility consequence as D12.
+    const { contact, byId } = contactWith([['direct_grant_program', 'baf']]);
+    const out = mapContactValuesToActivity(contact, byId, new Set(['grant_program']));
+    expect(out).toEqual({ grant_program: 'Gateway' });
+  });
+
+  it('translates whether the contact stored the option KEY or its LABEL', () => {
+    for (const stored of ['baf', 'BAF', 'Baf']) {
+      expect(translateAliasValue(FIELD_ALIASES.find((a) => a.from === 'direct_grant_program')!, stored)).toBe('Gateway');
+    }
+  });
+
+  it('passes an unlisted value through untouched rather than dropping it', () => {
+    // A new option added in GHL must not vanish just because the table has not caught up.
+    const { contact, byId } = contactWith([['direct_grant_program', 'some_new_program']]);
+    const out = mapContactValuesToActivity(contact, byId, new Set(['grant_program']));
+    expect(out).toEqual({ grant_program: 'some_new_program' });
+  });
+
+  it('reports every alias that fires, so a broken rename is loud', () => {
+    const { contact, byId } = contactWith([
+      ['direct_grant_program', 'baf'],
+      ['expense_category_item3', 'inventory_supplies'],
+    ]);
+    const fired: string[] = [];
+    mapContactValuesToActivity(contact, byId, new Set(['grant_program', 'expense_category_item_3']),
+      (a) => fired.push(`${a.from}->${a.to}`));
+    expect(fired.sort()).toEqual([
+      'direct_grant_program->grant_program',
+      'expense_category_item3->expense_category_item_3',
+    ]);
+  });
+
+  it('does not fire when the target is not a field on THIS activity type', () => {
+    // Mapping a metrics snapshot must not pull a grant field across.
+    const { contact, byId } = contactWith([['direct_grant_program', 'baf']]);
+    expect(mapContactValuesToActivity(contact, byId, new Set(['jobs_created_in_the_last_6_months']))).toEqual({});
+  });
+
+  it('lets an exact key match win over an alias', () => {
+    // If someone ever creates contact.grant_program, the direct match is the truth and the alias
+    // must not overwrite it.
+    const { contact, byId } = contactWith([
+      ['grant_program', 'Trusted Connector'],
+      ['direct_grant_program', 'baf'],
+    ]);
+    const out = mapContactValuesToActivity(contact, byId, new Set(['grant_program']));
+    expect(out).toEqual({ grant_program: 'Trusted Connector' });
+  });
+
+  it('still skips blanks, aliased or not', () => {
+    const { contact, byId } = contactWith([['direct_grant_program', ''], ['expense_category_item3', null]]);
+    expect(mapContactValuesToActivity(contact, byId, new Set(['grant_program', 'expense_category_item_3']))).toEqual({});
+  });
+});

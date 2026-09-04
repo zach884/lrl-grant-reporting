@@ -8,6 +8,7 @@
 //
 //   npx vite-node scripts-ts/form-ingest-run.ts grant            # dry run
 //   npx vite-node scripts-ts/form-ingest-run.ts grant --apply
+//   npx vite-node scripts-ts/form-ingest-run.ts grant --apply --no-create   # merge only, never mint
 //   npx vite-node scripts-ts/form-ingest-run.ts metrics [--apply] [--submitted 2026-03-10]
 //
 // ⚠️ For grants every outcome should be `updated` or `noop`. A `created` means the form did not
@@ -27,6 +28,17 @@ if (!process.env.GHL_TARGET) process.env.GHL_TARGET = 'live';
 
 const KIND = (process.argv[2] ?? 'grant') as 'grant' | 'metrics';
 const APPLY = process.argv.includes('--apply');
+/**
+ * Refuse to MINT a record; only merge onto ones that already exist.
+ *
+ * This file's own header warns that a `created` outcome for a grant means the contact's Direct Grants
+ * opportunity did not resolve, so the form made a STANDALONE record instead of merging — a second
+ * grant activity for a grant that already has one, which is the duplicate class this project has
+ * paid for twice (54 near-duplicate grants on 2026-08-19, 7 real ones on the sheet import). A
+ * backfill's job is to fill fields, never to invent records, so `--no-create` lets an apply take the
+ * safe updates and report the rest for a person.
+ */
+const NO_CREATE = process.argv.includes('--no-create');
 const submittedIdx = process.argv.indexOf('--submitted');
 const SUBMITTED = submittedIdx >= 0 ? process.argv[submittedIdx + 1] : undefined;
 
@@ -63,6 +75,8 @@ const FORMS = {
     if (!url) break;
   }
 
+  /** alias "from->to" → how many contacts it fired for. */
+  const aliasHits = new Map<string, number>();
   console.log(`${form.label}: ${targets.length} contact(s) hold answers`);
   console.log(APPLY ? 'MODE: APPLY\n' : 'MODE: DRY RUN (pass --apply to write)\n');
 
@@ -71,15 +85,42 @@ const FORMS = {
   const standalone: string[] = [];
 
   for (const t of targets) {
+    // With --no-create, plan first and skip anything that would mint a record, so the apply below
+    // can only ever update. Costs one extra planning pass per contact and removes a whole error class.
+    if (APPLY && NO_CREATE) {
+      const probe = await ingestFormSubmission({ contactId: t.id, formId: form.id }, { client: c, dryRun: true, submittedAt: SUBMITTED });
+      if (probe.status === 'ingested' && probe.activity?.outcome === 'would-create') {
+        bump('skip:would-create (--no-create)');
+        standalone.push(`  ${t.name} — would have created a STANDALONE record; no Direct Grants opportunity resolved`);
+        await new Promise((res) => setTimeout(res, 200));
+        continue;
+      }
+    }
     const r = await ingestFormSubmission({ contactId: t.id, formId: form.id }, { client: c, dryRun: !APPLY, submittedAt: SUBMITTED });
     const outcome = r.status === 'ingested' ? (r.activity?.outcome ?? 'would-write') : `skip:${r.reason}`;
     bump(outcome);
     if (outcome === 'created' && KIND === 'grant') standalone.push(`  ${t.name} — ${r.detail ?? ''}`);
+    for (const a of r.aliases ?? []) {
+      const k = `${a.from} → ${a.to}`;
+      aliasHits.set(k, (aliasHits.get(k) ?? 0) + 1);
+    }
     if (!APPLY && r.detail) console.log(`  ${t.name.slice(0, 34).padEnd(36)} ${String(r.copied ?? 0).padStart(2)} field(s)  ${r.detail.slice(0, 80)}`);
     await new Promise((res) => setTimeout(res, 320));
   }
 
   console.log('\nOUTCOMES:', JSON.stringify(tally, null, 1));
+
+  // Report the declared key-mismatch aliases that actually fired. The whole point of the table is
+  // that these fields were being dropped SILENTLY; if an alias stops firing because someone renamed
+  // a contact field, this count going to zero is the signal.
+  if (aliasHits.size) {
+    console.log('\nALIASES FIRED (fields that do NOT key-match, carried by the declared table):');
+    for (const [k, n] of Array.from(aliasHits.entries()).sort((a, b) => b[1] - a[1])) {
+      console.log(`   ${String(n).padStart(3)}×  ${k}`);
+    }
+  } else {
+    console.log('\nno aliases fired — if that is unexpected, check FIELD_ALIASES against the live catalogs');
+  }
   if (standalone.length) {
     console.log(`\n⚠️  ${standalone.length} grant(s) created STANDALONE — no Direct Grants opportunity matched, so they did not merge:`);
     for (const s of standalone.slice(0, 15)) console.log(s);

@@ -47,6 +47,9 @@ export interface FormIngestResult {
   route?: { activityType: string; matchLabel?: string };
   /** How many contact fields were copied onto the activity. */
   copied?: number;
+  /** Declared key-mismatch aliases that FIRED — see FIELD_ALIASES. Present only when non-empty, so a
+   *  rename that breaks one shows up as this disappearing rather than as a value quietly going missing. */
+  aliases?: Array<{ from: string; to: string; note: string }>;
   reportingPeriod?: string;
   activity?: UpsertActivityResult;
 }
@@ -58,26 +61,118 @@ export interface FormIngestOptions extends CreateActivityOptions {
 }
 
 /**
+ * One declared exception to key-matching: a contact field whose key differs from its activity twin.
+ *
+ * `values` optionally re-maps the VALUE too, for a pair whose option sets differ.
+ */
+export interface FieldAlias {
+  /** Bare contact key, e.g. 'direct_grant_program'. */
+  from: string;
+  /** Bare activity key, e.g. 'grant_program'. */
+  to: string;
+  /** Why this pair does not key-match — kept in the table so nobody has to guess later. */
+  note: string;
+  /** Optional value translation, keyed by the contact's option KEY (GHL stores keys, not labels). */
+  values?: Record<string, string>;
+}
+
+/**
+ * THE ALIAS TABLE — the documented exceptions to key-matching.
+ *
+ * ⚠️ WHY THIS EXISTS, and why it is short on purpose. The derived map below is the RULE: ~90% of the
+ * activity object's fields were lifted from the contact's, so they share a key and copy for free with
+ * nothing to maintain. The failure mode is that a pair differing by even one character does not
+ * match, and **nothing says so** — the value is simply never copied, on every submission, forever.
+ *
+ * Three were found in two days, all by mapping a funder's spreadsheet column and asking where it
+ * would land:
+ *
+ *   1. `bank_loans_received_in_the_last_6_months` — the activity field did not EXIST. Not an alias;
+ *      created 2026-09-03 (`scripts-ts/add-bank-loan-field.ts`, id PIPQzCwc8WRU1xiY7QB7). Now
+ *      key-matches and needs no entry here.
+ *   2. `direct_grant_program` → `grant_program` — different key AND different option sets.
+ *   3. `expense_category_item3` → `expense_category_item_3` — a missing underscore, so item 3's
+ *      expense category was dropped on every grant submission. Visible on every live record as the
+ *      one blank category among ten.
+ *
+ * Additions should be rare and each should say why. If this table grows past a handful, the right
+ * fix is renaming the contact field, not extending the exceptions.
+ */
+export const FIELD_ALIASES: FieldAlias[] = [
+  {
+    from: 'direct_grant_program',
+    to: 'grant_program',
+    note: 'different key; the contact offers BAF where the activity offers Gateway (see values)',
+    // Zach, 2026-09-03: "BAF is Gateway. BAF is a funding type for grants but it's under the umbrella
+    // of Gateway. Every company who gets BAF is eligible for Gateway reporting." So this is not a
+    // lossy fold — BAF grants ARE Gateway grants, and `grant-definitions.md` records the eligibility
+    // consequence as dimension D12.
+    values: { baf: 'Gateway', sbsh: 'SBSH', trusted_connector: 'Trusted Connector' },
+  },
+  {
+    from: 'expense_category_item3',
+    to: 'expense_category_item_3',
+    note: 'the contact field is missing an underscore, so item 3 never matched its activity twin',
+  },
+];
+
+/** contact bare key → its alias entry. */
+const ALIAS_BY_FROM = new Map(FIELD_ALIASES.map((a) => [a.from, a]));
+
+/** Fold an option value to a comparable token, so a KEY or a LABEL both resolve. */
+const optionToken = (v: unknown) =>
+  String(v ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+
+/** Apply an alias's value translation, if it has one. Unlisted values pass through untouched. */
+export function translateAliasValue(alias: FieldAlias, value: unknown): unknown {
+  if (!alias.values) return value;
+  const hit = alias.values[optionToken(value)];
+  return hit ?? value;
+}
+
+/**
  * The contact's values for the fields this activity type has, keyed by the ACTIVITY's bare key.
  *
  * Matching is by key, which is reliable precisely because the object's fields were lifted from the
  * contact's. Anything without a counterpart is simply absent — never guessed at by name similarity,
- * which would silently mis-file a number into the wrong funder metric.
+ * which would silently mis-file a number into the wrong funder metric. The one exception is
+ * FIELD_ALIASES above: a small, declared table of pairs whose keys differ, applied only after the
+ * direct match fails.
+ *
+ * `onAlias` is called for every alias that actually fires, so a caller can LOG it — a field rename
+ * that breaks an alias should be loud, not another silent drop.
  */
 export function mapContactValuesToActivity(
   contact: { customFields?: Array<{ id: string; value?: unknown }> },
   contactCatalogById: Record<string, { fieldKey: string }>,
   activityFieldKeys: Set<string>,
+  onAlias?: (alias: FieldAlias, value: unknown) => void,
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
+  const isBlank = (v: unknown) => v == null || v === '' || (Array.isArray(v) && v.length === 0);
   for (const cf of contact.customFields ?? []) {
     const def = contactCatalogById[cf.id];
     if (!def?.fieldKey) continue;
     const key = def.fieldKey.replace(/^contact\./, '');
-    if (!activityFieldKeys.has(key) || NEVER_COPY.has(key)) continue;
     const v = cf.value;
-    if (v == null || v === '' || (Array.isArray(v) && v.length === 0)) continue;
-    out[key] = v;
+    if (isBlank(v)) continue;
+
+    // The rule first: an exact key match always wins over an alias.
+    if (activityFieldKeys.has(key)) {
+      if (NEVER_COPY.has(key)) continue;
+      out[key] = v;
+      continue;
+    }
+
+    // Then the declared exceptions. An alias only applies when the TARGET is a real field on this
+    // activity type — otherwise a grant alias would fire while mapping a metrics snapshot.
+    const alias = ALIAS_BY_FROM.get(key);
+    if (!alias || NEVER_COPY.has(alias.to) || !activityFieldKeys.has(alias.to)) continue;
+    // Don't let an alias overwrite a value the direct match already produced.
+    if (!isBlank(out[alias.to])) continue;
+    const translated = translateAliasValue(alias, v);
+    out[alias.to] = translated;
+    onAlias?.(alias, translated);
   }
   return out;
 }
@@ -138,7 +233,14 @@ export async function ingestFormSubmission(
   ]);
   const set = activityFieldSet(activityCatalog, route.activityType);
   const keys = new Set([...set.core, ...set.typeFields].map(bareKey));
-  const values = mapContactValuesToActivity(contact as any, contactCatalog.byId as any, keys);
+  // Record every alias that fires. A silently-dropped field is what the table exists to prevent, so
+  // the aliases themselves must never become the new silent thing: they are reported on the result
+  // and in the change-log rationale, which is what makes a future field rename loud.
+  const aliasesUsed: Array<{ from: string; to: string; note: string }> = [];
+  const values = mapContactValuesToActivity(
+    contact as any, contactCatalog.byId as any, keys,
+    (a) => aliasesUsed.push({ from: a.from, to: a.to, note: a.note }),
+  );
 
   const submittedAt = opts.submittedAt ?? new Date();
   let sourceRecordId: string;
@@ -180,6 +282,7 @@ export async function ingestFormSubmission(
   );
   return {
     ...base, status: 'ingested', route: routeInfo, copied: Object.keys(values).length,
+    ...(aliasesUsed.length ? { aliases: aliasesUsed } : {}),
     reportingPeriod: period, activity,
     ...(opts.dryRun
       ? { detail: `${activity.outcome}${activity.written.length ? `: ${activity.written.length} field(s)` : ''} for company ${companyId} (key ${keySource}/${sourceRecordId})` }

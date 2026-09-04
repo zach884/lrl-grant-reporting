@@ -193,3 +193,50 @@ describe('the grant-reason gate', () => {
     // …and the enricher itself still declines — asserted in the enricher suite above.
   });
 });
+
+// ── the amendment fingerprint ─────────────────────────────────────────────────────────────────────
+// Zach: "if the line items on the grant change due to an amended agreement I want the grant activity
+// to have the last version of the line items instead of the first." The items follow an amendment on
+// their own; the derived REASON only does if a run can tell it has gone stale.
+
+import { lineItemFingerprint } from '../enrichers/grantReason';
+
+describe('lineItemFingerprint', () => {
+  const items = (...xs: Array<[number, string, string?]>) =>
+    xs.map(([amount, description, category], i) => ({ slot: i + 1, amount, description, category }));
+
+  it('is stable for the same items', () => {
+    const a = items([300, 'Bookkeeper', 'expert_business_help'], [223, 'Tattoo Machine']);
+    expect(lineItemFingerprint(a)).toBe(lineItemFingerprint(a));
+  });
+
+  it('ignores re-slotting — the same items in a different order are not an amendment', () => {
+    const a = items([300, 'Bookkeeper'], [223, 'Tattoo Machine']);
+    const b = items([223, 'Tattoo Machine'], [300, 'Bookkeeper']);
+    expect(lineItemFingerprint(a)).toBe(lineItemFingerprint(b));
+  });
+
+  it('changes when an AMOUNT is renegotiated on the same description', () => {
+    expect(lineItemFingerprint(items([300, 'Bookkeeper'])))
+      .not.toBe(lineItemFingerprint(items([450, 'Bookkeeper'])));
+  });
+
+  it('changes when a description changes', () => {
+    expect(lineItemFingerprint(items([300, 'Bookkeeper'])))
+      .not.toBe(lineItemFingerprint(items([300, 'Accountant'])));
+  });
+
+  it('changes when an item is added or removed', () => {
+    const one = items([300, 'Bookkeeper']);
+    const two = items([300, 'Bookkeeper'], [100, 'Meta Ads']);
+    expect(lineItemFingerprint(one)).not.toBe(lineItemFingerprint(two));
+    expect(lineItemFingerprint(one)).toContain('items:1:');
+    expect(lineItemFingerprint(two)).toContain('items:2:');
+  });
+
+  it('is embedded in the provenance rationale, where the change log can be searched for it', () => {
+    // The runner greps `[items:...]` out of the last applied grant-reason change-log row.
+    const print = lineItemFingerprint(items([300, 'Bookkeeper']));
+    expect(print).toMatch(/^items:\d+:[a-z0-9]+$/);
+  });
+});

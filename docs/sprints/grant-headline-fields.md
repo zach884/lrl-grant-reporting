@@ -356,3 +356,109 @@ now works. Tests assert both spellings pass and both spellings of an excluded va
 
 Had this run un-gated as a plain script, it would have written 52 reasons and nobody would have
 learned that every gate in the system was label-blind.
+
+---
+
+## Applied — the alias table, and the enricher (2026-09-04)
+
+Zach: *"go ahead and work without checking back."*
+
+### `grant_reason` — 52 written, and a re-run is free
+
+```
+64 grants → 62 pass the gate → 52 written (29 high · 21 medium · 2 low), 10 skipped (no line items)
+re-run: 52 skip:already-has-a-reason, 10 skip:no-line-items — no rewrites, no repeat AI calls
+```
+
+**The idempotency exposed a half-served requirement, now closed.** Skipping any record that already
+has a reason means an **amended** agreement would keep the first version's reason forever — the line
+items follow the amendment (the form re-copies them) but the derived text would not. Zach's actual ask
+was the opposite: *"if the line items on the grant change due to an amended agreement I want the grant
+activity to have the last version."*
+
+So the enricher now records a **fingerprint of the items a reason was derived from** in its change-log
+rationale (`[items:5:kf3p1x]`), and the runner compares:
+
+| | |
+|---|---|
+| fingerprint matches | skip — the reason still describes the current items, costs nothing |
+| fingerprint differs | **recompute** — the agreement was amended |
+| no fingerprint (written before this) | skip, and say `--overwrite` refreshes it |
+
+Amount is in the fingerprint, so a renegotiated figure on unchanged descriptions counts as a change;
+order is normalised, so re-slotting the same items does not. Six tests pin it.
+
+### The alias table — 3 silent drops, closed
+
+`FIELD_ALIASES` in `sources/form.ts`. The derived key-match stays the rule; this is the declared list
+of exceptions, and every entry says why it exists.
+
+```
+direct_grant_program    → grant_program              (+ value map: baf → Gateway)
+expense_category_item3  → expense_category_item_3    (a missing underscore)
+```
+
+`bank_loans_received_in_the_last_6_months` needed no alias — the activity field simply did not exist,
+and creating it on 09-03 made it key-match.
+
+**Proven on live data, not just in tests.** A dry run of the grant form path over the 51 contacts that
+hold answers:
+
+```
+ALIASES FIRED (fields that do NOT key-match, carried by the declared table)
+    50×  expense_category_item3 → expense_category_item_3
+    50×  direct_grant_program   → grant_program
+```
+
+Fifty grant records were losing both fields on every submission. `grant_program` is the one that
+matters most: it is what makes Zach's BAF→Gateway eligibility rule (D12) computable at all, since BAF
+was otherwise identifiable only from an opportunity's NAME.
+
+Aliases are reported on the ingest result and printed by the runner **by design** — the table exists
+because these fields were dropped silently, so the aliases themselves must never become the new silent
+thing. If someone renames a contact field, that count goes to zero and says so.
+
+### 🔴 `--no-create` added, because the dry run found one
+
+The dry run reported `would-update: 50` and **`would-create: 1`**. This runner's own header warns what
+that means: the contact's Direct Grants opportunity did not resolve, so the form would mint a
+**standalone** grant activity beside the one the pipeline already made. That is the duplicate class
+this project has already paid for twice — 54 near-duplicate grants on 2026-08-19, and 7 real ones on
+the sheet import.
+
+A backfill's job is to fill fields, never to invent records. `--no-create` plans each contact first and
+skips anything that would create, reporting it for a person instead. The apply ran with it.
+
+### Verified against live after the applies
+
+```
+52/64  grant_reason              (was 0/64 on 09-03)
+49/64  grant_program             (was 0/64)  — 41 sbsh · 8 trusted_connector · 15 empty
+49/64  expense_category_item_3   (was 0/64)  — the missing underscore, closed
+ 0/64  award_amount              ⬜ not built (Zach: "not super worried about the backfill data")
+ 0/64  award_date                ⬜ not built; recoverable for only 26 of 64 anyway
+64/64  activity_date             repaired to the close date on 09-03
+```
+
+A crude scan for reasons breaking a prompt rule (dollar figure, vendor name, outcome claim, praise)
+flagged **1 of 52**, and on reading it that is a false positive: *"through multiple vendors
+specializing in apparel production"* uses the word generically rather than naming a supplier. No real
+violations.
+
+`grant_program` shows 15 empty because those contacts never answered the question — the alias carries
+whatever is there and invents nothing. Still **0 BAF** among the 64, so D12 remains latent: the rule
+is now computable, but nothing currently exercises it.
+
+### ⬜ Still open on this brief
+
+- `award_amount` ← `opportunity.monetaryValue` (64/64 available, $347,311.63 total) and `award_date`
+  (26/64 defensible). Deprioritised by Zach, not blocked.
+- Wiring the field copy into the **opportunity path** so a NEW grant populates itself at Execute
+  Agreement / Closed Won, rather than needing `form-ingest-run.ts`. This is brief item 4 and the last
+  structural piece; the alias table it depends on now exists and is proven.
+- 🙋 **`travis page`** has grant answers but no Direct Grants opportunity, so the field copy has
+  nowhere to merge. `--no-create` refused to mint a standalone record. Link the contact to its
+  pipeline record and re-run, or decide it is not a grant.
+- 🙋 **`program_acceptance` very likely carries the same frozen ingest date** the grants did (84
+  records, same adapter). Zach: *"same for program acceptance though we aren't focusing on that right
+  now."*

@@ -74,6 +74,32 @@ export function readLineItems(field: (k: string) => unknown): LineItem[] {
   return out;
 }
 
+/**
+ * A stable fingerprint of the line items a reason was derived FROM.
+ *
+ * ⚠️ THIS IS WHAT MAKES ZACH'S AMENDMENT REQUIREMENT REAL. He asked (2026-09-03) that *"if the line
+ * items on the grant change due to an amended agreement I want the grant activity to have the last
+ * version of the line items instead of the first."* The line items themselves follow an amendment —
+ * the form re-copies them. But the derived REASON would not: a record that already has one is
+ * skipped, so the first version's reason would outlive the items it described.
+ *
+ * Recording this fingerprint in the change log lets the runner tell the two cases apart:
+ *   same fingerprint → the reason still describes the current items → skip, cost nothing
+ *   different        → the agreement was amended → recompute
+ *
+ * Amount is included, so a re-negotiated figure on the same descriptions still counts as a change.
+ * Order is normalised, so re-slotting the same items is NOT a change.
+ */
+export function lineItemFingerprint(items: LineItem[]): string {
+  const parts = items
+    .map((i) => `${i.amount}|${(i.description ?? '').toLowerCase()}|${(i.category ?? '').toLowerCase()}`)
+    .sort();
+  // A short non-cryptographic digest — this only has to detect change, not resist anything.
+  let h = 0;
+  for (const ch of parts.join('~')) h = (Math.imul(h, 31) + ch.charCodeAt(0)) | 0;
+  return `items:${items.length}:${(h >>> 0).toString(36)}`;
+}
+
 interface ReasonResult { reason: string; theme: string; confidence: 'High' | 'Medium' | 'Low' }
 
 const SCHEMA = {
@@ -154,7 +180,9 @@ export const grantReasonEnricher: RecordEnricher = {
       source: `${CLASSIFIER_MODEL} over ${items.length} approved line item(s) on the grant activity`,
       confidence: result.confidence === 'High' ? 0.9 : result.confidence === 'Medium' ? 0.6 : 0.3,
       timestamp: new Date().toISOString(),
-      rationale: `${result.theme}; derived from the executed agreement's line items, not the application text${result.confidence === 'Low' ? ' — LOW confidence, verify' : ''}`,
+      // The fingerprint is part of the rationale on purpose: the change log is queryable, so this is
+      // how a later run knows whether the agreement has been amended since. See lineItemFingerprint.
+      rationale: `${result.theme}; derived from the executed agreement's line items, not the application text${result.confidence === 'Low' ? ' — LOW confidence, verify' : ''} [${lineItemFingerprint(items)}]`,
     };
     return [{ fieldKey: GRANT_REASON_FIELD, value: result.reason.trim(), provenance }];
   },

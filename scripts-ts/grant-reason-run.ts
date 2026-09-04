@@ -51,7 +51,8 @@ async function main(){
 
   const { hasAnthropic } = await import('../lib/ai/anthropic');
   if (!hasAnthropic) { console.error('no ANTHROPIC_API_KEY in .env.local — the enricher cannot run'); process.exit(1); }
-  const { grantReasonEnricher, readLineItems, GRANT_REASON_FIELD } = await import('../lib/enrichment/enrichers/grantReason');
+  const { grantReasonEnricher, readLineItems, GRANT_REASON_FIELD, lineItemFingerprint } = await import('../lib/enrichment/enrichers/grantReason');
+  const { queryChangeLog } = await import('../lib/audit/query');
   const { resolveEnricherConfig } = await import('../lib/enrichment/configStore');
   const { evaluateGate, activeGroups } = await import('../lib/enrichment/gate');
   const { getCatalog } = await import('../lib/ghl/catalogCache');
@@ -105,10 +106,23 @@ async function main(){
     const fields=await readRecordFields('custom_objects.activities',a.id,c);
     const field=(k:string)=>fields.get(k);
     const existing=String(field(GRANT_REASON_FIELD)??'').trim();
-    if (existing && !OVERWRITE) { bump('skip:already-has-a-reason'); continue; }
-
     const items=readLineItems(field);
     if(!items.length){ bump('skip:no-line-items'); out.push({recordId:a.id,name,skipped:'no line items on the record'}); continue; }
+
+    // A reason already on the record is only stale if the LINE ITEMS have changed since it was
+    // written — Zach's amended-agreement case. The fingerprint of the items a reason was derived from
+    // is recorded in the change log, so compare against it rather than either always skipping (the
+    // first version's reason outlives the items it described) or always recomputing (a paid AI call
+    // per record per run, and a rewrite the funder sees for no reason).
+    if (existing && !OVERWRITE) {
+      const want = lineItemFingerprint(items);
+      const { rows } = await queryChangeLog({ recordId: a.id, actorName: 'grant-reason', applied: 'applied', limit: 1 });
+      const lastPrint = String(rows[0]?.rationale ?? '').match(/\[(items:[^\]]+)\]/)?.[1];
+      if (lastPrint === want) { bump('skip:reason-matches-current-line-items'); continue; }
+      if (!lastPrint) { bump('skip:already-has-a-reason (no fingerprint on record — pass --overwrite to refresh)'); continue; }
+      bump('refresh:line-items-changed-since');
+      console.log(`${name}\n   AMENDED: line items changed since the reason was written (${lastPrint} → ${want})`);
+    }
 
     const proposals=await grantReasonEnricher.enrich({objectKey:'custom_objects.activities',recordId:a.id,catalog,field});
     if(!proposals.length){ bump('skip:enricher-declined'); continue; }
