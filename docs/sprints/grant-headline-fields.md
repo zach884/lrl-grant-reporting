@@ -303,3 +303,56 @@ contact.expense_category_item3      -> activities.expense_category_item_3
 
 The enricher tolerates the gap today (amount + description + vendor is plenty to reason from), so
 nothing is blocked — but the category is a funder-reportable classification and should not stay lost.
+
+---
+
+## `grant-reason` is a gated enricher (2026-09-04)
+
+Zach: *"Can we set this up as a gated sync? I think that is a perfect way to make sure the
+configuration is good."* Done — it is now a first-class entry in the enricher registry, so
+`/enrichment` lists it and its gate is editable there without a deploy.
+
+**The shipped default gate:**
+
+```
+activity_type ∈ {grant}
+  AND
+grant_status  ∈ {Agreement Executed, Receipts Received, Closed Won}
+```
+
+The status half is **Zach's amendment requirement expressed as configuration**. Before the agreement
+is executed the line items are a *proposal*, so a reason derived from them would describe what was
+asked for rather than what was funded — and fill-empty semantics would then freeze it. **Closed Lost
+is deliberately excluded**: a declined application has line items but was never funded, and "Funded …"
+would be a false statement on a funder-visible record.
+
+**Population, measured:** 64 grants → **62 pass the gate** → 52 produce a reason (28 high, 22 medium,
+2 low) and 10 are skipped for carrying no line items. The 2 held back by the gate are exactly the two
+records with no `grant_status` — an absent status is not evidence of execution.
+
+`activity_type` is checked BOTH in the gate and in the enricher's own code, deliberately: the gate is
+editable, and someone widening it must not be able to give an intake record a grant reason.
+
+### 🔴 The gate found a real bug in its first run — which is the argument for gating
+
+The first gated dry run passed **0 of 64**. Not a config typo: **every select field stores its option
+KEY (`closed_won`) while a person sees its LABEL (`Closed Won`)**, and `membershipMatches` compared
+raw lowercased strings. So a gate written from the labels visible in GHL could never match any
+multi-word option — and it failed **silently**, because a gate that never passes is indistinguishable
+from having no work to do.
+
+This is the third instance of the same label-vs-key failure in this codebase:
+
+| Where | Symptom |
+|---|---|
+| `didPersist` (`MULTIPLE_OPTIONS`) | 57 referral records reported dirty and rewritten on **every** run |
+| `resolveOptionKey` (`SINGLE_OPTIONS`) | already handled — the one place that got it right |
+| `membershipMatches` (every enricher gate) | a gate written with labels matches **nothing**, quietly |
+
+Fixed in `lib/enrichment/gate.ts` with `optionToken()` — both sides fold to lowercase with runs of
+non-alphanumerics collapsed to `_`, so `Closed Won` and `closed_won` are the same token. It applies to
+**every** gate (contact, company, resource, activity), so any gate anyone writes from the UI's labels
+now works. Tests assert both spellings pass and both spellings of an excluded value fail.
+
+Had this run un-gated as a plain script, it would have written 52 reasons and nobody would have
+learned that every gate in the system was label-blind.

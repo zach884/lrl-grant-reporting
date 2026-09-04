@@ -51,6 +51,45 @@ export const DEFAULT_ENRICHER_CONFIGS: Record<string, EnricherConfig> = {
     combine: 'AND',
     groups: [{ combine: 'AND', filters: [{ field: 'custom_objects.resources.resource_status', anyOf: ['Approved'] }] }],
   },
+  /**
+   * Grant reason: the gate is what makes this safe to leave on.
+   *
+   * TWO filters, ANDed, and both matter:
+   *   activity_type ∈ {grant}         — only grants carry expense line items to reason from. The
+   *                                     enricher also checks this in code, deliberately: the gate is
+   *                                     editable and a person could widen it, and an intake record
+   *                                     must never be given a grant reason.
+   *   grant_status ∈ {Agreement Executed, Receipts Received, Closed Won}
+   *                                   — this is Zach's amendment requirement expressed as config.
+   *                                     Before the agreement is executed the line items are still a
+   *                                     PROPOSAL, so a reason derived from them describes what was
+   *                                     asked for rather than what was funded. Waiting for execution
+   *                                     means the reason follows an amended agreement, because the
+   *                                     enricher re-reads whatever the record currently holds.
+   *
+   * Measured 2026-09-03: `grant_status` is 62/64 populated and its options are Application Complete ·
+   * Agreement Executed · Receipts Received · Closed Won · Closed Lost. **Closed Lost is excluded** —
+   * a declined application has line items but was never funded, and "Funded …" would be a false
+   * statement on a funder-visible record.
+   */
+  'grant-reason::custom_objects.activities': {
+    enricher: 'grant-reason',
+    sourceObject: 'custom_objects.activities',
+    enabled: true,
+    combine: 'AND',
+    groups: [
+      {
+        combine: 'AND',
+        filters: [
+          { field: 'custom_objects.activities.activity_type', anyOf: ['grant'] },
+          {
+            field: 'custom_objects.activities.grant_status',
+            anyOf: ['Agreement Executed', 'Receipts Received', 'Closed Won'],
+          },
+        ],
+      },
+    ],
+  },
   // Client Stage scorer: ON by default, no filters — it self-gates in code (skips companies with no
   // business_model to route on, and only fires when a scoring input changed). Add filters in the UI to
   // narrow it (e.g. only score companies past a certain status).

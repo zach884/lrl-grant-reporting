@@ -7,6 +7,90 @@
 > Requirement added by Zach 2026-09-03: **"it needs to work for anyone on the team with a Zoom account
 > connected to GHL"** — not just his own meetings. §3 is that requirement, and it is the whole risk.
 
+## 0. Scope, and how to prove it out
+
+**Scope (Zach, 2026-09-03):** *"get meeting notes/summary for all zoom meetings scheduled with GHL
+Appointment links."* So **the GHL appointment list is the driver, not the Zoom meeting list.** We already
+fetch appointments; each one that carries a Zoom id in `address` is a row to enrich. Meetings with no GHL
+appointment are out of scope entirely. That simplifies things — no Zoom-side sweep, no reconciliation of
+two lists, and the unit of work is one we already have an id for.
+
+**Also settled:** the summary is what decides `showed` / `noshow` (§2).
+
+### A — Zach's hands: the Zoom app (~30 min, needs Zoom account admin)
+
+> 🔴 **HIT 2026-09-03: "Server-to-Server OAuth" is GREYED OUT in Zach's developer portal.**
+> This is a **role permission**, not a missing feature and not a billing problem. Creating an S2S app
+> requires being the Zoom **account owner**, an **account admin**, or holding the **"Zoom for
+> developers"** role privilege.
+>
+> **The unlock — done by the account OWNER, in the Zoom web portal:**
+> `User Management → Roles → Role Settings → Advanced features → "Zoom for developers"` →
+> tick **both View and Edit**. Then sign out of the Marketplace and back in; the option becomes
+> selectable.
+>
+> ⚠️ **Reported repeatedly on Zoom's own forums: users who already hold an admin role still cannot see
+> Roles / Role Settings, and the account OWNER has to make the change.** So the first question is
+> literally *who owns LRL's Zoom account* — if it is not Zach, this is a request to that person, and it
+> is one sentence long.
+>
+> **If the owner cannot or will not enable it, this is a design fork, not a delay** — go to the
+> per-user OAuth fallback in §3, which is more setup but is arguably the better answer to "anyone on the
+> team" anyway, since each staffer grants access to their own meetings and it does not depend on the
+> admin summary scopes that Zoom's forums report as missing.
+
+1. Zoom Marketplace → **Develop → Build App → Server-to-Server OAuth**. Note **Account ID**, **Client
+   ID**, **Client Secret**.
+2. **Add scopes.** Ask for these, in this order — the first two are the ones reported missing:
+   - `meeting_summary:read:admin` *(or the newer `meeting:read:summary:admin`)* — the summary body
+   - `meeting:read:admin` — meeting + past-instance lookup
+   - `report:read:admin` *(or `dashboard_meetings:read:admin`)* — participants, the attendance fallback
+3. 🔴 **The one assertion that decides the design.** Call
+   `GET /v2/meetings/meeting_summaries?from=2026-08-01&to=2026-09-03` and check the response contains a
+   meeting **hosted by someone other than Zach**. That is the whole team-coverage test from §3.
+   - **Passes** → build as specified.
+   - **Fails, or the scopes aren't in the picker** → stop and pick a fallback from §3 before writing code.
+     Do not quietly ship a Zach-only version.
+
+### B — One read-only spike script, zero writes (`scripts-ts/zoom-probe.ts`)
+
+Everything here is measurement. It must not write to GHL or Zoom.
+
+| # | Measure | Pass bar |
+|---|---|---|
+| 1 | **Coverage** — of past GHL appointments in the last 90 days, how many carry a Zoom id, and how many resolve to a real Zoom occurrence? | ≥90% of Zoom-linked appointments resolve. Below that, find out why before building |
+| 2 | **Host spread** — how many resolve for hosts *other than Zach* | >0, or §3 has failed |
+| 3 | **Attendance signal** — for each match, does `GET /past_meetings/{uuid}/participants` return real participants, and does the summary footer list an `(External)` attendee? | pick whichever is present ≥95% of the time |
+| 4 | **Note length** — distribution of `summary_plain_text` and of `recap + next steps` alone | confirms the §4 truncation rule holds across real meetings, not just the two probed |
+
+**The resolver, with the traps:** `address` → meeting number → `GET /v2/past_meetings/{number}/instances`
+(returns every ended instance with its UUID) → pick the instance whose start time matches the
+appointment's date → use that **UUID** for everything downstream.
+⚠️ **A UUID that starts with `/` or contains `//` must be DOUBLE URL-encoded**, or Zoom answers
+*"Meeting does not exist"* — a wrong-looking error for a right-looking id.
+
+### C — One GHL write probe, on a throwaway appointment (`scripts-ts/ghl-appointment-write-probe.ts`)
+
+Create a test appointment on a test calendar, then, reading back after every step:
+
+1. `POST /calendars/appointments/{id}/notes` → does it persist; capture `note.id`.
+2. `Update Note` with that id → does it update in place rather than adding a second note.
+3. `PUT /calendars/events/appointments/{id}` sending **only** `{appointmentStatus:'showed', toNotify:false}`
+   → **then GET the appointment and confirm `title`, `startTime`, `endTime`, `address` and `calendarId`
+   all survived.** This is the `writeRecordFields` lesson: assume nothing about partial updates.
+4. Confirm `toNotify:false` really suppressed automations — no appointment webhook delivery, no
+   `change_log` row from a re-ingest.
+5. Re-run 1–3 unchanged → everything reports **`noop`**.
+
+### D — What "proven" means
+
+All of: the team assertion in A passes · ≥90% appointment→meeting resolution · one attendance signal is
+reliably present · a partial `PUT` preserves the other fields · `toNotify:false` fires no automation ·
+and a second identical run writes nothing. **Only then** wire it into the nightly ahead of the
+appointment adapter.
+
+---
+
 ## 1. What was measured live today
 
 **The summaries are real, rich, and already being generated.** Pulled the actual AI Companion summary
@@ -49,11 +133,21 @@ count meetings that actually happened.
 only if the meeting actually happened, which is a far better attendance signal than the status field."*
 Concretely:
 
+**Zach's call: the summary decides it.** A summary only exists for a meeting that actually ran, and its
+footer names who was in it — so summary-plus-external-attendee is direct evidence the client showed.
+
 | Zoom evidence | Write |
 |---|---|
-| meeting occurrence exists **and** a non-host participant joined | `showed` |
-| occurrence exists but **only the host** joined | `noshow` |
-| no Zoom occurrence at all for that id + date | **leave the status alone** — absence of evidence is not a no-show (phone/in-person meetings exist) |
+| occurrence exists **and** a non-host / `(External)` attendee is present | `showed` |
+| occurrence exists but **only the host** appears | `noshow` |
+| **no Zoom occurrence at all** for that id + date | **leave the status alone** |
+
+**The third row is the safety rule and it should not be softened.** No Zoom occurrence can mean the
+client no-showed — or that the meeting moved to a phone call, ran in person, or used someone's personal
+room. Writing `noshow` on absence of evidence would push the activity into `NON_EVENT_STATUSES` and
+**silently delete a real, funder-reportable meeting from the grant count.** Wrong `showed` is a bad row
+someone can spot; wrong `noshow` is a row that never appears. Leave those for a human, and surface them
+to `sync_review` rather than letting them sit invisible.
 
 ⚠️ **`participants` did NOT come back on either meeting probed** (Aveek Das 9/02, Joe Marr 8/31). The
 tool advertises the field; two for two, it is absent on these non-recorded meetings. **Both** summaries
@@ -165,16 +259,17 @@ already exists and summaries are not time-critical. ⚠️ That workflow has **n
 
 ## 6. Build order
 
+Steps 0–2 are the proof plan in §0; nothing below them starts until §0.D is met.
+
 | # | Step | Output |
 |---|---|---|
-| 0 | **Zoom S2S app + the team-coverage assertion (§3)** | a yes/no that decides the design |
-| 1 | **GHL write probes on a throwaway appointment** | does a partial `PUT` preserve the other fields; does `toNotify:false` suppress automations; does a note persist |
-| 2 | `meeting_number` + date → `meeting_uuid` resolver | correct occurrence for recurring meetings |
-| 3 | Attendance signal chosen on evidence (participants vs the summary's attendee line) | measured across ~20 meetings |
-| 4 | Note writer with an idempotent update path + claims row | re-run reports `noop` |
-| 5 | Status writer with `toNotify:false`, diffed and read back | never rewrites an unchanged status |
-| 6 | Wire into the nightly **before** the appointment adapter | ordering per §2 |
-| 7 | Backfill across the ~110 appointments carrying a Zoom id | dry-run → review → apply |
+| 0 | **Zoom S2S app + the team-coverage assertion** (§0.A) | a yes/no that decides the design — **Zach** |
+| 1 | **`zoom-probe.ts`** — read-only coverage, host spread, attendance signal, note length (§0.B) | the four measurements |
+| 2 | **`ghl-appointment-write-probe.ts`** on a throwaway appointment (§0.C) | partial-PUT safety, `toNotify`, `noop` |
+| 3 | Note writer: recap + next steps + doc link, idempotent via a stored `note.id` | re-run reports `noop` |
+| 4 | Status writer with `toNotify:false`, diffed and read back, never on absent evidence | never rewrites an unchanged status |
+| 5 | Wire into the nightly **before** the appointment adapter | ordering per §2 |
+| 6 | Backfill across the appointments carrying a Zoom id | dry-run → review → apply |
 
 ## 6b. 🔴 The summary MISATTRIBUTES SPEAKERS — treat it as prose, not as data
 
@@ -200,22 +295,27 @@ directly tempers §7 below. It also argues the note should carry a visible prove
 (*"AI-generated Zoom summary — may misattribute speakers"*) so nobody downstream mistakes it for
 staff-authored minutes.
 
-## 6c. The summary is a LABELLING check, which is the D2 half of the sprint
+## 6c. ❌ A CORRECTION, and the lesson in it
 
-The Joe Marr meeting is a good example precisely because **it is not technical assistance.** Joe is a
-consultant exploring running workshops for LRL — a partner/vendor conversation. If it were booked on a
-routed calendar it would ingest as intake or TA and quietly become a funder-reportable row for a company
-LRL did not serve.
+**An earlier draft of this brief called the Joe Marr meeting a "partner/vendor conversation, not
+technical assistance," and said it should not become a funder-reportable row. That was wrong.**
+Zach, 2026-09-03: *"This is still an intake meeting with a MI small business. They didn't fill out an
+intake form so it isn't perfect."* Joe runs a Michigan data-analytics and AI consulting business; a
+first conversation with a Michigan business owner **is an intake**, whether or not a form followed, and
+it belongs in the count.
 
-That is exactly the hazard `activity_routes` already guards by design — *"a source with no rule ingests
-NOTHING — deliberate: personal calendars are used for vendor and partner calls."* The summary makes the
-guard **auditable**: it is the first artifact that can tell you, after the fact, whether a routed meeting
-was really the activity type its calendar claims.
+**The mistake is worth recording because of how it happened.** The summary's framing — a consultant
+proposing workshops — invited the reading "he is a vendor to LRL." That is precisely the §6b failure
+mode: drawing a structured conclusion from AI-written prose that flattens who-was-who. **The check that
+was being proposed as a safeguard fell to the exact bias it was meant to catch.**
 
-**Worth doing, and cheap:** once notes are landing, run a review pass that flags activities whose summary
-reads like a partner/vendor conversation rather than service delivery. **Flag for human review — never
-auto-reclassify**, given §6b. A mislabelled row is the failure mode Sprint C's acceptance test would
-catch far too late, and the one Zach named when he said the labelling has to be right.
+**So the rule tightens rather than loosens.** The summary is **human context on an appointment**. It is
+not a classifier, and it is not evidence for or against an activity's type. A "does this look like real
+service delivery?" review pass is **removed from this brief** — the calendar route and the staffer who
+booked it are better authorities on what a meeting was than a paragraph written about it afterwards.
+
+**The one place the summary does carry structured weight is attendance** (§2), and that rests on the
+Zoom-generated attendee footer, not on the AI's prose.
 
 ## 7. The bonus worth naming
 

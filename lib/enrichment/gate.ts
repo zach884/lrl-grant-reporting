@@ -8,17 +8,37 @@
 
 import type { EnricherConfig, EnricherFilter, EnricherGroup } from './configTypes';
 
-/** Normalize a possibly-array / delimited value into a lowercased string set. */
-function toValueSet(value: unknown): Set<string> {
-  const parts = Array.isArray(value) ? value : String(value ?? '').split(/[,;]/);
-  return new Set(parts.map((v) => String(v).trim().toLowerCase()).filter(Boolean));
+/**
+ * Fold an option value to a comparable token: lowercased, with every run of non-alphanumerics
+ * collapsed to a single underscore.
+ *
+ * ⚠️ WHY, and it is not cosmetic. A select field STORES its option KEY (`closed_won`) but a person
+ * reading the field in GHL — or configuring this gate at /enrichment — sees its LABEL (`Closed Won`).
+ * A plain case-insensitive compare therefore fails on every multi-word option, and it fails SILENTLY:
+ * the gate simply never passes and the enricher looks like it has nothing to do. Measured 2026-09-04
+ * on the grant-reason gate: `grant_status ∈ {Agreement Executed, Receipts Received, Closed Won}`
+ * matched **0 of 64** records that all stored `closed_won` / `receipts_received`.
+ *
+ * This is the same label-vs-key failure that made `didPersist` rewrite 57 referral records on every
+ * run. Folding both sides means a gate works whether it was written with keys or with labels, which
+ * is what anyone editing it in the UI will reasonably expect.
+ */
+function optionToken(v: unknown): string {
+  return String(v ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
 }
 
-/** True when `value` (array or delimited string) contains any of `anyOf`. Empty anyOf => always. Case-insensitive. */
+/** Normalize a possibly-array / delimited value into a comparable token set. */
+function toValueSet(value: unknown): Set<string> {
+  const parts = Array.isArray(value) ? value : String(value ?? '').split(/[,;]/);
+  return new Set(parts.map(optionToken).filter(Boolean));
+}
+
+/** True when `value` (array or delimited string) contains any of `anyOf`. Empty anyOf => always.
+ *  Compares option TOKENS, so a key and its label are the same thing (see optionToken). */
 export function membershipMatches(value: unknown, anyOf?: string[] | null): boolean {
   if (!anyOf || anyOf.length === 0) return true;
   const have = toValueSet(value);
-  return anyOf.some((v) => have.has(String(v).trim().toLowerCase()));
+  return anyOf.some((v) => have.has(optionToken(v)));
 }
 
 /** A single filter passes when the record's field value is/contains one of anyOf. Empty filter => passes. */

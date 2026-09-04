@@ -124,8 +124,8 @@ function renderItems(items: LineItem[]): string {
 
 export const grantReasonEnricher: RecordEnricher = {
   name: 'grant-reason',
-  description: 'Derives grant_reason on a grant activity from its approved expense line items.',
-  produces: [GRANT_REASON_FIELD],
+  description: 'Derive the reason for grant from a grant activity\u2019s approved expense line items (Claude). Gate is configurable (default: activity_type = grant AND grant_status \u2208 Agreement Executed / Receipts Received / Closed Won).',
+  produces: [`custom_objects.activities.${GRANT_REASON_FIELD}`],
 
   async enrich(input: RecordEnricherInput): Promise<RecordEnrichmentProposal[]> {
     // Only grant activities have line items to read. Every other type returns [] rather than

@@ -79,8 +79,8 @@ describe('readLineItems', () => {
 });
 
 describe('grantReasonEnricher', () => {
-  it('produces only grant_reason', () => {
-    expect(grantReasonEnricher.produces).toEqual([GRANT_REASON_FIELD]);
+  it('produces only grant_reason, as a prefixed field key like every other record enricher', () => {
+    expect(grantReasonEnricher.produces).toEqual([`custom_objects.activities.${GRANT_REASON_FIELD}`]);
   });
 
   it('skips a non-grant activity without erroring', async () => {
@@ -111,5 +111,85 @@ describe('grantReasonEnricher', () => {
       objectKey: 'custom_objects.activities', recordId: 'r1', catalog: {} as any,
       field: reader({ activity_type: 'grant', ...padded }),
     })).toEqual([]);
+  });
+});
+
+// ── the GATE ──────────────────────────────────────────────────────────────────────────────────────
+// Zach, 2026-09-04: *"Can we set this up as a gated sync? I think that is a perfect way to make sure
+// the configuration is good."* So WHEN it runs is config, and these pin the shipped default.
+
+import { defaultEnricherConfig } from '../configStore';
+import { evaluateGate, activeGroups } from '../gate';
+import { defaultRecordEnrichers } from '../index';
+
+const GATE = () => defaultEnricherConfig('grant-reason', 'custom_objects.activities');
+/** Read a record's fields the way the runner does, by prefixed or bare key. */
+const gateReader = (o: Record<string, unknown>) => (k: string) => o[k.replace('custom_objects.activities.', '')];
+
+describe('the grant-reason gate', () => {
+  it('is registered, so /enrichment lists it and its gate is editable', () => {
+    const entry = defaultRecordEnrichers.find((e) => e.enricher.name === 'grant-reason');
+    expect(entry).toBeDefined();
+    expect(entry!.sourceObject).toBe('custom_objects.activities');
+  });
+
+  it('ships enabled, with two ANDed filters', () => {
+    const g = GATE();
+    expect(g.enabled).toBe(true);
+    expect(g.combine).toBe('AND');
+    const groups = activeGroups(g);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].filters.map((f) => f.field)).toEqual([
+      'custom_objects.activities.activity_type',
+      'custom_objects.activities.grant_status',
+    ]);
+  });
+
+  it('runs an executed grant, whether the record stores the KEY or the LABEL', () => {
+    // GHL stores the option key (`closed_won`) while a person sees the label (`Closed Won`).
+    // Measured 2026-09-04: all 64 live records store keys, and a label-vs-key compare matched NONE
+    // of them — silently, because a gate that never passes just looks like no work to do.
+    for (const status of ['agreement_executed', 'receipts_received', 'closed_won',
+                          'Agreement Executed', 'Receipts Received', 'Closed Won']) {
+      expect(evaluateGate(gateReader({ activity_type: 'grant', grant_status: status }), GATE()).run).toBe(true);
+    }
+  });
+
+  it('holds a grant back until the agreement is executed', () => {
+    // Before execution the line items are a PROPOSAL. A reason derived from them would describe what
+    // was asked for, not what was funded — and would then be frozen by fill-empty semantics.
+    for (const s of ['application_complete', 'Application Complete']) {
+      const d = evaluateGate(gateReader({ activity_type: 'grant', grant_status: s }), GATE());
+      expect(d.run).toBe(false);
+      expect(d.reason).toMatch(/grant_status/);
+    }
+  });
+
+  it('never runs on a declined application', () => {
+    // Closed Lost has line items but was never funded. "Funded …" would be a false statement on a
+    // funder-visible record.
+    for (const s of ['closed_lost', 'Closed Lost']) {
+      expect(evaluateGate(gateReader({ activity_type: 'grant', grant_status: s }), GATE()).run).toBe(false);
+    }
+  });
+
+  it('never runs on a non-grant activity', () => {
+    for (const t of ['intake', 'metrics', 'technical_assistance', 'introduction_referral']) {
+      expect(evaluateGate(gateReader({ activity_type: t, grant_status: 'Closed Won' }), GATE()).run).toBe(false);
+    }
+  });
+
+  it('holds back a grant with no status rather than assuming it is executed', () => {
+    // Measured: grant_status is 62/64 populated, so 2 records have none. An absent status is not
+    // evidence of execution.
+    expect(evaluateGate(gateReader({ activity_type: 'grant' }), GATE()).run).toBe(false);
+  });
+
+  it('still refuses a non-grant even if someone widens the gate', () => {
+    // Defence in depth: the gate is editable in the UI, so the enricher re-checks the type in code.
+    // A person removing the activity_type filter must not be able to give an intake a grant reason.
+    const widened = { ...GATE(), groups: [] };
+    expect(evaluateGate(gateReader({ activity_type: 'intake' }), widened).run).toBe(true);
+    // …and the enricher itself still declines — asserted in the enricher suite above.
   });
 });

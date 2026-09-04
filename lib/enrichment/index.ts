@@ -14,6 +14,7 @@ export { laraIdEnricher } from './enrichers/laraId';
 export { naicsEnricher, deriveNaicsText } from './enrichers/naics';
 export { readinessTagger, rederiveProposals, deriveProfileText, passesMembershipGate } from './enrichers/readinessTagger';
 export { resourceTagger, deriveResourceText, buildResourceProposals } from './enrichers/resourceTagger';
+export { grantReasonEnricher, readLineItems, GRANT_REASON_FIELD, GRANT_REASON_SYSTEM_PROMPT } from './enrichers/grantReason';
 
 import { countyEnricher } from './enrichers/county';
 import { geoZoneEnricher } from './enrichers/geoZone';
@@ -21,6 +22,7 @@ import { laraIdEnricher } from './enrichers/laraId';
 import { naicsEnricher } from './enrichers/naics';
 import { readinessTagger } from './enrichers/readinessTagger';
 import { resourceTagger } from './enrichers/resourceTagger';
+import { grantReasonEnricher } from './enrichers/grantReason';
 import { Enricher, ContactEnricher, RecordEnricher } from './types';
 
 /** Default company enricher registry. NAICS is AI-classified; LARA is a no-op until its source is wired. */
@@ -32,4 +34,5 @@ export const defaultContactEnrichers: ContactEnricher[] = [readinessTagger];
 /** Default RECORD (custom-object) enricher registry + the object each targets. */
 export const defaultRecordEnrichers: Array<{ enricher: RecordEnricher; sourceObject: string }> = [
   { enricher: resourceTagger, sourceObject: 'custom_objects.resources' },
+  { enricher: grantReasonEnricher, sourceObject: 'custom_objects.activities' },
 ];
