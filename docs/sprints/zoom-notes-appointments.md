@@ -254,8 +254,39 @@ GitHub runner, and a stale `WIX_API_TOKEN` secret broke a nightly on 9/01. Same 
 **Trigger: extend the existing nightly.** Poll `GET /v2/meetings/meeting_summaries` over a trailing
 window inside `nightly-activities.yml`, ahead of the appointment adapter so the ordering in §2 holds.
 Zoom does emit a summary-completed webhook, and it is the better long-run answer, but the nightly job
-already exists and summaries are not time-critical. ⚠️ That workflow has **never completed a green run**
-— fix that first, or this ships onto a runner that does not run.
+already exists and summaries are not time-critical.
+
+✅ **CLEARED 2026-09-04 — the runner is healthy.** This brief said the workflow had never completed a
+green run; that was true when written and is not any more. Checked against the Actions API:
+
+```
+nightly-activities   #5 2026-09-04 success   #4 09-03 success   #3 09-02 success (dispatch)
+                     #2 09-02 failure        #1 09-01 failure
+```
+
+Run #5's own output — `appointments: 2 noop, 2 skip:cancelled` and `opportunity stages: 147 noop,
+176 skip:no-route` — is a clean all-noop night, so it is genuinely doing the work rather than exiting
+0 early. `nightly-resources` recovered the same way; `square-netsales` failed only its 09-01 scheduled
+run, was fixed by dispatch the same day (#5, #6 green) and then hardened with a credentials preflight.
+**Nothing is blocking this brief from the runner side.**
+
+⚠️ **But the schedule comments in every workflow are fiction.** GitHub defers scheduled runs on this
+repo by a consistent **~4–4.5 hours**:
+
+| Workflow | cron | actually starts |
+|---|---|---|
+| nightly-score | 06:30 | ~11:33 |
+| nightly-reconcile | 07:00 | ~11:54 |
+| nightly-enrich | 08:00 | ~12:29 |
+| nightly-readiness | 08:30 | ~12:48 |
+| nightly-resources | 08:45 | ~12:55 |
+| nightly-activities | 09:15 | ~13:31 |
+
+**The relative ORDER survives**, which is what the dependencies actually need — reconcile still
+finishes ~1h35m before activities starts, and activities takes ~4 minutes. So this is not a bug to
+fix, but do not add a Zoom step on the assumption it runs at 5am EDT: it runs mid-morning, and a
+summary generated during a 9am meeting will not be picked up until the next day. If same-day capture
+matters, that is the argument for the summary-completed webhook over the nightly.
 
 ## 6. Build order
 
