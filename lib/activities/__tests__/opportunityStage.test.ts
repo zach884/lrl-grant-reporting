@@ -197,3 +197,82 @@ describe('ingestOpportunity', () => {
     expect(mockUpsert.mock.calls[0][2].onlyIfAbsent).toContain('activity_date');
   });
 });
+
+// ── copyFormFields, and the guard the brief demanded ─────────────────────────────────────────────
+// grant-headline-fields.md §"Two traps": "activity_date MUST stay guarded. A live dry run of the form
+// path reported it would write activity_date… The form copy must inherit the same guard when invoked
+// from the stage path. Add a test that asserts it."
+
+import { ROUTE_FLAGS } from '../sources/opportunityStage';
+
+describe('ROUTE_FLAGS', () => {
+  it('names every control key that must never reach GHL as a field', () => {
+    // `defaults` is one bag carrying both field values and control flags, so a flag left in it is
+    // offered to GHL as a field name. Harmless today (unknown keys are skipped) but it would mask a
+    // genuinely typo'd field, which is the failure this list prevents.
+    expect([...ROUTE_FLAGS]).toEqual(['impliesAcceptance', 'copyFormFields']);
+  });
+});
+
+describe('the grant stage routes, as seeded', () => {
+  // Read the seed's own table rather than the DB, so this pins the DECISION about which stages are
+  // "final" — the thing a future edit is most likely to get wrong.
+  const STAGES: Record<string, { status: string; copy: boolean }> = {
+    '3bf7ecee-342b-48ab-a874-f300223a45a0': { status: 'Application Complete', copy: false },
+    '0dfd181d-1270-4fb2-81e9-99606b8fa216': { status: 'Agreement Executed', copy: true },
+    '29569048-1326-489b-b658-4b7bebeba54b': { status: 'Receipts Received', copy: false },
+    '37c0eae6-c3cd-4b2c-b5bb-7cf56248da0b': { status: 'Closed Won', copy: true },
+  };
+
+  it('copies the form fields at exactly the two stages where the line items are final', () => {
+    const copying = Object.values(STAGES).filter((s) => s.copy).map((s) => s.status).sort();
+    expect(copying).toEqual(['Agreement Executed', 'Closed Won']);
+  });
+
+  it('does NOT copy at Application Complete — those numbers are a request, not an award', () => {
+    expect(STAGES['3bf7ecee-342b-48ab-a874-f300223a45a0'].copy).toBe(false);
+  });
+
+  it('does NOT copy at Receipts Received — nothing about the agreement changes then', () => {
+    expect(STAGES['29569048-1326-489b-b658-4b7bebeba54b'].copy).toBe(false);
+  });
+
+  it('copies at Closed Won, which is what picks up an AMENDED agreement', () => {
+    // Zach, 2026-09-03: "if the line items on the grant change due to an amended agreement I want the
+    // grant activity to have the last version of the line items instead of the first."
+    expect(STAGES['37c0eae6-c3cd-4b2c-b5bb-7cf56248da0b'].copy).toBe(true);
+  });
+});
+
+describe('mergeFormValues — the guard', () => {
+  it('NEVER takes activity_date from the form', async () => {
+    // The trap the brief named. A live dry run of the form path reported it would write
+    // activity_date; letting it through is what replaced real award dates with a sweep's run date.
+    const { mergeFormValues } = await import('../sources/opportunityStage');
+    const values: Record<string, unknown> = { activity_date: '2026-03-11', activity_name: 'Direct Grant – Acme' };
+    mergeFormValues(values, { activity_date: '2026-08-20', award_amount: 4000 }, { grant_status: 'Closed Won' });
+    expect(values.activity_date).toBe('2026-03-11');
+    expect(values.award_amount).toBe(4000);
+  });
+
+  it('lets the route default win over the contact, because the STAGE is more current', async () => {
+    const { mergeFormValues } = await import('../sources/opportunityStage');
+    const values: Record<string, unknown> = { grant_status: 'Closed Won' };
+    mergeFormValues(values, { grant_status: 'Application Complete' }, { grant_status: 'Closed Won' });
+    expect(values.grant_status).toBe('Closed Won');
+  });
+
+  it('does not overwrite anything the stage already computed', async () => {
+    const { mergeFormValues } = await import('../sources/opportunityStage');
+    const values: Record<string, unknown> = { activity_name: 'Direct Grant – Acme' };
+    mergeFormValues(values, { activity_name: 'something else' }, null);
+    expect(values.activity_name).toBe('Direct Grant – Acme');
+  });
+
+  it('carries every other field through', async () => {
+    const { mergeFormValues } = await import('../sources/opportunityStage');
+    const values: Record<string, unknown> = {};
+    mergeFormValues(values, { expense_amount_item_1: 300, expense_category_item_3: 'inventory_supplies', grant_program: 'Gateway' }, null);
+    expect(values).toEqual({ expense_amount_item_1: 300, expense_category_item_3: 'inventory_supplies', grant_program: 'Gateway' });
+  });
+});

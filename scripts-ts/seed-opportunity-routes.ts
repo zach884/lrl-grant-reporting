@@ -53,9 +53,23 @@ const SEEDS: Seed[] = [
 
   // ---- Direct Grants — the grant's lifecycle, onto the activity the form fills in ----
   { stageId: '3bf7ecee-342b-48ab-a874-f300223a45a0', label: 'Direct Grant · Application Complete', activityType: 'grant', defaults: { grant_status: 'Application Complete' } },
-  { stageId: '0dfd181d-1270-4fb2-81e9-99606b8fa216', label: 'Direct Grant · Agreement Executed', activityType: 'grant', defaults: { grant_status: 'Agreement Executed' } },
+  // ⚠️ `copyFormFields` is set on TWO stages only, and which two is the whole decision.
+  //
+  // The pipeline gives a grant its record and its status; the FORM carries the ~44 detail fields,
+  // which live on the contact. `copyFormFields` tells the adapter to pull them at this stage.
+  //
+  //   Agreement Executed — the first moment the line items are FINAL rather than a proposal, so a
+  //     reason or an amount derived from them describes what was funded, not what was asked for.
+  //   Closed Won         — the last moment, which is what picks up an AMENDED agreement (Zach,
+  //     2026-09-03: "if the line items on the grant change due to an amended agreement I want the
+  //     grant activity to have the last version of the line items instead of the first").
+  //
+  // NOT on Application Complete: the numbers there are a request. NOT on Receipts Received: nothing
+  // about the agreement changes when receipts arrive, and a third copy buys nothing. Copying twice is
+  // safe because `upsertActivity` diffs — the second pass is a noop unless something really changed.
+  { stageId: '0dfd181d-1270-4fb2-81e9-99606b8fa216', label: 'Direct Grant · Agreement Executed', activityType: 'grant', defaults: { grant_status: 'Agreement Executed', copyFormFields: true } },
   { stageId: '29569048-1326-489b-b658-4b7bebeba54b', label: 'Direct Grant · Receipts Received', activityType: 'grant', defaults: { grant_status: 'Receipts Received' } },
-  { stageId: '37c0eae6-c3cd-4b2c-b5bb-7cf56248da0b', label: 'Direct Grant · Closed Won', activityType: 'grant', defaults: { grant_status: 'Closed Won' } },
+  { stageId: '37c0eae6-c3cd-4b2c-b5bb-7cf56248da0b', label: 'Direct Grant · Closed Won', activityType: 'grant', defaults: { grant_status: 'Closed Won', copyFormFields: true } },
 ];
 
 (async () => {
@@ -67,6 +81,7 @@ const SEEDS: Seed[] = [
     const extra = [
       s.program?.length ? `program=${s.program.join('+')}` : '',
       s.defaults?.grant_status ? `status="${s.defaults.grant_status}"` : '',
+      s.defaults?.copyFormFields ? 'copy-form-fields' : '',
       s.defaults?.impliesAcceptance ? 'implies-acceptance' : '',
     ].filter(Boolean).join(' ');
     console.log(`  ${s.label.padEnd(40)} → ${s.activityType.padEnd(19)} ${extra}`);

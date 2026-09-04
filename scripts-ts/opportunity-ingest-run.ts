@@ -36,6 +36,10 @@ const PIPELINES: Array<[string, string]> = [
   console.log(APPLY ? 'MODE: APPLY\n' : 'MODE: DRY RUN (pass --apply to write)\n');
   const tally: Record<string, number> = {};
   const bump = (k: string) => { tally[k] = (tally[k] ?? 0) + 1; };
+  /** field key → how many records would have it written. */
+  const fieldHits = new Map<string, number>();
+  /** declared key-mismatch aliases that fired (see FIELD_ALIASES). */
+  const aliasHits = new Map<string, number>();
   const noCompany: string[] = [];
   let approximate = 0;
 
@@ -47,11 +51,30 @@ const PIPELINES: Array<[string, string]> = [
       bump(r.status === 'ingested' ? (r.activity?.outcome ?? 'would-write') : `skip:${r.reason}`);
       if (r.approximateDate) approximate++;
       if (r.reason === 'no-company') noCompany.push(`  ${String(o.name ?? o.id).slice(0, 44)}`);
+      // WHICH fields an update would touch, not just how many updates. "would-update: 24" cannot be
+      // reviewed; a field histogram can — and this adapter now copies the form's detail fields at two
+      // stages, so knowing what it writes is the difference between a review and a rubber stamp.
+      for (const f of r.activity?.written ?? []) fieldHits.set(f, (fieldHits.get(f) ?? 0) + 1);
+      for (const a of r.aliases ?? []) {
+        const k = `${a.from} → ${a.to}`;
+        aliasHits.set(k, (aliasHits.get(k) ?? 0) + 1);
+      }
       await new Promise((res) => setTimeout(res, 320)); // >=0.3s, the 429 rule
     }
   }
 
   console.log('\nOUTCOMES:', JSON.stringify(tally, null, 1));
+  if (fieldHits.size) {
+    console.log('\nfields written, by how many records:');
+    for (const [f, n] of Array.from(fieldHits.entries()).sort((a, b) => b[1] - a[1]).slice(0, 25)) {
+      console.log(`   ${String(n).padStart(4)}  ${f}`);
+    }
+    if (fieldHits.size > 25) console.log(`   …and ${fieldHits.size - 25} more field(s)`);
+  }
+  if (aliasHits.size) {
+    console.log('\nALIASES FIRED (fields that do NOT key-match, carried by the declared table):');
+    for (const [k, n] of Array.from(aliasHits.entries()).sort((a, b) => b[1] - a[1])) console.log(`   ${String(n).padStart(4)}×  ${k}`);
+  }
   if (approximate) console.log(`\n⚠️  ${approximate} enrollment(s) dated APPROXIMATELY (inferred from a downstream stage).`);
   if (noCompany.length) {
     console.log(`\n⚠️  ${noCompany.length} skipped — contact has no company (businessId):`);

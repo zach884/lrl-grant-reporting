@@ -462,3 +462,97 @@ is now computable, but nothing currently exercises it.
 - 🙋 **`program_acceptance` very likely carries the same frozen ingest date** the grants did (84
   records, same adapter). Zach: *"same for program acceptance though we aren't focusing on that right
   now."*
+
+---
+
+## Applied — award fields filled, and the copy wired into the stage path (2026-09-04)
+
+Zach: *"If you have good data for award amount and award date then go ahead and fill them in."*
+So the fill VALIDATES first, and reports what it will not fill.
+
+### `award_amount` — 64/64, and it is a VOTE, not a lookup
+
+Three independent witnesses: `opportunity.monetaryValue` (operational), the contact's
+`score_total_grant_amount` (what the application produced), and the amount **LRL reported to the
+funder** on the spreadsheets.
+
+They disagree on **6 of 64** — and on **3 of those the opportunity is outvoted two-to-one**:
+
+| Grant | opportunity | contact | funder sheet | written |
+|---|---|---|---|---|
+| Kem Bushi | 5,000 | 4,000 | 4,000 | **4,000** ⚠️ overrode the opportunity |
+| Blue Entity | 5,800 | 4,002.29 | 4,002.29 | **4,002.29** ⚠️ |
+| Chaloner's Cigar House | 20,000 | 7,500 | 7,500 | **7,500** ⚠️ |
+| Joshua Palmer / Upstart | 20,031.28 | 20,031.28 | 20,000 | 20,031.28 |
+| Praveena / Cargility | 4,000 | 4,000 | 3,999.12 | 4,000 |
+| Jarsa & Company | 825 | 825 | **4,000** | 825 |
+
+Taking `monetaryValue` on faith — which is what the brief specified — would have written a wrong
+figure into a funder-reportable field on the first three, and it would have looked fine, because the
+field was empty before and *any* number beats nothing. So the value with the most agreeing witnesses
+wins, ties break toward the opportunity, and every disagreement is reported whether or not it changed
+the answer. **🙋 All six deserve a human look, especially Jarsa (825 vs a reported 4,000).**
+
+### `award_date` — 58/64, from the best available source per record
+
+Three sources, ranked by authority:
+
+| # | Source | Records |
+|---|---|---|
+| 1 | the funder spreadsheet's own grant date — the date LRL already **submitted** | **57** |
+| 2 | `lastStageChangeAt` for an opportunity still at Receive Receipts (= just left Execute Agreement) | **1** |
+| 3 | nothing — left **empty** | **6** |
+
+Nothing beats "the number we reported" for a compliance field, which is why source 1 outranks the
+opportunity's own timestamps. The 6 left empty are at Closed Won, where `lastStageChangeAt` is when
+receipts were accepted, weeks after the award, and GHL exposes no stage history to recover the real
+moment. **An empty col S is a declared gap; a plausible wrong award date is a compliance problem.**
+
+### The copy now runs from the OPPORTUNITY path — brief item 4, closed
+
+`copyFormFields` is a route default, set on exactly two Direct Grant stages:
+
+```
+Application Complete   —              (those numbers are a request, not an award)
+Agreement Executed     copy-form-fields    ← the first moment the line items are FINAL
+Receipts Received      —              (nothing about the agreement changes when receipts arrive)
+Closed Won             copy-form-fields    ← the last moment: this is what catches an AMENDMENT
+```
+
+Which stages are "final" stays **config**, not code. Copying twice is safe because `upsertActivity`
+diffs — the second pass is a noop unless something genuinely changed.
+
+Measured, applied: **24 updated, 123 noop**, and the field histogram is the review:
+
+```
+15 expense_amount_item_2 · 13 item_1 · 10 item_3 · … · 5 score_total_grant_amount
+ 4 grant_program · 4 expense_category_item_3
+ALIASES FIRED:  31×  expense_category_item3 → expense_category_item_3
+```
+
+🔴 **`activity_date` is ABSENT from that list, which is the proof the brief asked for.** A live dry run
+of the form path had shown it *would* write it — the drift that put a backfill's run date on 52 grant
+records. `mergeFormValues()` refuses it outright and `onlyIfAbsent` refuses it again, and four tests
+pin the behaviour rather than the intent.
+
+### ❌ program_acceptance does NOT need the date repair — I was wrong
+
+I said it *"almost certainly carries the same frozen ingest date the grants did."* Measured with the
+same script (`--type program_acceptance`):
+
+```
+72  noop — already the close date
+13  would change … and every one of them would make the data WORSE
+ 0  carrying the backfill run date          ← the premise of my claim, absent
+```
+
+The 13 are SAMA acceptances holding **real individual dates** — 2026-02-17, 02-19, 02-20 — that the
+repair would collapse to a single **2026-02-24**, the day someone batch-moved the whole cohort to
+Closed Won. That is the exact "plausible wrong date" this project treats as the worst failure, and it
+would have destroyed 13 genuine acceptance dates to fix a problem that does not exist.
+
+**Not applied.** The `--type program_acceptance` flag stays, because the dry run is the useful
+artifact: it is how we know the records are fine.
+
+The grants needed the repair because they were stamped `2026-08-20` by the first backfill. Program
+acceptance was ingested from live stage changes and never was.

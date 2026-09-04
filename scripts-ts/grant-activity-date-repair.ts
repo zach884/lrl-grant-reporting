@@ -17,8 +17,9 @@
 // (`lastStageChangeAt` is deliberately NOT used: it is the last STAGE move, which for the 36 records
 // at Closed Won is when receipts were accepted, and it disagrees with the close date on 34 of 64.)
 //
-//   npx vite-node scripts-ts/grant-activity-date-repair.ts            # dry run
+//   npx vite-node scripts-ts/grant-activity-date-repair.ts                                  # dry run, grants
 //   npx vite-node scripts-ts/grant-activity-date-repair.ts --apply
+//   npx vite-node scripts-ts/grant-activity-date-repair.ts --type program_acceptance [--apply]
 //
 // This is deliberately its OWN script and not folded into a field backfill: it rewrites a guarded
 // field on live records, so it gets its own dry run and its own approval.
@@ -27,6 +28,21 @@ import { join } from 'node:path';
 import { ghl } from '../lib/ghl/client';
 
 const APPLY = process.argv.includes('--apply');
+/**
+ * Which activity type to repair. Zach, 2026-09-03: *"If we can update Activity_date then we should use
+ * close date or status change date for the grant activities. Same for program acceptance though we
+ * aren't focusing on that right now."* Both types come from the SAME adapter and both were stamped
+ * with the backfill's run date, so they need the same repair — just not on the same day.
+ */
+const TYPE = (() => {
+  const i = process.argv.indexOf('--type');
+  const v = i >= 0 ? process.argv[i + 1] : 'grant';
+  if (v !== 'grant' && v !== 'program_acceptance') {
+    console.error(`--type must be grant or program_acceptance (got ${JSON.stringify(v)})`);
+    process.exit(1);
+  }
+  return v;
+})();
 // Local dev reads .env.local; in CI (GitHub Actions) the secrets arrive as real env vars and the
 // file does not exist — an unguarded readFileSync ENOENTs the whole run before it starts.
 function env(){
@@ -61,15 +77,18 @@ async function main(){
       body:{locationId:c.locationId,query:'',page,pageLimit:100,searchAfter:[],sort:[{field:'updatedAt',direction:'desc'}]}});
     const r=d.records??d.items??[]; acts.push(...r); if(r.length<100)break;
   }
-  const grants=acts.filter((a:any)=>String(a.properties?.activity_type)==='grant');
-  console.log(`grant activities: ${grants.length}`);
+  const grants=acts.filter((a:any)=>String(a.properties?.activity_type)===TYPE);
+  console.log(`${TYPE} activities: ${grants.length}`);
 
   const plan:any[]=[]; const tally:Record<string,number>={};
   const bump=(k:string)=>{tally[k]=(tally[k]??0)+1;};
 
   for(const a of grants){
+    // Both types are keyed `<opportunityId>:<suffix>` by sources/opportunityStage.ts, so take
+    // everything before the LAST colon rather than assuming the grant suffix.
     const key=String(a.properties?.source_record_id??'');
-    const oppId=key.endsWith(':grant')?key.slice(0,-':grant'.length):null;
+    const cut=key.lastIndexOf(':');
+    const oppId=cut>0?key.slice(0,cut):null;
     if(!oppId){ bump('skip:no-opportunity-in-source-key'); continue; }
     let opp:any=null;
     try{ const d:any=await c.request({path:`/opportunities/${oppId}`}); opp=d.opportunity??d; }catch{ bump('skip:opportunity-gone'); continue; }
@@ -111,7 +130,7 @@ async function main(){
       wrote+=1;
       await logChange({
         objectType:'custom_objects.activities', recordId:p.activityId, recordLabel:p.name,
-        actorKind:'sync', actorName:'grant-activity-date-repair',
+        actorKind:'sync', actorName:`${TYPE}-activity-date-repair`,
         action:'update',
         changes:[{field:'custom_objects.activities.activity_date',from:p.from,to:p.to,source:'Opportunity Stage'}],
         method:'opportunity.lastStatusChangeAt (close date)',
