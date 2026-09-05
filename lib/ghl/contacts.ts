@@ -43,6 +43,7 @@ function mapContact(c: any): Contact {
     postalCode: c.postalCode,
     country: c.country,
     website: c.website,
+    tags: Array.isArray(c.tags) ? c.tags.map((t: any) => String(t)) : undefined,
     customFields: c.customFields,
   };
 }
@@ -173,5 +174,27 @@ export async function setContactCustomFields(
     path: `/contacts/${contactId}`,
     autoLocation: false,
     body: { customFields: fields },
+  });
+}
+
+/**
+ * Add tags to a contact WITHOUT touching the ones already there.
+ *
+ * `POST /contacts/{id}/tags` is additive and idempotent — re-adding an existing tag is a no-op. The
+ * alternative (`PUT /contacts/{id} { tags }`) is a TOTAL OVERWRITE and would silently strip every
+ * other tag on the record, including `client`, which is the list the whole reporting sequence sends
+ * to. Never reach for the PUT here.
+ */
+export async function addContactTags(
+  contactId: string,
+  tags: string[],
+  client: GhlClient = ghl(),
+): Promise<void> {
+  if (!tags.length) return;
+  await client.request({
+    method: 'POST',
+    path: `/contacts/${contactId}/tags`,
+    autoLocation: false,
+    body: { tags },
   });
 }

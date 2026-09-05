@@ -285,5 +285,39 @@ function agree(prior: number | null | undefined, next: number | null | undefined
   }
   console.log(`Review CSV: reports/${tag}.csv`);
   console.log(`Full JSON:  reports/${tag}.json`);
+
+  // ── EXIT CODE ────────────────────────────────────────────────────────────────────────────────────
+  // This used to be an unconditional `process.exit(0)`, and that is how the scorer stayed GREEN for
+  // eight consecutive nights while 100% of its scoring calls were being rejected.
+  //
+  // Measured 2026-09-04, from Zach: *"business stage tracking isn't working… nobody has been scored
+  // since 8/27."* The ANTHROPIC_API_KEY secret in GitHub Actions had gone invalid on 8/28. Every
+  // company that became scoreable after that 401'd, the errors were counted into a tally rather than
+  // thrown, and the job exited 0. A nightly backstop that can fail on everything and still report
+  // success is not a backstop — it is a light that is wired to always be on.
+  //
+  // Three levels, cheapest signal first:
+  const authFailures = rows.filter((r) => /authentication_error|\b401\b|invalid x-api-key|API key is invalid/i.test(String(r.error ?? '')));
+  if (authFailures.length) {
+    // One 401 means every 401: a bad credential is systemic, not per-company. Name the secret, because
+    // the whole cost of this incident was the eight nights spent not knowing which knob was wrong.
+    console.error(
+      `\n❌ CREDENTIAL FAILURE — ${authFailures.length} compan(ies) were rejected with an authentication error.\n` +
+      `   This is not a data problem. The scoring model's API key is invalid where this ran.\n` +
+      `   Local runs read ANTHROPIC_API_KEY from .env.local; CI reads the repo secret of the same name.\n` +
+      `   Fix the key, then re-run. Nothing was scored, so a re-run is safe and idempotent.\n` +
+      `   First rejection: ${String(authFailures[0].name ?? authFailures[0].companyId)}`,
+    );
+    process.exit(1);
+  }
+  if (stats.error > 0 && stats.scored === 0) {
+    // Nothing succeeded and something failed. Whatever the cause, this is not a clean night.
+    console.error(`\n❌ ${stats.error} error(s) and NOTHING scored — failing so this is visible rather than green.`);
+    process.exit(1);
+  }
+  if (stats.error > 0) {
+    // Partial failure. Loud, but a run that scored most of its work is not a failed run.
+    console.error(`\n⚠️  ${stats.error} compan(ies) errored (${stats.scored} scored). See the CSV — the rationale column carries each error.`);
+  }
   process.exit(0);
 })().catch((e) => { console.error('STAGE SCORE RUN FAILED:', e?.stack ?? e); process.exit(2); });

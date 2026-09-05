@@ -99,5 +99,7 @@ export interface Contact {
   postalCode?: string;
   country?: string;
   website?: string;
+  /** GHL contact tags, lowercased by GHL. The reporting sequence sends to `client`. */
+  tags?: string[];
   customFields?: ContactCustomFieldValue[];
 }

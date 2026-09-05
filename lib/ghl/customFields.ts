@@ -203,3 +203,26 @@ export async function deleteObjectField(fieldId: string, client: GhlClient = ghl
 export async function deleteLocationField(fieldId: string, client: GhlClient = ghl()): Promise<void> {
   await client.request<any>({ method: 'DELETE', path: `/locations/${client.locationId}/customFields/${fieldId}`, autoLocation: false });
 }
+
+/** Create a LOCATION-model custom field (contact / opportunity) — the v1-style endpoint, distinct
+ *  from `createObjectField`'s v2 `/custom-fields/`. GHL derives the fieldKey from the name, so read
+ *  the catalog back and use the key GHL actually assigned rather than the one you expected. Returns
+ *  the created field as GHL reports it. */
+export async function createLocationField(
+  input: { model: 'contact' | 'opportunity'; name: string; dataType: string; placeholder?: string },
+  client: GhlClient = ghl(),
+): Promise<CustomFieldDef | null> {
+  const data = await client.request<any>({
+    method: 'POST',
+    path: `/locations/${client.locationId}/customFields`,
+    autoLocation: false,
+    body: {
+      name: input.name,
+      dataType: input.dataType,
+      model: input.model,
+      ...(input.placeholder ? { placeholder: input.placeholder } : {}),
+    },
+  });
+  const f = data.customField ?? data.field ?? data;
+  return f?.id ? normalizeField(f) : null;
+}
